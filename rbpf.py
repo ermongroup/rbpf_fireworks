@@ -1,19 +1,17 @@
 import numpy as np
+from fireworks.utilities.fw_utilities import explicit_serialize
+from fireworks.core.firework import FireTaskBase
+#from fireworks.core.firework import FiretaskBase
 from filterpy.kalman import KalmanFilter
 from filterpy.common import Q_discrete_white_noise
 from filterpy.monte_carlo import stratified_resample
 import filterpy
 
-import matplotlib
-matplotlib.use('Agg')
+#import matplotlib
+#matplotlib.use('Agg')
 #uncomment for plotting
 #import matplotlib.pyplot as plt
 
-#uncomment for using LSTM
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.layers import LSTM
-from sklearn.preprocessing import MinMaxScaler
 
 #import matplotlib.cm as cmx
 #import matplotlib.colors as colors
@@ -44,10 +42,10 @@ from learn_params1 import get_meas_target_sets_1sources_general
 import cProfile
 import time
 import os
-from run_experiment import DIRECTORY_OF_ALL_RESULTS
-from run_experiment import CUR_EXPERIMENT_BATCH_NAME
-from run_experiment import SEQUENCES_TO_PROCESS
-from run_experiment import get_description_of_run
+#from run_experiment import DIRECTORY_OF_ALL_RESULTS
+#from run_experiment import CUR_EXPERIMENT_BATCH_NAME
+#from run_experiment import SEQUENCES_TO_PROCESS
+#from run_experiment import get_description_of_run
 
 #from rbpf_ORIGINAL_sampling import sample_and_reweight
 #from rbpf_ORIGINAL_sampling import Parameters
@@ -57,9 +55,9 @@ from rbpf_sampling import sample_and_reweight
 from rbpf_sampling import Parameters
 
 
-from gen_data import gen_data
-from gen_data import NUM_GEN_FRAMES
-from gen_data import NOISE_SD
+#from gen_data import gen_data
+#from gen_data import NUM_GEN_FRAMES
+#from gen_data import NOISE_SD
 
 #MOTION options
 KF_MOTION = True
@@ -74,6 +72,14 @@ KNN_WINDOW = 5 #number of frames used to make KNN prediction
 #MIN_LSTM_Y_VAR = 5.0/2.0 #if the LSTM predicts y variance less than this value, set to this value
 #MIN_LSTM_X_VAR = .01 #if the LSTM predicts x variance less than this value, set to this value
 #MIN_LSTM_Y_VAR = .01 #if the LSTM predicts y variance less than this value, set to this value
+#uncomment for using LSTM
+if LSTM_MOTION:
+    from keras.models import Sequential
+    from keras.layers import Dense
+    from keras.layers import LSTM
+    from sklearn.preprocessing import MinMaxScaler
+
+
 
 DATA_PATH = "/atlas/u/jkuck/rbpf_target_tracking/KITTI_helpers/data"
 
@@ -86,34 +92,15 @@ PLOT_TARGET_LOCATIONS = False
 if USE_RANDOM_SEED:
     random.seed(5)
     np.random.seed(seed=5)
-    
-
-CHECK_K_NEAREST_TARGETS = True
-K_NEAREST_TARGETS = 1
 
 
-USE_LEARNED_KF_PARAMS = True
 USE_POISSON_DEATH_MODEL = False
 USE_CREATE_CHILD = True #speed up copying during resampling
-RUN_ONLINE = True #save online results 
-#near online mode wait this many frames before picking max weight particle 
-ONLINE_DELAY = 3
 #Write results of the particle with the largest importance
 #weight times current likelihood, double check doing this correctly
 FIND_MAX_IMPRT_TIMES_LIKELIHOOD = False 
 #if true only update a target with at most one measurement
 #(i.e. not regionlets and then lsvm)
-MAX_1_MEAS_UPDATE = True
-#if true, view measurements as jointly gaussian and update
-#target once per time stamp with combination of associated measurements
-UPDATE_MULT_MEAS_SIMUL = True
-if(MAX_1_MEAS_UPDATE):
-    UPDATE_MULT_MEAS_SIMUL = False
-#for debugging, zero out covariance between measurement sources when
-#UPDATE_MULT_MEAS_SIMUL=True, should be the same result as sequential updates
-TREAT_MEAS_INDEP = False
-#for debugging, actually do 2 sequential updates, but after all associations
-TREAT_MEAS_INDEP_2 = False
 
 RESAMPLE_RATIO = 4.0 #resample when get_eff_num_particles < N_PARTICLES/RESAMPLE_RATIO
 
@@ -124,115 +111,19 @@ DEBUG = False
 #line of the results file
 SAVE_EXTRA_INFO = True
 
-USE_PYTHON_GAUSSIAN = False #if False bug, using R_default instead of S, check USE_CONSTANT_R
+#(if False bug, using R_default instead of S, check SPEC['USE_CONSTANT_R']
+#I'm pretty sure this is actually FIXED, but check out some time)
 
+USE_PYTHON_GAUSSIAN = False 
 #default time between succesive measurement time instances (in seconds)
 default_time_step = .1 
-TIME_SCALED = False
 
-USE_CONSTANT_R = True
 #For testing why score interval for R are slow
 CACHED_LIKELIHOODS = 0
 NOT_CACHED_LIKELIHOODS = 0
 
 p_clutter_likelihood = 1.0/float(1242*375)
 p_birth_likelihood = 1.0/float(1242*375)
-##Kalman filter defaults
-if USE_LEARNED_KF_PARAMS:
-    P_default = np.array([[40.64558317, 0,           0, 0],
-                          [0,          10,           0, 0],
-                          [0,           0, 5.56278505, 0],
-                          [0,           0,           0, 3]])
-    
-#    R_default = np.array([[ 0.0,   0.0],
-#                          [ 0.0,   0.0]])
-    R_default = np.array([[ 0.01,   0.0],
-                          [ 0.0,   0.01]])    
-    
-    
-    #learned from all GT
-    Q_default = np.array([[  60.33442497,  102.95992102,   -5.50458177,   -0.22813535],
-                          [ 102.95992102,  179.84877761,  -13.37640528,   -9.70601621],
-                          [  -5.50458177,  -13.37640528,    4.56034398,    9.48945108],
-                          [  -0.22813535,   -9.70601621,    9.48945108,   22.32984314]])
-    
-    Q_default = 4*Q_default
-
-
-#####################replicate ORIG
-
-#Kalman filter defaults
-#P_default = np.array([[10, 0,           0, 0],
-#                      [0,          10,           0, 0],
-#                      [0,           0, 10, 0],
-#                      [0,           0,           0, 10]])
-
-#P_default = np.array([[0.0025, 0,           0, 0],
-#                      [0,          1,           0, 0],
-#                      [0,           0, 0.0025, 0],
-#                      [0,           0,           0, 1]])
-
-#P_default = np.array([[  2.49938134e-03,   2.47463499e-04,   3.06160611e-13,
-#         -1.22464245e-10],
-#       [  2.47463499e-04,   9.90101460e+00,  -1.22464245e-10,
-#          5.04898570e-06],
-#       [  3.06160611e-13,  -1.22464245e-10,   2.49938140e-03,
-#          2.47439006e-04],
-#       [ -1.22464245e-10,   5.04898570e-06,   2.47439006e-04,
-#          9.90202440e+00]])
-else:
-    if SCALED:
-        P_default = np.array([[(NOISE_SD*300)**2,      0,           0,  0],
-                              [0,          10*300**2,           0,  0],
-                              [0,           0,      (NOISE_SD*90)**2,  0],
-                              [0,           0,           0, 10*90**2]])
-
-        R_default = np.array([[ (NOISE_SD*300)**2,             0.0],
-                              [          0.0,   (NOISE_SD*90)**2]])
-        Q_default = np.array([[     (300**2)*0.00003333,    (300**2)*0.0050,         0,         0],
-                              [         (300**2)*0.0050,       (300**2)*1.0,         0,         0],
-                              [              0,         0,(90**2)*0.00003333,    (90**2)*0.0050],
-                              [              0,         0,    (90**2)*0.0050,    (90**2)*1.0000]])
-        Q_default = Q_default*10**(-3)
-        if TIME_SCALED:
-            Q_default = np.array([[     (300**2)*0.00003333,    (300**2)*0.0005,         0,         0],
-                                  [         (300**2)*0.0005,       (300**2)*.01,         0,         0],
-                                  [              0,         0,(90**2)*0.00003333,    (90**2)*0.0005],
-                                  [              0,         0,    (90**2)*0.0005,    (90**2)*.01]])    
-
-
-    else:
-        P_default = np.array([[(NOISE_SD)**2,    0,           0,  0],
-                              [0,          10,           0,  0],
-                              [0,           0,   (NOISE_SD)**2,  0],
-                              [0,           0,           0, 10]])
-
-        R_default = np.array([[ (NOISE_SD)**2,             0.0],
-                              [      0.0,   (NOISE_SD)**2]])
-        Q_default = np.array([[     0.00003333,    0.0050,         0,         0],
-                              [         0.0050,       1.0,         0,         0],
-                              [              0,         0,0.00003333,    0.0050],
-                              [              0,         0,    0.0050,    1.0000]])
-        Q_default = Q_default*10**(-3)
-
-        if TIME_SCALED:
-            Q_default = np.array([[     0.00003333,    0.0005,         0,         0],
-                                  [         0.0005,       .01,         0,         0],
-                                  [              0,         0,0.00003333,    0.0005],
-                                  [              0,         0,    0.0005,    .01]])  
-
-#learned from all GT
-#Q_default = np.array([[     0.0000,         0,    0.0050,         0],
-#                      [          0,    0.0000,         0,    0.0050],
-#                      [     0.0050,         0,    1.0000,         0],
-#                      [          0,    0.0050,         0,    1.0000]])
-
-
-
-
-
-#####################end replicate ORIG
-
 
 #measurement function matrix
 H = np.array([[1.0,  0.0, 0.0, 0.0],
@@ -243,9 +134,6 @@ alpha_death = 2.0
 #beta_death = 0.5
 beta_death = 1.0
 theta_death = 1.0/beta_death
-
-print Q_default
-print R_default
 
 #for only displaying targets older than this
 min_target_age = .2
@@ -307,7 +195,7 @@ class Target:
 #       else:
         assert(measurement != None)
         self.x = np.array([[measurement[0]], [0], [measurement[1]], [0]])
-        self.P = P_default
+        self.P = SPEC['P']
 
         self.width = width
         self.height = height
@@ -330,7 +218,7 @@ class Target:
 
         self.updated_this_time_instance = True
 
-        #used when UPDATE_MULT_MEAS_SIMUL = True
+        #used when SPEC['UPDATE_MULT_MEAS_SIMUL'] = True
         self.associated_measurements = []
 
     def near_border(self):
@@ -356,8 +244,8 @@ class Target:
 
 !!!!!!!!!PREDICTION HAS BEEN RUN AT THE BEGINNING OF TIME STEP FOR EVERY TARGET!!!!!!!!!
         """
-        if USE_CONSTANT_R:
-            S = np.dot(np.dot(H, self.P), H.T) + R_default
+        if SPEC['USE_CONSTANT_R']:
+            S = np.dot(np.dot(H, self.P), H.T) + SPEC['R']
         else:
             S = np.dot(np.dot(H, self.P), H.T) + meas_noise_cov
         K = np.dot(np.dot(self.P, H.T), inv(S))
@@ -368,11 +256,11 @@ class Target:
         return (updated_x, updated_P)
 
     def update_2meas_simul(self):
-        assert(UPDATE_MULT_MEAS_SIMUL and KF_MOTION)
+        assert(SPEC['UPDATE_MULT_MEAS_SIMUL'] and KF_MOTION)
         assert(len(self.associated_measurements) == 2)
         assert(self.associated_measurements[0]['cur_time'] == self.associated_measurements[1]['cur_time'])
 
-        if TREAT_MEAS_INDEP_2:
+        if SPEC['TREAT_MEAS_INDEP_2']:
             reformat_meas1 = np.array([[self.associated_measurements[0]['meas_loc'][0]],
                                       [self.associated_measurements[0]['meas_loc'][1]]])            
             (self.x, self.P) = self.kf_update(reformat_meas1, JOINT_MEAS_NOISE_COV[0:2, 0:2])
@@ -382,7 +270,7 @@ class Target:
             (self.x, self.P) = self.kf_update(reformat_meas2, JOINT_MEAS_NOISE_COV[2:4, 2:4])
 
         else:    
-            if TREAT_MEAS_INDEP:
+            if SPEC['TREAT_MEAS_INDEP']:
                 JOINT_MEAS_NOISE_COV[0:2, 2:4] = np.array([[0,0],[0,0]])
                 JOINT_MEAS_NOISE_COV[2:4, 0:2] = np.array([[0,0],[0,0]])
 
@@ -499,7 +387,7 @@ class Target:
                       [0.0, 0.0, 1.0,  dt],
                       [0.0, 0.0, 0.0, 1.0]])
         x_predict = np.dot(F, self.x)
-        P_predict = np.dot(np.dot(F, self.P), F.T) + Q_default
+        P_predict = np.dot(np.dot(F, self.P), F.T) + SPEC['Q']
         return (x_predict, P_predict)
 
 
@@ -764,7 +652,7 @@ class TargetSet:
 
         self.parent_target_set = None 
 
-        self.living_targets_q = deque([-1 for i in range(ONLINE_DELAY)])
+        self.living_targets_q = deque([-1 for i in range(SPEC['ONLINE_DELAY'])])
 
     def create_child(self):
         child_target_set = TargetSet()
@@ -778,7 +666,7 @@ class TargetSet:
         return child_target_set
 
     def create_new_target(self, measurement, width, height, cur_time):
-        if RUN_ONLINE:
+        if SPEC['RUN_ONLINE']:
             global NEXT_TARGET_ID
             new_target = Target(cur_time, NEXT_TARGET_ID, np.squeeze(measurement), width, height)
             NEXT_TARGET_ID += 1
@@ -865,12 +753,12 @@ class TargetSet:
             particle (key 'first_time_as_max_imprt_part')
 
         """
-        if frame_idx == ONLINE_DELAY:
+        if frame_idx == SPEC['ONLINE_DELAY']:
             f = open(online_results_filename, "w") #write over old results if first frame
         else:
             f = open(online_results_filename, "a") #write at end of file
 
-        if ONLINE_DELAY == 0:
+        if SPEC['ONLINE_DELAY'] == 0:
             for target in self.living_targets:
                 assert(target.all_time_stamps[-1] == round(frame_idx*default_time_step, 2))
                 x_pos = target.all_states[-1][0][0][0]
@@ -895,9 +783,9 @@ class TargetSet:
             (delayed_frame_idx, delayed_liv_targets) = self.living_targets_q[0]
             print delayed_frame_idx
             print delayed_liv_targets
-            assert(delayed_frame_idx == frame_idx - ONLINE_DELAY), (delayed_frame_idx, frame_idx, ONLINE_DELAY)
+            assert(delayed_frame_idx == frame_idx - SPEC['ONLINE_DELAY']), (delayed_frame_idx, frame_idx, SPEC['ONLINE_DELAY'])
             for target in delayed_liv_targets:
-                assert(target.all_time_stamps[-1] == round((frame_idx - ONLINE_DELAY)*default_time_step, 2)), (target.all_time_stamps[-1], frame_idx, ONLINE_DELAY, round((frame_idx - ONLINE_DELAY)*default_time_step, 2))
+                assert(target.all_time_stamps[-1] == round((frame_idx - SPEC['ONLINE_DELAY'])*default_time_step, 2)), (target.all_time_stamps[-1], frame_idx, SPEC['ONLINE_DELAY'], round((frame_idx - SPEC['ONLINE_DELAY'])*default_time_step, 2))
                 x_pos = target.all_states[-1][0][0][0]
                 y_pos = target.all_states[-1][0][2][0]
                 width = target.all_states[-1][1]
@@ -909,24 +797,24 @@ class TargetSet:
                 bottom = y_pos + height/2.0      
                 if SAVE_EXTRA_INFO:
                     f.write( "%d %d Car -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                        (frame_idx - ONLINE_DELAY, target.id_, left, top, right, bottom, extra_info['importance_weight'], \
+                        (frame_idx - SPEC['ONLINE_DELAY'], target.id_, left, top, right, bottom, extra_info['importance_weight'], \
                         extra_info['first_time_as_max_imprt_part'], self.living_count))
                 else:
                     f.write( "%d %d Car -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
-                        (frame_idx - ONLINE_DELAY, target.id_, left, top, right, bottom))
+                        (frame_idx - SPEC['ONLINE_DELAY'], target.id_, left, top, right, bottom))
 
             if frame_idx == total_frame_count - 1:
                 q_idx = 1
-                for cur_frame_idx in range(frame_idx - ONLINE_DELAY + 1, total_frame_count - 1):
+                for cur_frame_idx in range(frame_idx - SPEC['ONLINE_DELAY'] + 1, total_frame_count - 1):
                     print '-'*20
                     print cur_frame_idx
-                    print frame_idx - ONLINE_DELAY + 1
+                    print frame_idx - SPEC['ONLINE_DELAY'] + 1
                     print total_frame_count
                     print q_idx
                     print len(self.living_targets_q)
                     (delayed_frame_idx, delayed_liv_targets) = self.living_targets_q[q_idx]
                     q_idx+=1
-                    assert(delayed_frame_idx == cur_frame_idx), (delayed_frame_idx, cur_frame_idx, ONLINE_DELAY)
+                    assert(delayed_frame_idx == cur_frame_idx), (delayed_frame_idx, cur_frame_idx, SPEC['ONLINE_DELAY'])
                     for target in delayed_liv_targets:
                         assert(target.all_time_stamps[-1] == round((cur_frame_idx)*default_time_step, 2))
                         x_pos = target.all_states[-1][0][0][0]
@@ -1112,7 +1000,7 @@ class Particle:
                 assert(meas_source_index >= 0 and meas_source_index < len(SCORE_INTERVALS)), (meas_source_index, len(SCORE_INTERVALS), SCORE_INTERVALS)
                 assert(meas_index >= 0 and meas_index < len(measurement_scores)), (meas_index, len(measurement_scores), measurement_scores)
                 #store measurement association for update after all measurements have been associated
-                if UPDATE_MULT_MEAS_SIMUL:
+                if SPEC['UPDATE_MULT_MEAS_SIMUL']:
                     score_index = get_score_index(SCORE_INTERVALS[meas_source_index], measurement_scores[meas_index])
                     cur_meas = {'meas_loc': measurements[meas_index], 'width': widths[meas_index], \
                                 'height': heights[meas_index], 'cur_time': cur_time,
@@ -1120,7 +1008,7 @@ class Particle:
                     self.targets.living_targets[meas_assoc].associated_measurements.append(cur_meas)
                 #update the target corresponding to the association we have sampled right now, unless already updated
                 #and we only allow a max of 1 update
-                elif not (MAX_1_MEAS_UPDATE and self.targets.living_targets[meas_assoc].updated_this_time_instance):
+                elif not (SPEC['MAX_1_MEAS_UPDATE'] and self.targets.living_targets[meas_assoc].updated_this_time_instance):
                     score_index = get_score_index(SCORE_INTERVALS[meas_source_index], measurement_scores[meas_index])
                     self.targets.living_targets[meas_assoc].update(measurements[meas_index], widths[meas_index], \
                                     heights[meas_index], cur_time, MEAS_NOISE_COVS[meas_source_index][score_index])
@@ -1130,7 +1018,7 @@ class Particle:
 
     def update_mult_meas_simultaneously(self):
         """
-        If UPDATE_MULT_MEAS_SIMUL = True, run this after associating all measurements to update all targets
+        If SPEC['UPDATE_MULT_MEAS_SIMUL'] = True, run this after associating all measurements to update all targets
         """
         for target in self.targets.living_targets:
             if len(target.associated_measurements) == 1:
@@ -1181,7 +1069,7 @@ class Particle:
             self.process_meas_assoc(birth_value, meas_source_index, measurement_associations[meas_source_index], \
                 measurement_lists[meas_source_index], widths[meas_source_index], heights[meas_source_index], \
                 measurement_scores[meas_source_index], cur_time)
-        if UPDATE_MULT_MEAS_SIMUL:
+        if SPEC['UPDATE_MULT_MEAS_SIMUL']:
             self.update_mult_meas_simultaneously()
 
         #process target deaths
@@ -1379,8 +1267,8 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
 
 
 
-        if RUN_ONLINE:
-            if time_instance_index >= ONLINE_DELAY:
+        if SPEC['RUN_ONLINE']:
+            if time_instance_index >= SPEC['ONLINE_DELAY']:
                 #find the particle that currently has the largest importance weight
 
                 if FIND_MAX_IMPRT_TIMES_LIKELIHOOD:
@@ -1411,7 +1299,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
 
 
             if prv_max_weight_particle != None and prv_max_weight_particle != cur_max_weight_particle:
-                if ONLINE_DELAY == 0:
+                if SPEC['ONLINE_DELAY'] == 0:
                     (target_associations, duplicate_ids) = match_target_ids(cur_max_weight_target_set.living_targets,\
                                                            prv_max_weight_particle.targets.living_targets)
                     #replace associated target IDs with the IDs from the previous maximum importance weight
@@ -1419,12 +1307,12 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                     for cur_target in cur_max_weight_target_set.living_targets:
                         if cur_target.id_ in target_associations:
                             cur_target.id_ = target_associations[cur_target.id_]
-                elif time_instance_index >= ONLINE_DELAY:
+                elif time_instance_index >= SPEC['ONLINE_DELAY']:
                     (target_associations, duplicate_ids) = match_target_ids(cur_max_weight_target_set.living_targets_q[0][1],\
                                                            prv_max_weight_particle.targets.living_targets_q[0][1])
                     #replace associated target IDs with the IDs from the previous maximum importance weight
                     #particle for ID conistency in the online results we output
-                    for q_idx in range(ONLINE_DELAY):
+                    for q_idx in range(SPEC['ONLINE_DELAY']):
                         for cur_target in cur_max_weight_target_set.living_targets_q[q_idx][1]:
                             if cur_target.id_ in duplicate_ids:
                                 cur_target.id_ = duplicate_ids[cur_target.id_]
@@ -1439,17 +1327,17 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
 
 
             #write current time step's results to results file
-            if time_instance_index >= ONLINE_DELAY:
+            if time_instance_index >= SPEC['ONLINE_DELAY']:
                 extra_info = {'importance_weight': max_imprt_weight,
                           'first_time_as_max_imprt_part': prv_max_weight_particle != cur_max_weight_particle}
                 cur_max_weight_target_set.write_online_results(online_results_filename, time_instance_index, number_time_instances,
                                             extra_info)
 
-            if time_instance_index >= ONLINE_DELAY:
+            if time_instance_index >= SPEC['ONLINE_DELAY']:
                 prv_max_weight_particle = cur_max_weight_particle
 
 
-            if ONLINE_DELAY != 0:
+            if SPEC['ONLINE_DELAY'] != 0:
                 print "popped on time_instance_index", time_instance_index
                 for particle in particle_set:
                     particle.targets.living_targets_q.popleft()
@@ -1692,247 +1580,248 @@ def match_target_ids(particle1_targets, particle2_targets):
 
     return (associations, duplicate_ids)
 
+@explicit_serialize
+class RunRBPF(FireTaskBase):   
+ #   _fw_name = "Run RBPF Task"
+    def run_task(self, fw_spec):
+        global NEXT_PARTICLE_ID
+        global NEXT_TARGET_ID
+        global N_PARTICLES
 
-#class RunRBPF(FiretaskBase):
-#    
-#    _fw_name = "Run RBPF Task"
-#
-#    def run_task(self, fw_spec):
-#def run_rbpf(fw_spec):
-#    global NEXT_PARTICLE_ID
-#    global NEXT_TARGET_ID
-#    global N_PARTICLES
-#    NEXT_PARTICLE_ID = 0
-#    if RUN_ONLINE:
-#        NEXT_TARGET_ID = 0 #all targets have unique IDs, even if they are in different particles
-#
-#    #Get run parameters from the firework spec
-#    N_PARTICLES = fw_spec['num_particles']
-#    run_idx = fw_spec['run_idx'] #the index of this run
-#    seq_idx = fw_spec['seq_idx'] #the index of the sequence to process
-#    #Should ignored ground truth objects be included when calculating probabilities? (double check specifics)
-#    include_ignored_gt = fw_spec['include_ignored_gt']
-#    include_dontcare_in_gt = fw_spec['include_dontcare_in_gt']
-#    use_regionlets = fw_spec['use_regionlets']
-#    det1_name = fw_spec['det1_name']
-#    det2_name = fw_spec['det2_name']
-#    if(det2_name == 'None'):
-#        det2_name = None
-#    sort_dets_on_intervals = fw_spec['sort_dets_on_intervals']
+        #allow the firework spec to be accessed globally
+        global SPEC
+        SPEC = fw_spec
 
-def run_rbpf(num_particles,run_idx,seq_idx,include_ignored_gt,include_dontcare_in_gt,
-            use_regionlets,det1_name,det2_name,sort_dets_on_intervals):
-    global NEXT_PARTICLE_ID
-    global NEXT_TARGET_ID
-    global N_PARTICLES
+        SPEC['P'] = np.array(SPEC['P'])
+        SPEC['R'] = np.array(SPEC['R'])
+        SPEC['Q'] = np.array(SPEC['Q'])
 
- 
-    #Better practice to make these NOT global
-    global SCORE_INTERVALS
-    global MEAS_NOISE_COVS
-    global BORDER_DEATH_PROBABILITIES
-    global NOT_BORDER_DEATH_PROBABILITIES
-    global JOINT_MEAS_NOISE_COV
+        #Better practice to make these NOT global
+        global SCORE_INTERVALS
+        global MEAS_NOISE_COVS
+        global BORDER_DEATH_PROBABILITIES
+        global NOT_BORDER_DEATH_PROBABILITIES
+        global JOINT_MEAS_NOISE_COV
 
-
-    NEXT_PARTICLE_ID = 0
-    if RUN_ONLINE:
-        NEXT_TARGET_ID = 0 #all targets have unique IDs, even if they are in different particles
-    #Get run parameters from the firework spec
-    N_PARTICLES = num_particles
-    run_idx = run_idx #the index of this run
-    seq_idx = seq_idx #the index of the sequence to process
-    #Should ignored ground truth objects be included when calculating probabilities? (double check specifics)
-    include_ignored_gt = include_ignored_gt
-    include_dontcare_in_gt = include_dontcare_in_gt
-    use_regionlets = use_regionlets
-    det1_name = det1_name
-    det2_name = det2_name
-    if(det2_name == 'None'):
-        det2_name = None
-    sort_dets_on_intervals = sort_dets_on_intervals
-
-
-    #########################
-    # LSTM initialization
-    model = Sequential()
-    model.add(LSTM(32, input_shape=(3,2)))
-    model.add(Dense(2))
-    model.compile(loss='mean_squared_error', optimizer='adam')
-    model.load_weights('/atlas/u/daniter/models/cv-mu-weights%d.h5' % seq_idx)
-
-    varmodel = Sequential()
-    varmodel.add(LSTM(32, input_shape=(4,2)))
-    varmodel.add(Dense(2))
-    varmodel.compile(loss='mean_squared_error', optimizer='adam')
-    varmodel.load_weights('/atlas/u/daniter/models/cv-cov-weights%d.h5' % seq_idx)
-    scaler = None
-    varscaler = None
-    with open('/atlas/u/daniter/models/varscaler.pickle', 'r') as handle:
-      varscaler = pickle.load(handle)
-    with open('/atlas/u/daniter/models/scaler.pickle', 'r') as handle:
-      scaler = pickle.load(handle)
-    #########################
-
-    DESCRIPTION_OF_RUN = get_description_of_run(include_ignored_gt, include_dontcare_in_gt, 
-                            sort_dets_on_intervals, use_regionlets, det1_name, det2_name)
-
-    results_folder_name = '%s/%d_particles' % (DESCRIPTION_OF_RUN, N_PARTICLES)
-#   results_folder = '%s/rbpf_KITTI_results_par_exec_trainAllButCurSeq_10runs_dup3/%s' % (DIRECTORY_OF_ALL_RESULTS, results_folder_name)
-    results_folder = '%s/%s/%s' % (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name)
-
-    filename_mapping = DATA_PATH + "/evaluate_tracking.seqmap"
-    n_frames         = []
-    sequence_name    = []
-    with open(filename_mapping, "r") as fh:
-        for i,l in enumerate(fh):
-            fields = l.split(" ")
-            sequence_name.append("%04d" % int(fields[0]))
-            n_frames.append(int(fields[3]) - int(fields[2]))
-    fh.close() 
-    print n_frames
-    print sequence_name     
-    assert(len(n_frames) == len(sequence_name))
-
-    print 'begin run'
-#debug
-    indicate_run_started_filename = '%s/results_by_run/run_%d/seq_%d_started.txt' % (results_folder, run_idx, seq_idx)
-    run_started_f = open(indicate_run_started_filename, 'w')
-    run_started_f.write("This run was started\n")
-    run_started_f.close()
-#end debug
-
-
-    indicate_run_complete_filename = '%s/results_by_run/run_%d/seq_%d_done.txt' % (results_folder, run_idx, seq_idx)
-    #if we haven't already run, run now:
-    if not os.path.isfile(indicate_run_complete_filename):
-
-
-        #False doesn't really make sense because when actually running without ground truth information we don't know
-        #whether or not a detection is ignored, but debugging. (An ignored detection is a detection not associated with
-        #a ground truth object that would be associated with a don't care ground truth object if they were included.  It 
-        #can also be a neighobring object type, e.g. "van" instead of "car", but this never seems to occur in the data.
-        #If this occured, it would make sense to try excluding these detections.)
-        include_ignored_detections = True 
-
-        if sort_dets_on_intervals:
-            score_interval_dict = {\
-                'mscnn' : [float(i)*.1 for i in range(3,10)],              
-                'regionlets' : [i for i in range(2, 20)],
-                '3dop' : [float(i)*.1 for i in range(2,10)],            
-                'mono3d' : [float(i)*.1 for i in range(2,10)],            
-                'mv3d' : [float(i)*.1 for i in range(2,10)]}        
-#            'regionlets' = [i for i in range(2, 16)]
-        else:
-            score_interval_dict = {\
-#            'mscnn' = [.5],                                
-            'mscnn' : [.3],                                
-            'regionlets' : [2],
-            '3dop' : [.2],
-            'mono3d' : [.2],
-            'mv3d' : [.2]}
-
-        #train on all training sequences, except the current sequence we are testing on
-        training_sequences = [i for i in [i for i in range(21)] if i != seq_idx]
-
-        det1_score_intervals = score_interval_dict[det1_name]
-        if det2_name:
-            det2_score_intervals = score_interval_dict[det2_name]
-            SCORE_INTERVALS = [det1_score_intervals, det2_score_intervals]
-            (measurementTargetSetsBySequence, TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES, BIRTH_PROBABILITIES,\
-                MEAS_NOISE_COVS, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES, JOINT_MEAS_NOISE_COV) = \
-                    get_meas_target_sets_2sources_general(training_sequences, det1_score_intervals, \
-                    det2_score_intervals, det1_name, det2_name, obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
-                    include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
-                    include_ignored_detections = include_ignored_detections)
-
-        else:
-            SCORE_INTERVALS = [det1_score_intervals]
-            (measurementTargetSetsBySequence, TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES, BIRTH_PROBABILITIES,\
-                MEAS_NOISE_COVS, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES) = \
-                    get_meas_target_sets_1sources_general(training_sequences, det1_score_intervals, \
-                    det1_name, obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
-                    include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
-                    include_ignored_detections = include_ignored_detections)            
-
-
-
-        params = Parameters(TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES,\
-                 BIRTH_PROBABILITIES, MEAS_NOISE_COVS, R_default, H,\
-                 USE_PYTHON_GAUSSIAN, USE_CONSTANT_R, SCORE_INTERVALS,\
-                 p_birth_likelihood, p_clutter_likelihood, CHECK_K_NEAREST_TARGETS,
-                 K_NEAREST_TARGETS)
-
-        assert(len(n_frames) == len(measurementTargetSetsBySequence))
-
-        t0 = time.time()
-        info_by_run = [] #list of info from each run
-        cur_run_info = None
-    ################    for seq_idx in SEQUENCES_TO_PROCESS:
-        results_filename = '%s/results_by_run/run_%d/%s.txt' % (results_folder, run_idx, sequence_name[seq_idx])
-        plot_filename = '%s/results_by_run/run_%d/%s_plot.png' % (results_folder, run_idx, sequence_name[seq_idx])
-        measurements_filename = '%s/results_by_run/run_%d/%s_measurements_plot.png' % (results_folder, run_idx, sequence_name[seq_idx])
-
-
-        print "Processing sequence: ", seq_idx
-        tA = time.time()
-        if USE_GENERATED_DATA:
-            meas_target_set = gen_data(measurements_filename)
-            if PROFILE: 
-                cProfile.run('run_rbpf_on_targetset([meas_target_set], results_filename, params)')
-            else:
-                (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset([meas_target_set], results_filename, params)
-        else:       
-            if PROFILE:
-                cProfile.run('run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)')
-            else:
-                (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)
-        print "done processing sequence: ", seq_idx
-        
-        tB = time.time()
-        this_seq_run_time = tB - tA
-        cur_seq_info.append(this_seq_run_time)
-        if cur_run_info == None:
-            cur_run_info = cur_seq_info
-        else:
-            assert(len(cur_run_info) == len(cur_seq_info))
-            for info_idx in len(cur_run_info):
-                #assuming for now info can be summed over each sequence in a run!
-                #works for runtime and number of times resampling is performed
-                cur_run_info[info_idx] += cur_seq_info[info_idx]
-
-        print "about to write results"
-
-        if not RUN_ONLINE:
-            estimated_ts.write_targets_to_KITTI_format(num_frames = n_frames[seq_idx], results_filename = results_filename,\
-                                                       plot_filename = plot_filename)
-        print "done write results"
-        print "running the rbpf took %f seconds" % (tB-tA)
-    ################END for seq_idx in SEQUENCES_TO_PROCESS:
-        
-        info_by_run.append(cur_run_info)
-        t1 = time.time()
-
-        stdout = sys.stdout
-        sys.stdout = open(indicate_run_complete_filename, 'w')
-
-        print "This run is finished (and this file indicates the fact)\n"
-        print "Resampling was performed %d times\n" % number_resamplings
-        print "This run took %f seconds\n" % (t1-t0)
-
-        print "TARGET_EMISSION_PROBS=", TARGET_EMISSION_PROBS
-        print "CLUTTER_PROBABILITIES=", CLUTTER_PROBABILITIES
-        print "BIRTH_PROBABILITIES=", BIRTH_PROBABILITIES
-        print "MEAS_NOISE_COVS=", MEAS_NOISE_COVS
-        print "BORDER_DEATH_PROBABILITIES=", BORDER_DEATH_PROBABILITIES
-        print "NOT_BORDER_DEATH_PROBABILITIES=", NOT_BORDER_DEATH_PROBABILITIES
-
-
-        sys.stdout.close()
-        sys.stdout = stdout
-
-
-    print 'end run'
-
-
+        NEXT_PARTICLE_ID = 0
+        if SPEC['RUN_ONLINE']:
+            NEXT_TARGET_ID = 0 #all targets have unique IDs, even if they are in different particles
     
+        #Get run parameters from the firework spec
+        N_PARTICLES = fw_spec['num_particles']
+        run_idx = fw_spec['run_idx'] #the index of this run
+        seq_idx = fw_spec['seq_idx'] #the index of the sequence to process
+        #Should ignored ground truth objects be included when calculating probabilities? (double check specifics)
+        include_ignored_gt = fw_spec['include_ignored_gt']
+        include_dontcare_in_gt = fw_spec['include_dontcare_in_gt']
+        det1_name = fw_spec['det1_name']
+        det2_name = fw_spec['det2_name']
+        if(det2_name == 'None'):
+            det2_name = None
+        sort_dets_on_intervals = fw_spec['sort_dets_on_intervals']
+        results_folder = fw_spec['results_folder']
+####def run_rbpf(num_particles,run_idx,seq_idx,include_ignored_gt,include_dontcare_in_gt,
+####            use_regionlets,det1_name,det2_name,sort_dets_on_intervals):
+####    global NEXT_PARTICLE_ID
+####    global NEXT_TARGET_ID
+####    global N_PARTICLES
+####
+#### 
+####    #Better practice to make these NOT global
+####    global SCORE_INTERVALS
+####    global MEAS_NOISE_COVS
+####    global BORDER_DEATH_PROBABILITIES
+####    global NOT_BORDER_DEATH_PROBABILITIES
+####    global JOINT_MEAS_NOISE_COV
+####        NEXT_PARTICLE_ID = 0
+####        if SPEC['RUN_ONLINE']:
+####            NEXT_TARGET_ID = 0 #all targets have unique IDs, even if they are in different particles
+####        #Get run parameters from the firework spec
+####        N_PARTICLES = num_particles
+####        run_idx = run_idx #the index of this run
+####        seq_idx = seq_idx #the index of the sequence to process
+####        #Should ignored ground truth objects be included when calculating probabilities? (double check specifics)
+####        include_ignored_gt = include_ignored_gt
+####        include_dontcare_in_gt = include_dontcare_in_gt
+####        use_regionlets = use_regionlets
+####        det1_name = det1_name
+####        det2_name = det2_name
+####        if(det2_name == 'None'):
+####            det2_name = None
+####        sort_dets_on_intervals = sort_dets_on_intervals
+
+
+        #########################
+        if LSTM_MOTION:
+            # LSTM initialization
+            model = Sequential()
+            model.add(LSTM(32, input_shape=(3,2)))
+            model.add(Dense(2))
+            model.compile(loss='mean_squared_error', optimizer='adam')
+            model.load_weights('/atlas/u/daniter/models/cv-mu-weights%d.h5' % seq_idx)
+
+            varmodel = Sequential()
+            varmodel.add(LSTM(32, input_shape=(4,2)))
+            varmodel.add(Dense(2))
+            varmodel.compile(loss='mean_squared_error', optimizer='adam')
+            varmodel.load_weights('/atlas/u/daniter/models/cv-cov-weights%d.h5' % seq_idx)
+            scaler = None
+            varscaler = None
+            with open('/atlas/u/daniter/models/varscaler.pickle', 'r') as handle:
+              varscaler = pickle.load(handle)
+            with open('/atlas/u/daniter/models/scaler.pickle', 'r') as handle:
+              scaler = pickle.load(handle)
+        #########################
+
+        filename_mapping = DATA_PATH + "/evaluate_tracking.seqmap"
+        n_frames         = []
+        sequence_name    = []
+        with open(filename_mapping, "r") as fh:
+            for i,l in enumerate(fh):
+                fields = l.split(" ")
+                sequence_name.append("%04d" % int(fields[0]))
+                n_frames.append(int(fields[3]) - int(fields[2]))
+        fh.close() 
+        print n_frames
+        print sequence_name     
+        assert(len(n_frames) == len(sequence_name))
+
+        print 'begin run'
+    #debug
+        indicate_run_started_filename = '%s/results_by_run/run_%d/seq_%d_started.txt' % (results_folder, run_idx, seq_idx)
+        run_started_f = open(indicate_run_started_filename, 'w')
+        run_started_f.write("This run was started\n")
+        run_started_f.close()
+    #end debug
+
+
+        indicate_run_complete_filename = '%s/results_by_run/run_%d/seq_%d_done.txt' % (results_folder, run_idx, seq_idx)
+        #if we haven't already run, run now:
+        if not os.path.isfile(indicate_run_complete_filename):
+
+
+            #False doesn't really make sense because when actually running without ground truth information we don't know
+            #whether or not a detection is ignored, but debugging. (An ignored detection is a detection not associated with
+            #a ground truth object that would be associated with a don't care ground truth object if they were included.  It 
+            #can also be a neighobring object type, e.g. "van" instead of "car", but this never seems to occur in the data.
+            #If this occured, it would make sense to try excluding these detections.)
+            include_ignored_detections = True 
+
+            if sort_dets_on_intervals:
+                score_interval_dict = {\
+                    'mscnn' : [float(i)*.1 for i in range(3,10)],              
+                    'regionlets' : [i for i in range(2, 20)],
+                    '3dop' : [float(i)*.1 for i in range(2,10)],            
+                    'mono3d' : [float(i)*.1 for i in range(2,10)],            
+                    'mv3d' : [float(i)*.1 for i in range(2,10)]}        
+    #            'regionlets' = [i for i in range(2, 16)]
+            else:
+                score_interval_dict = {\
+    #            'mscnn' = [.5],                                
+                'mscnn' : [.3],                                
+                'regionlets' : [2],
+                '3dop' : [.2],
+                'mono3d' : [.2],
+                'mv3d' : [.2]}
+
+            #train on all training sequences, except the current sequence we are testing on
+            training_sequences = [i for i in [i for i in range(21)] if i != seq_idx]
+
+            det1_score_intervals = score_interval_dict[det1_name]
+            if det2_name:
+                det2_score_intervals = score_interval_dict[det2_name]
+                SCORE_INTERVALS = [det1_score_intervals, det2_score_intervals]
+                (measurementTargetSetsBySequence, TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES, BIRTH_PROBABILITIES,\
+                    MEAS_NOISE_COVS, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES, JOINT_MEAS_NOISE_COV) = \
+                        get_meas_target_sets_2sources_general(training_sequences, det1_score_intervals, \
+                        det2_score_intervals, det1_name, det2_name, obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
+                        include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
+                        include_ignored_detections = include_ignored_detections)
+
+            else:
+                SCORE_INTERVALS = [det1_score_intervals]
+                (measurementTargetSetsBySequence, TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES, BIRTH_PROBABILITIES,\
+                    MEAS_NOISE_COVS, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES) = \
+                        get_meas_target_sets_1sources_general(training_sequences, det1_score_intervals, \
+                        det1_name, obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
+                        include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
+                        include_ignored_detections = include_ignored_detections)            
+
+
+
+            params = Parameters(TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES,\
+                     BIRTH_PROBABILITIES, MEAS_NOISE_COVS, SPEC['R'], H,\
+                     USE_PYTHON_GAUSSIAN, SPEC['USE_CONSTANT_R'], SCORE_INTERVALS,\
+                     p_birth_likelihood, p_clutter_likelihood, SPEC['CHECK_K_NEAREST_TARGETS'],
+                     SPEC['K_NEAREST_TARGETS'])
+
+            assert(len(n_frames) == len(measurementTargetSetsBySequence))
+
+            t0 = time.time()
+            info_by_run = [] #list of info from each run
+            cur_run_info = None
+            results_filename = '%s/results_by_run/run_%d/%s.txt' % (results_folder, run_idx, sequence_name[seq_idx])
+            plot_filename = '%s/results_by_run/run_%d/%s_plot.png' % (results_folder, run_idx, sequence_name[seq_idx])
+            measurements_filename = '%s/results_by_run/run_%d/%s_measurements_plot.png' % (results_folder, run_idx, sequence_name[seq_idx])
+
+
+            print "Processing sequence: ", seq_idx
+            tA = time.time()
+            if USE_GENERATED_DATA:
+                meas_target_set = gen_data(measurements_filename)
+                if PROFILE: 
+                    cProfile.run('run_rbpf_on_targetset([meas_target_set], results_filename, params)')
+                else:
+                    (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset([meas_target_set], results_filename, params)
+            else:       
+                if PROFILE:
+                    cProfile.run('run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)')
+                else:
+                    (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)
+            print "done processing sequence: ", seq_idx
+            
+            tB = time.time()
+            this_seq_run_time = tB - tA
+            cur_seq_info.append(this_seq_run_time)
+            if cur_run_info == None:
+                cur_run_info = cur_seq_info
+            else:
+                assert(len(cur_run_info) == len(cur_seq_info))
+                for info_idx in len(cur_run_info):
+                    #assuming for now info can be summed over each sequence in a run!
+                    #works for runtime and number of times resampling is performed
+                    cur_run_info[info_idx] += cur_seq_info[info_idx]
+
+            print "about to write results"
+
+            if not SPEC['RUN_ONLINE']:
+                estimated_ts.write_targets_to_KITTI_format(num_frames = n_frames[seq_idx], results_filename = results_filename,\
+                                                           plot_filename = plot_filename)
+            print "done write results"
+            print "running the rbpf took %f seconds" % (tB-tA)
+            
+            info_by_run.append(cur_run_info)
+            t1 = time.time()
+
+            stdout = sys.stdout
+            sys.stdout = open(indicate_run_complete_filename, 'w')
+
+            print "This run is finished (and this file indicates the fact)\n"
+            print "Resampling was performed %d times\n" % number_resamplings
+            print "This run took %f seconds\n" % (t1-t0)
+
+            print "TARGET_EMISSION_PROBS=", TARGET_EMISSION_PROBS
+            print "CLUTTER_PROBABILITIES=", CLUTTER_PROBABILITIES
+            print "BIRTH_PROBABILITIES=", BIRTH_PROBABILITIES
+            print "MEAS_NOISE_COVS=", MEAS_NOISE_COVS
+            print "BORDER_DEATH_PROBABILITIES=", BORDER_DEATH_PROBABILITIES
+            print "NOT_BORDER_DEATH_PROBABILITIES=", NOT_BORDER_DEATH_PROBABILITIES
+
+
+            sys.stdout.close()
+            sys.stdout = stdout
+
+
+        print 'end run'
+
+
