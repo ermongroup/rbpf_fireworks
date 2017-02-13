@@ -1,4 +1,7 @@
-#Note, run the following on atlas before this script:
+#!/usr/bin/env python
+# -*- coding: utf-8 -*- 
+
+#Note, on Atlas before this script:
 # $ PACKAGE_DIR=/atlas/u/jkuck/software
 # $ export PATH=$PACKAGE_DIR/anaconda2/bin:$PATH
 # $ export LD_LIBRARY_PATH=$PACKAGE_DIR/anaconda2/local:$LD_LIBRARY_PATH
@@ -11,6 +14,21 @@
 # Weird, but to run commands like "lpad -l my_launchpad.yaml get_fws",
 # add the following line to the file ~/.bashrc.user on Atlas:
 # export PYTHONPATH="${PYTHONPATH}:/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/"
+#
+##########################################################################################
+#
+#Note, on Sherlock before this script:
+# $ ml load python/2.7.5
+# $ easy_install-2.7 --user pip
+# $ export PATH=~/.local/bin:$PATH
+# $ pip2.7 install --user fireworks #and others
+# $ cd /scratch/users/kuck/rbpf_fireworks/
+#
+# Add the following line to the file ~/.bashrc on Sherlock:
+# export PYTHONPATH="/scratch/users/kuck/rbpf_fireworks:$PYTHONPATH"
+# Weird, but to run commands like "lpad -l my_launchpad.yaml get_fws",
+# add the following line to the file ~/.bashrc.user on Atlas:
+# export PYTHONPATH="${PYTHONPATH}:/scratch/users/kuck/rbpf_fireworks/KITTI_helpers/"
 from __future__ import division
 import os
 import errno
@@ -27,24 +45,28 @@ from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
 #from fireworks.core.firework import FWAction, Firework, FiretaskBase
 #from fireworks.user_objects.firetasks.script_task import PyTask
 
+from cluster_config import RBPF_HOME_DIRECTORY, MONGODB_USERNAME, MONGODB_PASSWORD
+from experiment_config import MONGODB_HOST, MONGODB_PORT, MONGODB_NAME
+
 from rbpf import RunRBPF
-sys.path.insert(0, "/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers")
+sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
 from jdk_helper_evaluate_results import RunEval
 
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
 #TRAINING_SEQUENCES = [i for i in range(21)]
+TRAINING_SEQUENCES = [i for i in range(9)]
 #TRAINING_SEQUENCES = [0]
 #TRAINING_SEQUENCES = [11]
-TRAINING_SEQUENCES = [12,13,17]
+#TRAINING_SEQUENCES = [12,13,17]
 #TRAINING_SEQUENCES = [13]
 NUM_PARTICLES = 100
 
 
 ###################################### Experiment Organization ######################################
 #DIRECTORY_OF_ALL_RESULTS = './ICML_prep_correctedOnline/propose_k=1_nearest_targets'
-DIRECTORY_OF_ALL_RESULTS = '/atlas/u/jkuck/rbpf_fireworks/ICML_prep'
+DIRECTORY_OF_ALL_RESULTS = '%sICML_prep' % RBPF_HOME_DIRECTORY
 #CUR_EXPERIMENT_BATCH_NAME = 'genData_origRBPF_multMeas_probDet95_clutLambdaPoint1_noise05_noShuffle_beta1'
 #CUR_EXPERIMENT_BATCH_NAME = 'genData_origRBPF_multMeas_fixedRounding_resampleRatio4_scaled_ShuffleMeas_timeScaled_PQdiv100'
 #CUR_EXPERIMENT_BATCH_NAME = 'Rto0_4xQ_multMeas1update_online3frameDelay2'
@@ -364,7 +386,7 @@ def get_param(param_idx):
 
 if __name__ == "__main__":
     # set up the LaunchPad and reset it
-    launchpad = LaunchPad(host='ds050869.mlab.com', port=50869, name='rbpf', username='jkuck', password='YH9uF643uLXJctBsCfau',
+    launchpad = LaunchPad(host=MONGODB_HOST, port=MONGODB_PORT, name=MONGODB_NAME, username=MONGODB_USERNAME, password=MONGODB_PASSWORD,
                      logdir=None, strm_lvl='INFO', user_indices=None, wf_user_indices=None, ssl_ca_file=None)
     launchpad.reset('', require_password=False)
 
@@ -416,7 +438,7 @@ if __name__ == "__main__":
                         {init_batch: [eval_init], eval_init: [first_iter]})
 
     launchpad.add_wf(workflow)
-    qadapter = CommonAdapter.from_file("/atlas/u/jkuck/rbpf_fireworks/fireworks_files/atlas_queue_adapter.yaml")
+    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
 #    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=20,
 #                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
 #                  fill_mode=False)
