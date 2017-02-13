@@ -4,3 +4,4 @@ nohup.out
 /KITTI_helpers/data
 /KITTI_helpers/learn_params1_pickled_data/
 /**/*.pyc
+cluster_config.py

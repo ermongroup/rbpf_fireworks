@@ -19,14 +19,17 @@ import mailpy
 #from learn_Q import default_time_step
 import pickle
 
+sys.path.insert(0, "../")
+from cluster_config import RBPF_HOME_DIRECTORY
+
 LEARN_Q_FROM_ALL_GT = False
 SKIP_LEARNING_Q = True
 
 #load ground truth data and detection data, when available, from saved pickle file
 #to cut down on load time
 USE_PICKLED_DATA = True
-PICKELD_DATA_DIRECTORY = "./KITTI_helpers/learn_params1_pickled_data"
-DATA_PATH = "/atlas/u/jkuck/rbpf_target_tracking/KITTI_helpers/data"
+PICKELD_DATA_DIRECTORY = "%sKITTI_helpers/learn_params1_pickled_data" % RBPF_HOME_DIRECTORY
+DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
 #DATA_PATH = "./data"
 
 CAMERA_PIXEL_WIDTH = 1242

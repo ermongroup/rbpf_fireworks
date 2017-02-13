@@ -17,7 +17,9 @@ import glob
 
 import mailpy
 
-DATA_PATH = "/scratch/users/kuck/rbpf_fireworks/KITTI_helpers/data"
+sys.path.insert(0, "../")
+from cluster_config import RBPF_HOME_DIRECTORY
+DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
 
 #########################################################################
 # function that does the evaluation

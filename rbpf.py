@@ -30,7 +30,8 @@ from munkres import Munkres
 from collections import deque
 from collections import defaultdict
 
-sys.path.insert(0, "/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers")
+from cluster_config import RBPF_HOME_DIRECTORY
+sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
 from learn_params1 import get_meas_target_set
 from learn_params1 import get_meas_target_sets_lsvm_and_regionlets
 from learn_params1 import get_meas_target_sets_regionlets_general_format
@@ -81,7 +82,7 @@ if LSTM_MOTION:
 
 
 
-DATA_PATH = "/atlas/u/jkuck/rbpf_target_tracking/KITTI_helpers/data"
+DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
 
 
 PROFILE = False

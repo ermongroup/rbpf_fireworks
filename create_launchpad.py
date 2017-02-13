@@ -1,5 +1,5 @@
-from config import MONGODB_HOST, MONGODB_PORT, MONGODB_NAME, MONGODB_USERNAME, MONGODB_PASSWORD
-
+from cluster_config import MONGODB_USERNAME, MONGODB_PASSWORD
+from experiment_config import MONGODB_HOST, MONGODB_PORT, MONGODB_NAME
 with open('./fireworks_files/my_launchpad.yaml', 'w') as f:
 	f.write('host: %s\n' % MONGODB_HOST)
 	f.write('port: %d\n' % MONGODB_PORT)
