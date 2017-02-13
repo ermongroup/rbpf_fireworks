@@ -12,6 +12,7 @@
 # add the following line to the file ~/.bashrc.user on Atlas:
 # export PYTHONPATH="${PYTHONPATH}:/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/"
 
+import copy
 import os
 import errno
 import sys
@@ -202,7 +203,7 @@ def submit_single_experiment(det1_name, det2_name, num_particles, include_ignore
 if __name__ == "__main__":
 
     # set up the LaunchPad and reset it
-    launchpad = LaunchPad(host='ds133358.mlab.com', port=33358, name='icml_prep', username='jkuck', password='YH9uF643uLXJctBsCfau',
+    launchpad = LaunchPad(host='ds147979.mlab.com', port=47979, name='meas_orderings_atlas', username='jkuck', password='YH9uF643uLXJctBsCfau',
                      logdir=None, strm_lvl='INFO', user_indices=None, wf_user_indices=None, ssl_ca_file=None)
     launchpad.reset('', require_password=False)
 
@@ -272,12 +273,12 @@ if __name__ == "__main__":
 ####                        firework_dependencies[fw] = eval_fireworks
 #    for det2_name in ['3dop', 'mono3d', 'mv3d', 'mscnn', 'regionlets']:
     for det2_name in ['regionlets']:
-        for scale_prior_by_meas_orderings in [original, corrected_with_score_intervals, ignore_meas_orderings]:
+        for scale_prior_by_meas_orderings in ['original', 'corrected_with_score_intervals', 'ignore_meas_orderings']:
             for num_particles in NUM_PARTICLES_TO_TEST:
                 description_of_run = get_description_of_run(include_ignored_gt, include_dontcare_in_gt,
                                 sort_dets_on_intervals, det1_name, det2_name)
                 results_folder_name = '%s/%d_particles' % (description_of_run, num_particles)
-                results_folder = '%s/%s/%s' % (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name,)
+                results_folder = '%s/%s/%s_measOrder=%s' % (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name, scale_prior_by_meas_orderings)
                 setup_results_folder(results_folder)
                 run_rbpf_fireworks = []            
                 for run_idx in range(1, NUM_RUNS+1):
@@ -311,12 +312,12 @@ if __name__ == "__main__":
 
 
                 seq_idx_to_eval = [i for i in range(21)]
-                eval_old_spec = copy.deepcopy(spec)
+                eval_old_spec = copy.deepcopy(cur_spec)
                 eval_old_spec['seq_idx_to_eval'] = seq_idx_to_eval 
                 eval_old_spec['use_corrected_eval'] = False
                 eval_old_firework = Firework(RunEval(), spec=eval_old_spec)
 
-                eval_new_spec = copy.deepcopy(spec)
+                eval_new_spec = copy.deepcopy(cur_spec)
                 eval_new_spec['seq_idx_to_eval'] = seq_idx_to_eval 
                 eval_new_spec['use_corrected_eval'] = True
                 eval_new_firework = Firework(RunEval(), spec=eval_new_spec)

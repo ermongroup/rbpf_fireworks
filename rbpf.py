@@ -1753,7 +1753,7 @@ class RunRBPF(FireTaskBase):
                      BIRTH_PROBABILITIES, MEAS_NOISE_COVS, SPEC['R'], H,\
                      USE_PYTHON_GAUSSIAN, SPEC['USE_CONSTANT_R'], SCORE_INTERVALS,\
                      p_birth_likelihood, p_clutter_likelihood, SPEC['CHECK_K_NEAREST_TARGETS'],
-                     SPEC['K_NEAREST_TARGETS'], S['scale_prior_by_meas_orderings'])
+                     SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'])
 
             assert(len(n_frames) == len(measurementTargetSetsBySequence))
 

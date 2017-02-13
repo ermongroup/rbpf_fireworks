@@ -490,9 +490,27 @@ def count_meas_orderings(M, T, b, c):
     and clutter count priors are defined in terms of total counts, not which specific measurements
     are associated with clutter and births.  This function counts the number of possible 
     measurement-association assignments given we have already chosen which targets are observed, 
-    how many births occur, and how many clutter measurements are present.  The prior probability of
-    observing T specific targets, b births, and c clutter observations given M measurements should
-    be divided by the returned value to split the prior probability between possibilities.
+    how many births occur, and how many clutter measurements are present.  
+
+    If the prior probability of observing T specific targets, b births, and c clutter observations 
+    given M measurements is divided by the count_meas_orderings(M, T, b, c), the prior probability 
+    is split between all possible associations.  This ensures that our prior is a proper probability
+    distribution that sums to one over the entire state space.  
+
+    Calculates the ordered vector of associations by equally prior probability of unordered set of
+    associations between all orderings.  This is the most straightforward idea, but it seems problematic.
+    As the number of targets increases, the number of possible measurment target associations blows
+    up and prior must be spilt between all.  It may make more sense to simply calculate the prior
+    of an unordered measurement set and then calculate likelihood based on the unordered set of observations.
+
+####### 
+#######   However, we our calculating the prior:
+
+#######   p(c_k, #y_k | e_1:k-1, c_1:k-1, y_1:k-1, #y_1:k-1)
+#######   
+#######   Note we are given all past measurements, associations, and the state of all living targets at the
+#######   last time instance.  
+
 
     [
     *OLD EXPLANATION BELOW*:
@@ -524,10 +542,12 @@ def get_assoc_prior(living_target_indices, total_target_count, number_measuremen
              measurement_associations, measurement_scores, params,\
              meas_source_index):
     """
-    REDOCUMENT
+    Calculate the prior probability of the observed number of measurements and their assigned associations
+    given all past measurements, their associations, and living targets (particularly important, we are 
+    given the number of targets currently alive). That is, calculate:
+    p(c_k, #y_k | e_1:k-1, c_1:k-1, y_1:k-1, #y_1:k-1)
 
-    *question* is this the prior given the number of measurements or not given
-    the number of measurements??!!
+
 
 
     Input: 
