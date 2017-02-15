@@ -369,7 +369,7 @@ if __name__ == "__main__":
     workflow = Workflow(all_fireworks, firework_dependencies)
     launchpad.add_wf(workflow)
     qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
-    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=21,
+    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
                   njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
                   fill_mode=False)
 
