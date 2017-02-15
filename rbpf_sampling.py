@@ -10,7 +10,7 @@ class Parameters:
                  birth_probabilities, meas_noise_cov, R_default, H,\
                  USE_PYTHON_GAUSSIAN, USE_CONSTANT_R, score_intervals,\
                  p_birth_likelihood, p_clutter_likelihood, CHECK_K_NEAREST_TARGETS,
-                 K_NEAREST_TARGETS):
+                 K_NEAREST_TARGETS, scale_prior_by_meas_orderings):
         '''
         Inputs:
         -  score_intervals: list of lists, where score_intervals[i] is a list
@@ -40,6 +40,8 @@ class Parameters:
 
         self.CHECK_K_NEAREST_TARGETS = CHECK_K_NEAREST_TARGETS
         self.K_NEAREST_TARGETS = K_NEAREST_TARGETS
+
+        self.scale_prior_by_meas_orderings = scale_prior_by_meas_orderings
 
 
     def get_score_index(self, score, meas_source_index):
@@ -478,14 +480,74 @@ def calc_death_prior(living_target_indices, p_target_deaths):
 
     return death_prior
 
+def nCr(n,r):
+    return math.factorial(n) / math.factorial(r) / math.factorial(n-r)
+
+def count_meas_orderings(M, T, b, c):
+    """
+    We define target observation priors in terms of whether each target was observed and it
+    is irrelevant which measurement the target is associated with.  Likewise, birth count priors
+    and clutter count priors are defined in terms of total counts, not which specific measurements
+    are associated with clutter and births.  This function counts the number of possible 
+    measurement-association assignments given we have already chosen which targets are observed, 
+    how many births occur, and how many clutter measurements are present.  
+
+    If the prior probability of observing T specific targets, b births, and c clutter observations 
+    given M measurements is divided by the count_meas_orderings(M, T, b, c), the prior probability 
+    is split between all possible associations.  This ensures that our prior is a proper probability
+    distribution that sums to one over the entire state space.  
+
+    Calculates the ordered vector of associations by equally prior probability of unordered set of
+    associations between all orderings.  This is the most straightforward idea, but it seems problematic.
+    As the number of targets increases, the number of possible measurment target associations blows
+    up and prior must be spilt between all.  It may make more sense to simply calculate the prior
+    of an unordered measurement set and then calculate likelihood based on the unordered set of observations.
+
+####### 
+#######   However, we our calculating the prior:
+
+#######   p(c_k, #y_k | e_1:k-1, c_1:k-1, y_1:k-1, #y_1:k-1)
+#######   
+#######   Note we are given all past measurements, associations, and the state of all living targets at the
+#######   last time instance.  
+
+
+    [
+    *OLD EXPLANATION BELOW*:
+    We view the the ordering of measurements on any time instance as arbitrary.  This
+    function counts the number of possible measurement orderings given we have already
+    chosen which targets are observed, how many births occur, and how many clutter 
+    measurements are present.
+    ]
+    
+    Inputs:
+    - M: the number of measurements
+    - T: the number of observed targets
+    - b: the number of birth associations
+    - c: the number of clutter associations
+
+    This must be true: M = T+b+c
+
+    Output:
+    - combinations: the number of measurement orderings as a float. The value is:
+        combinations = nCr(M, T)*math.factorial(T)*nCr(M-T, b)
+
+    """
+    assert(M == T + b + c)
+    combinations = nCr(M, T)*math.factorial(T)*nCr(M-T, b)
+    return float(combinations)
+
+
 def get_assoc_prior(living_target_indices, total_target_count, number_measurements, 
              measurement_associations, measurement_scores, params,\
              meas_source_index):
     """
-    REDOCUMENT
+    Calculate the prior probability of the observed number of measurements and their assigned associations
+    given all past measurements, their associations, and living targets (particularly important, we are 
+    given the number of targets currently alive). That is, calculate:
+    p(c_k, #y_k | e_1:k-1, c_1:k-1, y_1:k-1, #y_1:k-1)
 
-    *question* is this the prior given the number of measurements or not given
-    the number of measurements??!!
+
 
 
     Input: 
@@ -503,46 +565,6 @@ def get_assoc_prior(living_target_indices, total_target_count, number_measuremen
         clutter_count_prior[i] = the probability of i clutter measurements during 
         any time instance
     """
-
-    def nCr(n,r):
-        return math.factorial(n) / math.factorial(r) / math.factorial(n-r)
-
-    def count_meas_orderings(M, T, b, c):
-        """
-        We define target observation priors in terms of whether each target was observed and it
-        is irrelevant which measurement the target is associated with.  Likewise, birth count priors
-        and clutter count priors are defined in terms of total counts, not which specific measurements
-        are associated with clutter and births.  This function counts the number of possible 
-        measurement-association assignments given we have already chosen which targets are observed, 
-        how many births occur, and how many clutter measurements are present.  The prior probability of
-        observing T specific targets, b births, and c clutter observations given M measurements should
-        be divided by the returned value to split the prior probability between possibilities.
-
-        [
-        *OLD EXPLANATION BELOW*:
-        We view the the ordering of measurements on any time instance as arbitrary.  This
-        function counts the number of possible measurement orderings given we have already
-        chosen which targets are observed, how many births occur, and how many clutter 
-        measurements are present.
-        ]
-        
-        Inputs:
-        - M: the number of measurements
-        - T: the number of observed targets
-        - b: the number of birth associations
-        - c: the number of clutter associations
-
-        This must be true: M = T+b+c
-
-        Output:
-        - combinations: the number of measurement orderings as a float. The value is:
-            combinations = nCr(M, T)*math.factorial(T)*nCr(M-T, b)
-
-        """
-        assert(M == T + b + c)
-        combinations = nCr(M, T)*math.factorial(T)*nCr(M-T, b)
-        return float(combinations)
-
 
     assert(len(measurement_associations) == number_measurements), (number_measurements, len(measurement_associations), measurement_associations)
     #number of targets from the last time instance that are still alive
@@ -593,14 +615,42 @@ def get_assoc_prior(living_target_indices, total_target_count, number_measuremen
     params.check_counts(clutter_counts_by_score, birth_counts_by_score, meas_source_index)
 
     #the prior probability of this number of measurements with these associations
-    p_target_does_not_emit = 1.0 - sum(params.target_emission_probs[meas_source_index])
-    assoc_prior = (p_target_does_not_emit)**(unobserved_target_count) \
-                  /count_meas_orderings(number_measurements, observed_target_count, \
-                                        birth_count, clutter_count)
-    for i in range(len(params.score_intervals[meas_source_index])):
-        assoc_prior *= params.target_emission_probs[meas_source_index][i]**(meas_counts_by_score[i]) \
-                          *params.birth_probabilities[meas_source_index][i][birth_counts_by_score[i]] \
-                          *params.clutter_probabilities[meas_source_index][i][clutter_counts_by_score[i]] \
+    if params.scale_prior_by_meas_orderings == 'original':
+        p_target_does_not_emit = 1.0 - sum(params.target_emission_probs[meas_source_index])
+        assoc_prior = (p_target_does_not_emit)**(unobserved_target_count) \
+                      /count_meas_orderings(number_measurements, observed_target_count, \
+                                            birth_count, clutter_count)
+        for i in range(len(params.score_intervals[meas_source_index])):
+            assoc_prior *= params.target_emission_probs[meas_source_index][i]**(meas_counts_by_score[i]) \
+                              *params.birth_probabilities[meas_source_index][i][birth_counts_by_score[i]] \
+                              *params.clutter_probabilities[meas_source_index][i][clutter_counts_by_score[i]]
+    elif params.scale_prior_by_meas_orderings == 'corrected_with_score_intervals':
+        p_target_does_not_emit = 1.0 - sum(params.target_emission_probs[meas_source_index])
+        assoc_prior = (p_target_does_not_emit)**(unobserved_target_count)
+        for i in range(len(params.score_intervals[meas_source_index])):
+            #The number of measurements in the current score interval associatd with a target
+            cur_score_T = meas_counts_by_score[i]
+            #The number of measurements in the current score interval associatd with a birth
+            cur_score_B = birth_counts_by_score[i]
+            #The number of measurements in the current score interval associatd with clutter
+            cur_score_C = clutter_counts_by_score[i]
+            #The total number of measurements in the current score interval
+            cur_score_M = cur_score_T + cur_score_B + cur_score_C
+
+            assoc_prior *= params.target_emission_probs[meas_source_index][i]**(cur_score_T) \
+                              *params.birth_probabilities[meas_source_index][i][cur_score_B] \
+                              *params.clutter_probabilities[meas_source_index][i][cur_score_C] \
+                              /count_meas_orderings(cur_score_M, cur_score_T, \
+                                            cur_score_B, cur_score_C)
+    elif params.scale_prior_by_meas_orderings == 'ignore_meas_orderings':
+        p_target_does_not_emit = 1.0 - sum(params.target_emission_probs[meas_source_index])
+        assoc_prior = (p_target_does_not_emit)**(unobserved_target_count)
+        for i in range(len(params.score_intervals[meas_source_index])):
+            assoc_prior *= params.target_emission_probs[meas_source_index][i]**(meas_counts_by_score[i]) \
+                              *params.birth_probabilities[meas_source_index][i][birth_counts_by_score[i]] \
+                              *params.clutter_probabilities[meas_source_index][i][clutter_counts_by_score[i]]
+    else:
+        raise ValueError('Invalid params.scale_prior_by_meas_orderings value: %s' % params.scale_prior_by_meas_orderings)
 
     #####TESTING
     meas_orderings = count_meas_orderings(number_measurements, observed_target_count, \
@@ -614,6 +664,7 @@ def get_assoc_prior(living_target_indices, total_target_count, number_measuremen
     #####DONE TESTING
 
     return assoc_prior
+
 
 def get_likelihood(particle, meas_source_index, measurement_list, total_target_count,
                    measurement_associations, measurement_scores, params):
