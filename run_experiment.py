@@ -42,6 +42,7 @@ from experiment_config import MONGODB_HOST, MONGODB_PORT, MONGODB_NAME
 from rbpf import RunRBPF
 sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
 from jdk_helper_evaluate_results import RunEval
+from create_launchpad import create_launchpad
 
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
@@ -215,6 +216,8 @@ def submit_single_experiment(det1_name, det2_name, num_particles, include_ignore
 
 
 if __name__ == "__main__":
+    # write new launchpad file, not positive if this is necessary
+    create_launchpad()
 
     # set up the LaunchPad and reset it
     launchpad = LaunchPad(host=MONGODB_HOST, port=MONGODB_PORT, name=MONGODB_NAME, username=MONGODB_USERNAME, password=MONGODB_PASSWORD,

@@ -47,6 +47,7 @@ from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
 
 from cluster_config import RBPF_HOME_DIRECTORY, MONGODB_USERNAME, MONGODB_PASSWORD
 from experiment_config import MONGODB_HOST, MONGODB_PORT, MONGODB_NAME
+from create_launchpad import create_launchpad
 
 from rbpf import RunRBPF
 sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
@@ -91,6 +92,8 @@ Q_ALPHA_INIT = np.array([[ alpha_init,  alpha_init,  alpha_init,   alpha_init],
                            [ alpha_init,  alpha_init,  alpha_init,   alpha_init]])
 R_ALPHA_INIT = np.array([[ alpha_init,   alpha_init],
                          [ alpha_init,   alpha_init]])
+#Diagonal covariance matrix elements are not allowed to take values less than EPSILON
+EPSILON = .01
 
 ###################################### RBPF Parameters ######################################
 #Specify how the proposal distribution should be pruned
@@ -241,11 +244,14 @@ class RunRBPF_Batch(FireTaskBase):
     #run a batch of RBPF jobs on fw_spec['TRAINING_SEQUENCES'] with fw_spec['NUM_RUNS'] in parallel
     def run_task(self, fw_spec):
         rbpf_batch = []
-        description_of_run = get_description_of_run(fw_spec['include_ignored_gt'], fw_spec['include_dontcare_in_gt'],
-                        fw_spec['sort_dets_on_intervals'], fw_spec['det1_name'], fw_spec['det2_name'])
-        results_folder_name = '%s/%d_particles' % (description_of_run, fw_spec['num_particles'])
-        results_folder = '%s/%s/%s' % (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name)
-        setup_results_folder(results_folder)
+        if '_job_info' in fw_spec:
+            assert('mod_direction' in fw_spec)
+            fw_spec['results_folder'] = "%s/iterID_%s_dir-%s"%(fw_spec['results_folder'], fw_spec['_job_info'][-1]['fw_id'],
+                                                               fw_spec['mod_direction'])
+        else:
+            fw_spec['results_folder'] = "%s/iterID_%s"%(fw_spec['results_folder'], '0')
+
+        setup_results_folder(fw_spec['results_folder'])
         rbpf_batch = []
         for run_idx in range(1, fw_spec['NUM_RUNS']+1):
             for seq_idx in fw_spec['TRAINING_SEQUENCES']:
@@ -263,7 +269,40 @@ class RunRBPF_Batch(FireTaskBase):
                 rbpf_batch.append(cur_firework)
 
         parallel_workflow = Workflow(rbpf_batch)
-        return FWAction(detours=parallel_workflow)
+        return FWAction(detours=parallel_workflow, mod_spec=[{'_set': {"results_folder": fw_spec['results_folder']}}])
+#        return FWAction(detours=parallel_workflow)
+
+
+def modify_parameter(spec, direction):
+    """
+    Inputs:
+    - spec: the fireworks spec to modify
+    - direction: string, 'inc' or 'dec', whether to increase of decrease the parameter
+
+    Outputs:
+    - new_param_value: float, the new value of the parameter we modified
+    - Also, we will have modified the spec which was passed by reference (since it
+    is a dictionary).  We make the following changes to the spec:
+        -spec['mod_direction'] = direction
+        -modify the specified parameter as directed
+    """
+    if not (direction in ['inc', 'dec']):
+        raise ValueError('Unknown direction given to modify_parameter: %s' % direction)
+
+    spec['mod_direction'] = direction
+    (param_name, row_idx, col_idx) = get_param(spec['param_idx'])
+    mod_percent = spec["%s_alpha"%param_name][row_idx][col_idx]/100.0
+    if direction == 'inc':
+        spec[param_name][row_idx][col_idx] += spec[param_name][row_idx][col_idx]*mod_percent
+    elif direction == 'dec':
+        spec[param_name][row_idx][col_idx] -= spec[param_name][row_idx][col_idx]*mod_percent
+    #make the matrix symmetric
+    spec[param_name][col_idx][row_idx] = spec[param_name][row_idx][col_idx]
+    #make sure diagonal elements to not go below 0
+    if col_idx == row_idx and spec[param_name][row_idx][col_idx] < EPSILON:
+        spec[param_name][row_idx][col_idx] = EPSILON
+    new_param_value = spec[param_name][row_idx][col_idx]
+    return new_param_value
 
 @explicit_serialize
 class Iterate(FireTaskBase):   
@@ -278,10 +317,9 @@ class Iterate(FireTaskBase):
         fw_spec['orig_param_val'] = fw_spec[param_name][row_idx][col_idx]
         #run an RBPF batch with the parameter increased
         inc_spec = copy.deepcopy(fw_spec)
-        inc_spec['mod_direction'] = 'inc'
-        mod_percent = inc_spec["%s_alpha"%param_name][row_idx][col_idx]/100.0
-        inc_spec[param_name][row_idx][col_idx] += inc_spec[param_name][row_idx][col_idx]*mod_percent
-        inc_spec['inc_param_val'] = inc_spec[param_name][row_idx][col_idx]
+        inc_param_value = modify_parameter(inc_spec, 'inc')
+        inc_spec['inc_param_val'] = inc_param_value
+        fw_spec['inc_param_val'] = inc_param_value
         inc_batch_firework = Firework(RunRBPF_Batch(), spec = inc_spec)
         #evaluate the RBPF batch with the parameter increased
         eval_inc_spec = copy.deepcopy(inc_spec)
@@ -290,10 +328,9 @@ class Iterate(FireTaskBase):
 
         #run an RBPF batch with the parameter decreased
         dec_spec = copy.deepcopy(fw_spec)
-        dec_spec['mod_direction'] = 'dec'
-        mod_percent = dec_spec["%s_alpha"%param_name][row_idx][col_idx]/100.0
-        dec_spec[param_name][row_idx][col_idx] -= dec_spec[param_name][row_idx][col_idx]*mod_percent
-        dec_spec['dec_param_val'] = dec_spec[param_name][row_idx][col_idx]
+        dec_param_value = modify_parameter(dec_spec, 'dec')
+        dec_spec['dec_param_val'] = dec_param_value
+        fw_spec['dec_param_val'] = dec_param_value
         dec_batch_firework = Firework(RunRBPF_Batch(), spec = dec_spec)
         #evaluate the RBPF batch with the parameter decreased
         eval_dec_spec = copy.deepcopy(dec_spec)
@@ -350,13 +387,43 @@ class ChooseNextIter(FireTaskBase):
             print (objective_with_inc, objective_with_dec, orig_objective)
             sys.exit(1);               
 
-        fw_spec['param_idx'] = (fw_spec['param_idx'] + 1) % (Q_DIM**2 + R_DIM**2)
+        fw_spec['param_idx'] = inc_parameter(fw_spec['param_idx'])
         next_iter_firework = Firework(Iterate(), fw_spec)
         return FWAction(stored_data = {'best_obj': best_obj,
                                        'change_for_best_obj': change_for_best_obj,
                                        'parameter_changed_name': param_name,
                                        'parameter_changed_val': fw_spec[param_name]},
                         additions = next_iter_firework)
+
+
+
+def get_indices_covMatrix(param_idx, d):
+    """
+    Since covariance matrices must be symmetric, we only iterate over indices in
+    their upper halves (including diagonal)
+
+    Inputs:
+    - param_idx: A single integer representing the index in the covariance matrix
+    - d: dimension of the covariance matrix
+
+    Outputs:
+    - row_idx: The row indicated by param_idx
+    - col_idx: The column indicated by param_idx
+
+    For a 3x3 matrix (d=3) we would return (row_idx, col_idx) in the following order
+    (where the values in the matrix indicate param_idx):
+    [0 1 2]
+    [  3 4]
+    [    5]
+    """
+    for r in range(d):
+        for c in range(r, d):
+            if param_idx == 0:
+                row_idx = r
+                col_idx = c
+            else:
+                param_idx -= 1
+    return (row_idx, col_idx)
 
 
 def get_param(param_idx):
@@ -369,22 +436,36 @@ def get_param(param_idx):
     - row_idx: integer, specifying the row within the parameter matrix of the parameter
     - col_idx: integer, specifying the column within the parameter matrix of the parameter
     """
-    if param_idx < Q_DIM**2:
+    if param_idx < (Q_DIM+1)*Q_DIM/2:
         param_name = 'Q'
-        row_idx = param_idx//Q_DIM
-        col_idx = param_idx%Q_DIM
-    elif param_idx < Q_DIM**2 + R_DIM**2:
+        (row_idx, col_idx) = get_indices_covMatrix(param_idx, Q_DIM)
+
+    elif param_idx < (Q_DIM+1)*Q_DIM/2 + (R_DIM+1)*R_DIM/2:
         param_name = 'R'
-        row_idx = (param_idx - Q_DIM**2)//R_DIM
-        col_idx = (param_idx - Q_DIM**2)%R_DIM
+        param_idx -= (Q_DIM+1)*Q_DIM/2
+        (row_idx, col_idx) = get_indices_covMatrix(param_idx, R_DIM)
+
     else:
         print "Invalid param_idx"
         print param_idx
         sys.exit(1);        
     return (param_name, row_idx, col_idx)
 
+def inc_parameter(param_idx):
+    """
+    Inputs:
+    - param_idx: The current parameter index
+
+    Outputs:
+    - new_idx: The next parameter index.  Equals param_idx+1, wrapped around
+    to zero when we have reached the last parameter.
+    """
+    new_idx = (param_idx + 1) % ((Q_DIM+1)*Q_DIM/2 + (R_DIM+1)*R_DIM/2)
+    return new_idx
 
 if __name__ == "__main__":
+    # write new launchpad file, not positive if this is necessary
+    create_launchpad()
     # set up the LaunchPad and reset it
     launchpad = LaunchPad(host=MONGODB_HOST, port=MONGODB_PORT, name=MONGODB_NAME, username=MONGODB_USERNAME, password=MONGODB_PASSWORD,
                      logdir=None, strm_lvl='INFO', user_indices=None, wf_user_indices=None, ssl_ca_file=None)
@@ -400,7 +481,6 @@ if __name__ == "__main__":
                     sort_dets_on_intervals, det1_name, det2_name)
     results_folder_name = '%s/%d_particles' % (description_of_run, NUM_PARTICLES)
     results_folder = '%s/%s/%s' % (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name)
-    setup_results_folder(results_folder)
     spec = {'det1_name': 'mscnn',
             'det2_name': 'regionlets',
             'num_particles': NUM_PARTICLES,
@@ -425,7 +505,8 @@ if __name__ == "__main__":
             'NUM_RUNS': NUM_RUNS,
             'param_idx': 0, #index of the parameter to adjust next in coordinate descent
             'Q_alpha': Q_ALPHA_INIT.tolist(),
-            'R_alpha': R_ALPHA_INIT.tolist()}
+            'R_alpha': R_ALPHA_INIT.tolist(),
+            '_pass_job_info': True}
 
 
 #    spec['mod_direction'] = 'const'
