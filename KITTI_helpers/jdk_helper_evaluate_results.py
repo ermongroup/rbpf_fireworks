@@ -1152,9 +1152,15 @@ class RunEval(FireTaskBase):
 
         if 'mod_direction' in fw_spec:
             mod_dir = fw_spec['mod_direction']
-            return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"metrics_with_%s"%mod_dir: metric_medians}}])
+            if use_corrected_eval:
+                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics_with_%s"%mod_dir: metric_medians}}])
+            else:
+                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics_with_%s"%mod_dir: metric_medians}}])
         else:
-            return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"orig_metrics": metric_medians}}])
+            if use_corrected_eval:
+                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics": metric_medians}}])
+            else:
+                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics": metric_medians}}])
 
 
 @explicit_serialize
