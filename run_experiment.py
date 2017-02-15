@@ -4,6 +4,9 @@
 # $ export LD_LIBRARY_PATH=$PACKAGE_DIR/anaconda2/local:$LD_LIBRARY_PATH
 # $ source activate anaconda_venv
 #
+# To install anaconda packages run, e.g.:
+# $ conda install -c matsci fireworks=1.3.9
+#
 #May need to run $ kinit -r 30d
 #
 # Add the following line to the file ~/.bashrc.user on Atlas:
