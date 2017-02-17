@@ -483,6 +483,7 @@ if __name__ == "__main__":
     results_folder = '%s/%s/%s' % (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name)
     spec = {'det1_name': 'mscnn',
             'det2_name': 'regionlets',
+            'det_names': ['mscnn', 'regionlets'],
             'num_particles': NUM_PARTICLES,
             'include_ignored_gt': False,
             'include_dontcare_in_gt': False,
@@ -506,7 +507,10 @@ if __name__ == "__main__":
             'param_idx': 0, #index of the parameter to adjust next in coordinate descent
             'Q_alpha': Q_ALPHA_INIT.tolist(),
             'R_alpha': R_ALPHA_INIT.tolist(),
-            '_pass_job_info': True}
+            '_pass_job_info': True,
+            'derandomize_with_seed': False,
+            'use_general_num_dets': True}
+            
 
 
 #    spec['mod_direction'] = 'const'

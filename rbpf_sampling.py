@@ -10,7 +10,8 @@ class Parameters:
                  birth_probabilities, meas_noise_cov, R_default, H,\
                  USE_PYTHON_GAUSSIAN, USE_CONSTANT_R, score_intervals,\
                  p_birth_likelihood, p_clutter_likelihood, CHECK_K_NEAREST_TARGETS,
-                 K_NEAREST_TARGETS, scale_prior_by_meas_orderings):
+                 K_NEAREST_TARGETS, scale_prior_by_meas_orderings,\
+                 SPEC):
         '''
         Inputs:
         -  score_intervals: list of lists, where score_intervals[i] is a list
@@ -25,6 +26,12 @@ class Parameters:
         self.target_emission_probs = target_emission_probs
         self.clutter_probabilities = clutter_probabilities
         self.birth_probabilities = birth_probabilities
+
+
+        #print "checkthis outt..asdfasfwef"
+        #print "self.clutter_probabilities", self.clutter_probabilities
+        #print "self.birth_probabilitie", self.birth_probabilities
+
 
         self.meas_noise_cov = meas_noise_cov
         self.R_default = R_default
@@ -42,6 +49,7 @@ class Parameters:
         self.K_NEAREST_TARGETS = K_NEAREST_TARGETS
 
         self.scale_prior_by_meas_orderings = scale_prior_by_meas_orderings
+        self.SPEC = SPEC
 
 
     def get_score_index(self, score, meas_source_index):
@@ -92,7 +100,10 @@ class Parameters:
         meas_score from the measurement source with index meas_source_index
         '''
         score_index = self.get_score_index(meas_score, meas_source_index)    
-        return self.clutter_probabilities[meas_source_index][score_index][birth_count]
+        if self.SPEC['set_birth_clutter_prop_equal']:
+            return self.clutter_probabilities[meas_source_index][score_index][birth_count]
+        else:
+            return self.birth_probabilities[meas_source_index][score_index][birth_count]
 
 
     def max_birth_count(self, meas_source_index, meas_score):
@@ -172,7 +183,7 @@ def sample_and_reweight(particle, measurement_lists, \
             measurement_scores[meas_source_index], params)
         cur_assoc_prior = get_assoc_prior(living_target_indices, particle.targets.living_count, len(measurement_lists[meas_source_index]), 
                                measurement_associations[meas_source_index], measurement_scores[meas_source_index], params, meas_source_index)
-#        print "meas_source_index =", meas_source_index, "cur_likelihood =", cur_likelihood, "cur_assoc_prior =", cur_assoc_prior
+#        #print "meas_source_index =", meas_source_index, "cur_likelihood =", cur_likelihood, "cur_assoc_prior =", cur_assoc_prior
         exact_probability *= cur_likelihood * cur_assoc_prior
 
 
@@ -367,6 +378,11 @@ def associate_measurements_sequentially(particle, meas_source_index, measurement
 
         for i in range(birth_count[params.get_score_index(meas_score, meas_source_index)]+1, min(params.max_birth_count(meas_source_index, meas_score) + 1, remaining_meas_count_by_score + birth_count[params.get_score_index(meas_score, meas_source_index)] + 2)):
             cur_birth_prior += params.birth_prior(meas_source_index, meas_score, i)*(i - birth_count[params.get_score_index(meas_score, meas_source_index)])/(remaining_meas_count_by_score + 1)
+            #print "cur_birth_prior =", cur_birth_prior
+            #print "params.birth_prior(meas_source_index, meas_score, i) =", params.birth_prior(meas_source_index, meas_score, i)
+            #print "meas_source_index =", meas_source_index
+            #print "meas_score =", meas_score
+            #print "(i - birth_count[params.get_score_index(meas_score, meas_source_index)])/(remaining_meas_count_by_score + 1) =", (i - birth_count[params.get_score_index(meas_score, meas_source_index)])/(remaining_meas_count_by_score + 1)
         proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood)
 #        for i in range(birth_count+1, min(len(params.birth_probabilities[meas_source_index][score_index]), remaining_meas_count_by_score + birth_count + 1)):
 #            cur_birth_prior += params.birth_probabilities[meas_source_index][score_index][i]*(i - birth_count)/remaining_meas_count_by_score 
@@ -378,6 +394,12 @@ def associate_measurements_sequentially(particle, meas_source_index, measurement
         cur_clutter_prior = 0.0
         for i in range(clutter_count[params.get_score_index(meas_score, meas_source_index)]+1, min(params.max_clutter_count(meas_source_index, meas_score) + 1, remaining_meas_count_by_score + clutter_count[params.get_score_index(meas_score, meas_source_index)] + 2)):
             cur_clutter_prior += params.clutter_prior(meas_source_index, meas_score, i)*(i - clutter_count[params.get_score_index(meas_score, meas_source_index)])/(remaining_meas_count_by_score + 1)
+            #print "cur_clutter_prior =", cur_clutter_prior
+            #print "params.clutter_prior(meas_source_index, meas_score, i) =", params.clutter_prior(meas_source_index, meas_score, i)            
+            #print "meas_source_index =", meas_source_index
+            #print "meas_score =", meas_score
+            #print "(i - birth_count[params.get_score_index(meas_score, meas_source_index)])/(remaining_meas_count_by_score + 1) =", (i - birth_count[params.get_score_index(meas_score, meas_source_index)])/(remaining_meas_count_by_score + 1)
+
         proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood)
 #        for i in range(clutter_count+1, min(len(params.clutter_probabilities[meas_source_index][score_index]), remaining_meas_count_by_score + clutter_count + 1)):
 #            cur_clutter_prior += params.clutter_probabilities[meas_source_index][score_index][i]*(i - clutter_count)/remaining_meas_count_by_score 
@@ -402,6 +424,9 @@ def associate_measurements_sequentially(particle, meas_source_index, measurement
 
         sampled_assoc_idx = np.random.choice(len(proposal_distribution),
                                                 p=proposal_distribution)
+
+        #print proposal_distribution
+#        sleep(5)
 
         if params.CHECK_K_NEAREST_TARGETS:
             possible_target_assoc_count = min(params.K_NEAREST_TARGETS, total_target_count)

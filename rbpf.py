@@ -40,6 +40,8 @@ from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
 from learn_params1 import get_meas_target_sets_2sources_general
 from learn_params1 import get_meas_target_sets_1sources_general
 
+from learn_params1 import get_meas_target_sets_general
+
 import cProfile
 import time
 import os
@@ -52,8 +54,6 @@ import os
 #from rbpf_ORIGINAL_sampling import Parameters
 #from rbpf_ORIGINAL_sampling import SCALED
 
-from rbpf_sampling import sample_and_reweight
-from rbpf_sampling import Parameters
 
 
 #from gen_data import gen_data
@@ -88,12 +88,7 @@ DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
 PROFILE = False
 USE_GENERATED_DATA = False
 
-USE_RANDOM_SEED = False
 PLOT_TARGET_LOCATIONS = False
-if USE_RANDOM_SEED:
-    random.seed(5)
-    np.random.seed(seed=5)
-
 
 USE_POISSON_DEATH_MODEL = False
 USE_CREATE_CHILD = True #speed up copying during resampling
@@ -985,6 +980,24 @@ class Particle:
         print "sampled association c = ", self.c_debug, "importance reweighting factor = ", self.imprt_re_weight_debug
         self.plot_all_target_locations()
 
+    def process_meas_grp_assoc(self, birth_value, measurement_association, meas_grp_mean, meas_grp_cov, cur_time):
+        """
+        - meas_source_index: the index of the measurement source being processed (i.e. in SCORE_INTERVALS)
+
+        """
+        #create new target
+        if(measurement_association == birth_value):
+            self.create_new_target(meas_grp_mean[0:2], meas_grp_mean[2], meas_grp_mean[3], cur_time)
+            new_target = True 
+        #update the target corresponding to the association we have sampled
+        elif((measurement_association >= 0) and (measurement_association < birth_value)):
+            self.targets.living_targets[measurement_association].update(meas_grp_mean[0:2], meas_grp_mean[2], \
+                            meas_grp_mean[3], cur_time, meas_grp_cov[0:2, 0:2])
+        else:
+            #otherwise the measurement was associated with clutter
+            assert(measurement_association == -1), ("measurement_association = ", measurement_association)
+
+
     def process_meas_assoc(self, birth_value, meas_source_index, measurement_associations, measurements, \
         widths, heights, measurement_scores, cur_time):
         """
@@ -1054,24 +1067,32 @@ class Particle:
         birth_value = self.targets.living_count
 
 
-        (measurement_associations, dead_target_indices, imprt_re_weight) = \
-            sample_and_reweight(self, measurement_lists, \
+        if SPEC['use_general_num_dets'] == True:
+            (meas_grp_associations, meas_grp_means, meas_grp_covs, dead_target_indices, imprt_re_weight) = \
+            sample_and_reweight(self, measurement_lists,  widths, heights, SPEC['det_names'], \
                 cur_time, measurement_scores, params)
+            assert(len(meas_grp_associations) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
+            for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
+                self.process_meas_grp_assoc(birth_value, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx], cur_time)
+        else:
+            (measurement_associations, dead_target_indices, imprt_re_weight) = \
+                sample_and_reweight(self, measurement_lists, \
+                    cur_time, measurement_scores, params)
 
 
-        assert(len(measurement_associations) == len(measurement_lists))
-        assert(imprt_re_weight != 0.0), imprt_re_weight
-        self.importance_weight *= imprt_re_weight #update particle's importance weight
-        #process measurement associations
-        for meas_source_index in range(len(measurement_associations)):
-            assert(len(measurement_associations[meas_source_index]) == len(measurement_lists[meas_source_index]) and
-                   len(measurement_associations[meas_source_index]) == len(widths[meas_source_index]) and
-                   len(measurement_associations[meas_source_index]) == len(heights[meas_source_index]))
-            self.process_meas_assoc(birth_value, meas_source_index, measurement_associations[meas_source_index], \
-                measurement_lists[meas_source_index], widths[meas_source_index], heights[meas_source_index], \
-                measurement_scores[meas_source_index], cur_time)
-        if SPEC['UPDATE_MULT_MEAS_SIMUL']:
-            self.update_mult_meas_simultaneously()
+            assert(len(measurement_associations) == len(measurement_lists))
+            assert(imprt_re_weight != 0.0), imprt_re_weight
+            self.importance_weight *= imprt_re_weight #update particle's importance weight
+            #process measurement associations
+            for meas_source_index in range(len(measurement_associations)):
+                assert(len(measurement_associations[meas_source_index]) == len(measurement_lists[meas_source_index]) and
+                       len(measurement_associations[meas_source_index]) == len(widths[meas_source_index]) and
+                       len(measurement_associations[meas_source_index]) == len(heights[meas_source_index]))
+                self.process_meas_assoc(birth_value, meas_source_index, measurement_associations[meas_source_index], \
+                    measurement_lists[meas_source_index], widths[meas_source_index], heights[meas_source_index], \
+                    measurement_scores[meas_source_index], cur_time)
+            if SPEC['UPDATE_MULT_MEAS_SIMUL']:
+                self.update_mult_meas_simultaneously()
 
         #process target deaths
         #double check dead_target_indices is sorted
@@ -1080,14 +1101,25 @@ class Particle:
         for index in reversed(dead_target_indices):
             self.targets.kill_target(index)
 
-        #checking if something funny is happening
-        original_num_targets = birth_value
-        num_targets_born = 0
-        for meas_source_index in range(len(measurement_associations)):
-            num_targets_born += measurement_associations[meas_source_index].count(birth_value)
-        num_targets_killed = len(dead_target_indices)
-        assert(self.targets.living_count == original_num_targets + num_targets_born - num_targets_killed)
-        #done checking if something funny is happening
+        if SPEC['use_general_num_dets'] == True:
+            #checking if something funny is happening
+            original_num_targets = birth_value
+            num_targets_born = 0
+            num_targets_born = meas_grp_associations.count(birth_value)
+            num_targets_killed = len(dead_target_indices)
+            assert(self.targets.living_count == original_num_targets + num_targets_born - num_targets_killed)
+            #done checking if something funny is happening
+
+        else:
+
+            #checking if something funny is happening
+            original_num_targets = birth_value
+            num_targets_born = 0
+            for meas_source_index in range(len(measurement_associations)):
+                num_targets_born += measurement_associations[meas_source_index].count(birth_value)
+            num_targets_killed = len(dead_target_indices)
+            assert(self.targets.living_count == original_num_targets + num_targets_born - num_targets_killed)
+            #done checking if something funny is happening
 
         return new_target
 
@@ -1581,6 +1613,83 @@ def match_target_ids(particle1_targets, particle2_targets):
 
     return (associations, duplicate_ids)
 
+
+
+
+def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, gt_obj):
+    """
+    
+    Inputs:
+    - blocked_cov_inv: dictionary containing the inverse of the measurement noise covariance matrix, between
+    all measurement source
+
+    [sigma_11    sigma_1j     sigma_1n]
+    [.       .                        ]
+    [.          .                     ]
+    [.             .                  ]
+    [sigma_i1    sigma_ij     sigma_in]
+    [.                 .              ]
+    [.                    .           ]
+    [.                       .        ]
+    [sigma_n1    sigma_nj     sigma_nn]
+    
+    Where there are n measurement sources and sigma_ij represents the block of the INVERSE of the noise covariance
+    corresponding to the ith blocked row and the jth blocked column.  To access sigma_ij, call 
+    blocked_cov_inv[('meas_namei','meas_namej')] where 'meas_namei' is the string representation of the name of
+    measurement source i.
+
+    -meas_noise_mean: a dictionary where meas_noise_mean['meas_namei'] = the mean measurement noise for measurement
+    source with name 'meas_namei'
+
+    -gt_obj: the ground truth object whose associated measurements will be combined, can have an arbitrary number
+    of associations
+
+    """
+    meas_count = len(gt_obj.assoc_dets) #number of associated measurements
+
+#    #dictionary containing all measurements in appropriately formatted numpy arrays
+#    reformatted_zs = {}
+#    for det_name, det in gt_obj.assoc_dets.iteritems():
+#        cur_z = np.array([det.x - meas_noise_mean[det_name][0], 
+#                          det.y - meas_noise_mean[det_name][1],
+#                          det.width - meas_noise_mean[det_name][2],
+#                          det.height - meas_noise_mean[det_name][3]])
+#        reformatted_zs[det_name] = cur_z
+#
+#    A = 0
+#    b = 0
+#    for det_name1, det in reformatted_zs.iteritems():
+#        for det_name2, ignore_me_det in gt_obj.assoc_dets.iteritems():
+#            A += blocked_cov_inv[(det_name1, det_name2)]
+#            b += np.dot(det, blocked_cov_inv[(det_name1, det_name2)])
+#
+#    combined_meas_mean = np.dot(inv(A), b)
+#    combined_covariance = inv(A)
+#
+#    assert(combined_meas_mean.shape == (4,)), (meas_count, gt_obj.assoc_dets)
+#    return (combined_meas_mean, combined_covariance)
+
+    #dictionary containing all measurements in appropriately formatted numpy arrays
+    reformatted_zs = {}
+    for det_name, det in gt_obj.assoc_dets.iteritems():
+        cur_z = np.array([det.x - meas_noise_mean[det_name][0], 
+                          det.y - meas_noise_mean[det_name][1],
+                          det.width - meas_noise_mean[det_name][2],
+                          det.height - meas_noise_mean[det_name][3]])
+        reformatted_zs[det_name] = cur_z
+    A = 0
+    b = 0
+    for det_name1, det in reformatted_zs.iteritems():
+        for det_name2, ignore_me_det in gt_obj.assoc_dets.iteritems():
+            A += blocked_cov_inv[(det_name1, det_name2)]
+            b += np.dot(det, blocked_cov_inv[(det_name1, det_name2)])
+    combined_meas_mean = np.dot(inv(A), b.transpose())
+    combined_covariance = inv(A)
+    assert(combined_meas_mean.shape == (4,)), (meas_count, gt_obj.assoc_dets)
+    return (combined_meas_mean.flatten(), combined_covariance)
+
+
+
 @explicit_serialize
 class RunRBPF(FireTaskBase):   
  #   _fw_name = "Run RBPF Task"
@@ -1615,12 +1724,29 @@ class RunRBPF(FireTaskBase):
         #Should ignored ground truth objects be included when calculating probabilities? (double check specifics)
         include_ignored_gt = fw_spec['include_ignored_gt']
         include_dontcare_in_gt = fw_spec['include_dontcare_in_gt']
-        det1_name = fw_spec['det1_name']
-        det2_name = fw_spec['det2_name']
-        if(det2_name == 'None'):
+        det_names = fw_spec['det_names']
+        det1_name = det_names[0]
+        if len(det_names) > 1:
+            det2_name = det_names[1]
+        else:
             det2_name = None
         sort_dets_on_intervals = fw_spec['sort_dets_on_intervals']
         results_folder = fw_spec['results_folder']
+
+        derandomize_with_seed = fw_spec['derandomize_with_seed']
+        if derandomize_with_seed:
+            random.seed(5)
+            np.random.seed(seed=5)
+
+        use_general_num_dets = fw_spec['use_general_num_dets']
+        global sample_and_reweight
+        if use_general_num_dets:
+            from rbpf_sampling_manyMeasSrcs import sample_and_reweight
+            from rbpf_sampling_manyMeasSrcs import Parameters
+
+        else:
+            from rbpf_sampling import sample_and_reweight
+            from rbpf_sampling import Parameters
 ####def run_rbpf(num_particles,run_idx,seq_idx,include_ignored_gt,include_dontcare_in_gt,
 ####            use_regionlets,det1_name,det2_name,sort_dets_on_intervals):
 ####    global NEXT_PARTICLE_ID
@@ -1709,7 +1835,7 @@ class RunRBPF(FireTaskBase):
             include_ignored_detections = True 
 
             if sort_dets_on_intervals:
-                score_interval_dict = {\
+                score_interval_dict_all_det = {\
                     'mscnn' : [float(i)*.1 for i in range(3,10)],              
                     'regionlets' : [i for i in range(2, 20)],
                     '3dop' : [float(i)*.1 for i in range(2,10)],            
@@ -1717,7 +1843,7 @@ class RunRBPF(FireTaskBase):
                     'mv3d' : [float(i)*.1 for i in range(2,10)]}        
     #            'regionlets' = [i for i in range(2, 16)]
             else:
-                score_interval_dict = {\
+                score_interval_dict_all_det = {\
     #            'mscnn' = [.5],                                
                 'mscnn' : [.3],                                
                 'regionlets' : [2],
@@ -1728,33 +1854,55 @@ class RunRBPF(FireTaskBase):
             #train on all training sequences, except the current sequence we are testing on
             training_sequences = [i for i in [i for i in range(21)] if i != seq_idx]
 
-            det1_score_intervals = score_interval_dict[det1_name]
-            if det2_name:
-                det2_score_intervals = score_interval_dict[det2_name]
-                SCORE_INTERVALS = [det1_score_intervals, det2_score_intervals]
-                (measurementTargetSetsBySequence, TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES, BIRTH_PROBABILITIES,\
-                    MEAS_NOISE_COVS, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES, JOINT_MEAS_NOISE_COV) = \
-                        get_meas_target_sets_2sources_general(training_sequences, det1_score_intervals, \
-                        det2_score_intervals, det1_name, det2_name, obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
-                        include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
-                        include_ignored_detections = include_ignored_detections)
+            SCORE_INTERVALS = []
+            for det_name in det_names:
+                SCORE_INTERVALS.append(score_interval_dict_all_det[det_name])
+
+            if use_general_num_dets:
+                #dictionary of score intervals for only detection sources we are using
+                SCORE_INTERVALS_DET_USED = {}
+                for det_name in det_names:
+                    SCORE_INTERVALS_DET_USED[det_name] = score_interval_dict_all_det[det_name]
+
+                (measurementTargetSetsBySequence, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, 
+                birth_count_priors, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES, 
+                posAndSize_inv_covariance_blocks, meas_noise_mean, posOnly_covariance_blocks) = get_meas_target_sets_general(
+                            training_sequences, SCORE_INTERVALS_DET_USED, det_names, \
+                            obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
+                            include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
+                            include_ignored_detections = include_ignored_detections)
+
+                params = Parameters(det_names, target_groupEmission_priors, clutter_grpCountByFrame_priors,\
+                         clutter_group_priors, birth_count_priors, posOnly_covariance_blocks, \
+                         meas_noise_mean, posAndSize_inv_covariance_blocks, SPEC['R'], H,\
+                         USE_PYTHON_GAUSSIAN, SPEC['USE_CONSTANT_R'], SCORE_INTERVALS,\
+                         p_birth_likelihood, p_clutter_likelihood, SPEC['CHECK_K_NEAREST_TARGETS'],
+                         SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'])
 
             else:
-                SCORE_INTERVALS = [det1_score_intervals]
-                (measurementTargetSetsBySequence, TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES, BIRTH_PROBABILITIES,\
-                    MEAS_NOISE_COVS, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES) = \
-                        get_meas_target_sets_1sources_general(training_sequences, det1_score_intervals, \
-                        det1_name, obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
-                        include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
-                        include_ignored_detections = include_ignored_detections)            
+                det1_score_intervals = score_interval_dict_all_det[det1_name]
+                if det2_name:
+                    det2_score_intervals = score_interval_dict_all_det[det2_name]
+                    (measurementTargetSetsBySequence, TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES, BIRTH_PROBABILITIES,\
+                        MEAS_NOISE_COVS, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES, JOINT_MEAS_NOISE_COV) = \
+                            get_meas_target_sets_2sources_general(training_sequences, det1_score_intervals, \
+                            det2_score_intervals, det1_name, det2_name, obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
+                            include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
+                            include_ignored_detections = include_ignored_detections)
 
+                else:
+                    (measurementTargetSetsBySequence, TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES, BIRTH_PROBABILITIES,\
+                        MEAS_NOISE_COVS, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES) = \
+                            get_meas_target_sets_1sources_general(training_sequences, det1_score_intervals, \
+                            det1_name, obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
+                            include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
+                            include_ignored_detections = include_ignored_detections)            
 
-
-            params = Parameters(TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES,\
-                     BIRTH_PROBABILITIES, MEAS_NOISE_COVS, SPEC['R'], H,\
-                     USE_PYTHON_GAUSSIAN, SPEC['USE_CONSTANT_R'], SCORE_INTERVALS,\
-                     p_birth_likelihood, p_clutter_likelihood, SPEC['CHECK_K_NEAREST_TARGETS'],
-                     SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'])
+                params = Parameters(TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES,\
+                         BIRTH_PROBABILITIES, MEAS_NOISE_COVS, SPEC['R'], H,\
+                         USE_PYTHON_GAUSSIAN, SPEC['USE_CONSTANT_R'], SCORE_INTERVALS,\
+                         p_birth_likelihood, p_clutter_likelihood, SPEC['CHECK_K_NEAREST_TARGETS'],
+                         SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'], SPEC)
 
             assert(len(n_frames) == len(measurementTargetSetsBySequence))
 
@@ -1811,12 +1959,12 @@ class RunRBPF(FireTaskBase):
             print "Resampling was performed %d times\n" % number_resamplings
             print "This run took %f seconds\n" % (t1-t0)
 
-            print "TARGET_EMISSION_PROBS=", TARGET_EMISSION_PROBS
-            print "CLUTTER_PROBABILITIES=", CLUTTER_PROBABILITIES
-            print "BIRTH_PROBABILITIES=", BIRTH_PROBABILITIES
-            print "MEAS_NOISE_COVS=", MEAS_NOISE_COVS
-            print "BORDER_DEATH_PROBABILITIES=", BORDER_DEATH_PROBABILITIES
-            print "NOT_BORDER_DEATH_PROBABILITIES=", NOT_BORDER_DEATH_PROBABILITIES
+#            print "TARGET_EMISSION_PROBS=", TARGET_EMISSION_PROBS
+#            print "CLUTTER_PROBABILITIES=", CLUTTER_PROBABILITIES
+#            print "BIRTH_PROBABILITIES=", BIRTH_PROBABILITIES
+#            print "MEAS_NOISE_COVS=", MEAS_NOISE_COVS
+#            print "BORDER_DEATH_PROBABILITIES=", BORDER_DEATH_PROBABILITIES
+#            print "NOT_BORDER_DEATH_PROBABILITIES=", NOT_BORDER_DEATH_PROBABILITIES
 
 
             sys.stdout.close()
