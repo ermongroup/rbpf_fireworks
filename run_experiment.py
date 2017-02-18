@@ -3,6 +3,7 @@
 # $ export PATH=$PACKAGE_DIR/anaconda2/bin:$PATH
 # $ export LD_LIBRARY_PATH=$PACKAGE_DIR/anaconda2/local:$LD_LIBRARY_PATH
 # $ source activate anaconda_venv
+# $ cd /atlas/u/jkuck/rbpf_fireworks/
 #
 # To install anaconda packages run, e.g.:
 # $ conda install -c matsci fireworks=1.3.9
@@ -369,7 +370,7 @@ if __name__ == "__main__":
     workflow = Workflow(all_fireworks, firework_dependencies)
     launchpad.add_wf(workflow)
     qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
-    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=21,
+    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
                   njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
                   fill_mode=False)
 
