@@ -1,19 +1,26 @@
+from __future__ import division
+from scipy.stats import multivariate_normal
 import numpy as np
 from numpy.linalg import inv
 import random
+from sets import ImmutableSet
+from munkres import Munkres
 
 import math
 
+#if we have prior of 0, return PRIOR_EPSILON
+PRIOR_EPSILON = .000000001
 
 class Parameters:
-    def __init__(self, target_emission_probs, clutter_probabilities,\
-                 birth_probabilities, meas_noise_cov, R_default, H,\
+    def __init__(self, det_names, target_groupEmission_priors, clutter_grpCountByFrame_priors,\
+                 clutter_group_priors, birth_count_priors, posOnly_covariance_blocks, \
+                 meas_noise_mean, posAndSize_inv_covariance_blocks, R_default, H,\
                  USE_PYTHON_GAUSSIAN, USE_CONSTANT_R, score_intervals,\
                  p_birth_likelihood, p_clutter_likelihood, CHECK_K_NEAREST_TARGETS,
-                 K_NEAREST_TARGETS, scale_prior_by_meas_orderings,\
-                 SPEC):
+                 K_NEAREST_TARGETS, scale_prior_by_meas_orderings):
         '''
         Inputs:
+        - det_names: list of detection source names
         -  score_intervals: list of lists, where score_intervals[i] is a list
             specifying the score intervals for measurement source i.  
             score_intervals[i][j] specifies the lower bound for the jth score
@@ -22,18 +29,20 @@ class Parameters:
             one of its K_NEAREST_TARGETS.  If false measurements may be associated
             with any target.
         '''
+        self.det_names = det_names
 
-        self.target_emission_probs = target_emission_probs
-        self.clutter_probabilities = clutter_probabilities
-        self.birth_probabilities = birth_probabilities
+        #dictionary where target_groupEmission_priors[det_set] is the prior probability
+        #that a ground truth object will emit the set of measurements specified by the immutable set det_set.
+        self.target_groupEmission_priors = target_groupEmission_priors 
+        self.clutter_grpCountByFrame_priors = clutter_grpCountByFrame_priors
+        self.clutter_group_priors = clutter_group_priors
+        self.birth_count_priors = birth_count_priors #dictionary, where birth_count_priors[n] is the prior probability of observing n births in a frame.
 
+        self.posOnly_covariance_blocks = posOnly_covariance_blocks #posOnly_covariance_blocks[(det_name1, det_name2)] = posOnly_cov_block_12
 
-        #print "checkthis outt..asdfasfwef"
-        #print "self.clutter_probabilities", self.clutter_probabilities
-        #print "self.birth_probabilitie", self.birth_probabilities
+        self.meas_noise_mean = meas_noise_mean
+        self.posAndSize_inv_covariance_blocks = posAndSize_inv_covariance_blocks
 
-
-        self.meas_noise_cov = meas_noise_cov
         self.R_default = R_default
         self.H = H
 
@@ -49,88 +58,178 @@ class Parameters:
         self.K_NEAREST_TARGETS = K_NEAREST_TARGETS
 
         self.scale_prior_by_meas_orderings = scale_prior_by_meas_orderings
-        self.SPEC = SPEC
 
 
-    def get_score_index(self, score, meas_source_index):
-        """
+        print "target_groupEmission_priors: ", self.target_groupEmission_priors
+        print "clutter_grpCountByFrame_priors: ", self.clutter_grpCountByFrame_priors
+        print "clutter_group_priors: ", self.clutter_group_priors
+        print "birth_count_priors: ", self.birth_count_priors
+        print "posOnly_covariance_blocks: ", self.posOnly_covariance_blocks
+        print "meas_noise_mean: ", self.meas_noise_mean
+        print "posAndSize_inv_covariance_blocks: ", self.posAndSize_inv_covariance_blocks
+
+    def birth_groupCount_prior(self, group_count):
+        if group_count in self.birth_count_priors:
+            return self.birth_count_priors[group_count]
+        else:
+            return PRIOR_EPSILON
+    def birth_group_prior(self, det_group):
+        if det_group in self.target_groupEmission_priors:
+            #probability of any target emitting this detection group, given that the target emits some detection
+            returnVal = self.target_groupEmission_priors[det_group]/(1.0 - self.target_groupEmission_priors[ImmutableSet([])]) 
+            assert (returnVal>0), (self.target_groupEmission_priors, det_group, self.target_groupEmission_priors[det_group], self.target_groupEmission_priors[ImmutableSet([])])
+            return self.target_groupEmission_priors[det_group]/(1.0 - self.target_groupEmission_priors[ImmutableSet([])]) 
+        else:
+            return PRIOR_EPSILON
+
+
+    def clutter_groupCount_prior(self, group_count):
+        if group_count in self.clutter_grpCountByFrame_priors:
+            return self.clutter_grpCountByFrame_priors[group_count]
+        else:
+            return PRIOR_EPSILON
+
+    def clutter_group_prior(self, det_group):
+        if det_group in self.clutter_group_priors:
+            return self.clutter_group_priors[det_group]
+        else:
+            return PRIOR_EPSILON
+
+    def find_clutter_priors_by_det():
+        #Compute marginal_det_priors where marginal_det_priors[det_name][n] is the prior probability
+
+        #Marginalize over self.clutter_group_priors to find marginal priors for each detection source
+
+        #dictionary, key=det_name value=priors for det_name
+        marginal_priors = {}
+
+
+
+def boxoverlap(a,b,criterion="union"):
+    """
+        boxoverlap computes intersection over union for bbox a and b in KITTI format.
+        If the criterion is 'union', overlap = (a inter b) / a union b).
+        If the criterion is 'a', overlap = (a inter b) / a, where b should be a dontcare area.
         Inputs:
-        - score: the score of a detection
+        - a: numpy array, [x_center, y_center, width, height] for detection a
+        - b: numpy array, [x_center, y_center, width, height] for detection b
+    """
+    a_x1 = a[0]-a[2]/2
+    a_x2 = a[0]+a[2]/2
+    a_y1 = a[1]-a[3]/2
+    a_y2 = a[1]+a[3]/2
 
-        Output:
-        - index: output the 0 indexed score interval this score falls into
-        """
+    b_x1 = b[0]-b[2]/2
+    b_x2 = b[0]+b[2]/2
+    b_y1 = b[1]-b[3]/2
+    b_y2 = b[1]+b[3]/2
 
-        index = 0
-        for i in range(1, len(self.score_intervals[meas_source_index])):
-            if(score > self.score_intervals[meas_source_index][i]):
-                index += 1
+    x1 = max(a_x1, b_x1)
+    y1 = max(a_y1, b_y1)
+    x2 = min(a_x2, b_x2)
+    y2 = min(a_y2, b_y2)
+    
+    w = x2-x1
+    h = y2-y1
+
+    if w<=0. or h<=0.:
+        return 0.
+    inter = w*h
+    aarea = (a_x2-a_x1) * (a_y2-a_y1)
+    barea = (b_x2-b_x1) * (b_y2-b_y1)
+    # intersection over union overlap
+    if criterion.lower()=="union":
+        o = inter / float(aarea+barea-inter)
+    elif criterion.lower()=="a":
+        o = float(inter) / float(aarea)
+    else:
+        raise TypeError("Unkown type for criterion")
+    return o
+
+
+def group_detections(meas_groups, det_name, detection_locations, det_widths, det_heights):
+    """
+    Take a list of detections and try to associate them with detection groups from other measurement sources
+    Inputs:
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
+    - det_name: name of the detection source we are currently associating with current detection groups
+    - detections: a list of detections from a specific measurement source, sequence, and frame
+    - seq_idx: the sequence index
+    - frame_idx: the frame index (in the specified sequence)
+
+    Outputs:
+    None, but meas_groups will be modified, with the new detections added (passed by reference)
+    """
+
+    hm = Munkres()
+    max_cost = 1e9
+
+    # use hungarian method to associate, using boxoverlap 0..1 as cost
+    # build cost matrix
+    cost_matrix = []
+    this_ids = [[],[]]
+
+    assert(len(detection_locations) == len(det_widths) and len(det_widths) == len(det_heights))
+    #combine into 4d detections
+    detections = []
+    for det_idx, det_loc in enumerate(detection_locations):
+        detections.append(np.array([det_loc[0], det_loc[1], det_widths[det_idx], det_heights[det_idx]]))
+
+    for cur_detection in detections:
+        cost_row = []
+        for cur_detection_group in meas_groups:
+            min_cost = max_cost
+            for det_name, grouped_detection in cur_detection_group.iteritems():
+                # overlap == 1 is cost ==0
+                c = 1-boxoverlap(cur_detection, grouped_detection)
+                if c < min_cost:
+                    min_cost = c
+            # gating for boxoverlap
+            if min_cost<=.5:
+                cost_row.append(min_cost)
             else:
-                break
-                
-        assert(score > self.score_intervals[meas_source_index][index]), (score, self.score_intervals[meas_source_index][index], self.score_intervals[meas_source_index][index+1]) 
-        if(index < len(self.score_intervals[meas_source_index]) - 1):
-            assert(score <= self.score_intervals[meas_source_index][index+1]), (score, self.score_intervals[meas_source_index][index], self.score_intervals[meas_source_index][index+1])
-        return index
+                cost_row.append(max_cost)
+        cost_matrix.append(cost_row)
+    
+    if len(detections) is 0:
+        cost_matrix=[[]]
+    # associate
+    association_matrix = hm.compute(cost_matrix)
 
-    def emission_prior(self, meas_source_index, meas_score):
-        score_index = self.get_score_index(meas_score, meas_source_index)
-        return self.target_emission_probs[meas_source_index][score_index]
+    associated_detection_indices = []
+    check_det_count = 0
+    for row,col in association_matrix:
+        # apply gating on boxoverlap
+        c = cost_matrix[row][col]
+        if c < max_cost:
+            associated_detection = detections[row]
+            associated_detection_indices.append(row)
+            associated_detection_group = meas_groups[col]
 
-    def clutter_prior(self, meas_source_index, meas_score, clutter_count):
-        '''
-        The prior probability of clutter_count number of clutter measurements with score 
-        given by meas_score from the measurement source with index meas_source_index
-        '''    
-        score_index = self.get_score_index(meas_score, meas_source_index)    
-        return self.clutter_probabilities[meas_source_index][score_index][clutter_count]
+            #double check
+            check_det_count += 1
+            min_cost = max_cost
+            for det_name, grouped_detection in associated_detection_group.iteritems():
+                # overlap == 1 is cost ==0
+                check_c = 1-boxoverlap(associated_detection, grouped_detection)
+                if check_c < min_cost:
+                    min_cost = check_c
+            assert(min_cost == c), (min_cost, c)
+            #done double check                
 
-    def max_clutter_count(self, meas_source_index, meas_score):
-        '''
-        The maximum clutter count from the specified measurement source and score
-        range that has a non-zero prior.
-        '''
-        score_index = self.get_score_index(meas_score, meas_source_index)    
-        return len(self.clutter_probabilities[meas_source_index][score_index]) - 1
-
-
-    def birth_prior(self, meas_source_index, meas_score, birth_count):
-        '''
-        The prior probability of birth_count number of births with score given by
-        meas_score from the measurement source with index meas_source_index
-        '''
-        score_index = self.get_score_index(meas_score, meas_source_index)    
-        if self.SPEC['set_birth_clutter_prop_equal']:
-            return self.clutter_probabilities[meas_source_index][score_index][birth_count]
-        else:
-            return self.birth_probabilities[meas_source_index][score_index][birth_count]
+            associated_detection_group[det_name] = associated_detection                
 
 
-    def max_birth_count(self, meas_source_index, meas_score):
-        '''
-        The maximum birth count from the specified measurement source and score
-        range that has a non-zero prior.
-        '''
-        score_index = self.get_score_index(meas_score, meas_source_index)    
-        return len(self.birth_probabilities[meas_source_index][score_index]) - 1
-
-    def check_counts(self, clutter_counts_by_score, birth_counts_by_score, meas_source_index):
-        assert(len(clutter_counts_by_score) == len(birth_counts_by_score))
-        assert(len(clutter_counts_by_score) == len(self.clutter_probabilities[meas_source_index]))
-
-        for i in range(len(clutter_counts_by_score)):
-            assert(0 <= clutter_counts_by_score[i] and clutter_counts_by_score[i] <= len(self.clutter_probabilities[meas_source_index][i]) - 1)
-            assert(0 <= birth_counts_by_score[i] and birth_counts_by_score[i] <= len(self.birth_probabilities[meas_source_index][i]) - 1), (birth_counts_by_score[i], len(self.birth_probabilities[meas_source_index][i]) - 1, self.birth_probabilities[meas_source_index][i])
+    for det_idx in range(len(detections)):
+        if not(det_idx in associated_detection_indices):
+            meas_groups.append({det_name: detections[det_idx]})
+            check_det_count += 1
+    assert(check_det_count == len(detections))
 
 
-    def get_R(self, meas_source_index, meas_score):
-        if self.USE_CONSTANT_R:
-            return self.R_default
-        else:
-            score_index = self.get_score_index(meas_score, meas_source_index)    
-            return self.meas_noise_cov[meas_source_index][score_index]
 
-def sample_and_reweight(particle, measurement_lists, \
+def sample_and_reweight(particle, measurement_lists, widths, heights, det_names, \
     cur_time, measurement_scores, params):
     """
     Input:
@@ -138,6 +237,7 @@ def sample_and_reweight(particle, measurement_lists, \
     - measurement_lists: a list where measurement_lists[i] is a list of all measurements from the current
         time instance from the ith measurement source (i.e. different object detection algorithms
         or different sensors)
+    - det_names: a list of names of measurement sources, where det_names[i] corresponds to measurement_lists[i]
     - measurement_scores: a list where measurement_scores[i] is a list containing scores for every measurement in
         measurement_list[i]
     - params: type Parameters, gives prior probabilities and other parameters we are using
@@ -165,9 +265,13 @@ def sample_and_reweight(particle, measurement_lists, \
         assert(p_target_deaths[len(p_target_deaths) - 1] >= 0 and p_target_deaths[len(p_target_deaths) - 1] <= 1)
 
 
-    (targets_to_kill, measurement_associations, proposal_probability, unassociated_target_death_probs) = \
-        sample_meas_assoc_and_death(particle, measurement_lists, particle.targets.living_count, p_target_deaths, \
-                                    cur_time, measurement_scores, params)
+    meas_groups = []
+    for det_idx, det_name in enumerate(det_names):
+        group_detections(meas_groups, det_name, measurement_lists[det_idx], widths[det_idx], heights[det_idx])
+
+    (targets_to_kill, meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, 
+        unassociated_target_death_probs) =  sample_grouped_meas_assoc_and_death(particle, 
+        meas_groups, particle.targets.living_count, p_target_deaths, cur_time, measurement_scores, params)
 
 
 
@@ -177,14 +281,10 @@ def sample_and_reweight(particle, measurement_lists, \
             living_target_indices.append(i)
 
     exact_probability = 1.0
-    for meas_source_index in range(len(measurement_lists)):
-        cur_likelihood = get_likelihood(particle, meas_source_index, measurement_lists[meas_source_index], \
-            particle.targets.living_count, measurement_associations[meas_source_index],\
-            measurement_scores[meas_source_index], params)
-        cur_assoc_prior = get_assoc_prior(living_target_indices, particle.targets.living_count, len(measurement_lists[meas_source_index]), 
-                               measurement_associations[meas_source_index], measurement_scores[meas_source_index], params, meas_source_index)
-#        #print "meas_source_index =", meas_source_index, "cur_likelihood =", cur_likelihood, "cur_assoc_prior =", cur_assoc_prior
-        exact_probability *= cur_likelihood * cur_assoc_prior
+    likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
+                                   meas_grp_associations, params)
+    assoc_prior = get_assoc_prior(particle.targets.living_count, meas_groups, meas_grp_associations, params)
+    exact_probability *= likelihood * assoc_prior
 
 
     death_prior = calc_death_prior(living_target_indices, p_target_deaths)
@@ -200,17 +300,16 @@ def sample_and_reweight(particle, measurement_lists, \
 
     particle.likelihood_DOUBLE_CHECK_ME = exact_probability
 
-    return (measurement_associations, targets_to_kill, imprt_re_weight)
+    return (meas_grp_associations, meas_grp_means, meas_grp_covs, targets_to_kill, imprt_re_weight)
 
-def sample_meas_assoc_and_death(particle, measurement_lists, total_target_count, 
+def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_count, 
                            p_target_deaths, cur_time, measurement_scores, params):
     """
     Try sampling associations with each measurement sequentially
     Input:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle
-    - measurement_lists: type list, measurement_lists[i] is a list of all measurements from the current
-        time instance from the ith measurement source (i.e. different object detection algorithms
-        or different sensors)
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
     - measurement_scores: type list, measurement_scores[i] is a list containing scores for every measurement in
         measurement_list[i]
     - total_target_count: the number of living targets on the previous time instace
@@ -221,23 +320,40 @@ def sample_meas_assoc_and_death(particle, measurement_lists, total_target_count,
 
     Output:
     - targets_to_kill: a list of targets that have been sampled to die (not killed yet)
-    - measurement_associations: type list, measurement_associations[i] is a list of associations for  
-        the measurements in measurement_lists[i]
+    - meas_grp_associations: type list, meas_grp_associations[i] the association for the ith
+        measurement group
+    - meas_grp_means: list, each element is the combined measurment mean (np array)
+    - meas_grp_covs: list, each element is the combined measurment covariance (np array)
     - proposal_probability: proposal probability of the sampled deaths and associations
         
     """
-    assert(len(measurement_lists) == len(measurement_scores))
-    measurement_associations = []
-    proposal_probability = 1.0
-    for meas_source_index in range(len(measurement_lists)):
-        (cur_associations, cur_proposal_prob) = associate_measurements_sequentially\
-            (particle, meas_source_index, measurement_lists[meas_source_index], \
-             total_target_count, p_target_deaths, measurement_scores[meas_source_index],\
+#    assert(len(measurement_lists) == len(measurement_scores))
+#    measurement_associations = []
+#    proposal_probability = 1.0
+#    for meas_source_index in range(len(measurement_lists)):
+#        (cur_associations, cur_proposal_prob) = associate_measurements_sequentially\
+#            (particle, meas_source_index, measurement_lists[meas_source_index], \
+#             total_target_count, p_target_deaths, measurement_scores[meas_source_index],\
+#             params)
+#        measurement_associations.append(cur_associations)
+#        proposal_probability *= cur_proposal_prob
+#
+#    assert(len(measurement_associations) == len(measurement_lists))
+#
+#    FIXME measurement_associations, proposal_probability
+############################################################################################################
+    #New implementation
+    
+    (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = associate_measurements_sequentially\
+            (particle, meas_groups, \
+             total_target_count, p_target_deaths,\
              params)
-        measurement_associations.append(cur_associations)
-        proposal_probability *= cur_proposal_prob
 
-    assert(len(measurement_associations) == len(measurement_lists))
+
+
+
+
+############################################################################################################
 
 ############################################################################################################
     #sample target deaths from unassociated targets
@@ -246,9 +362,10 @@ def sample_meas_assoc_and_death(particle, measurement_lists, total_target_count,
 
     for i in range(total_target_count):
         target_unassociated = True
-        for meas_source_index in range(len(measurement_associations)):
-            if (i in measurement_associations[meas_source_index]):
-                target_unassociated = False
+        if i in meas_grp_associations:
+            target_unassociated = False
+        else:
+            target_unassociated = True            
         if target_unassociated:
             unassociated_targets.append(i)
             unassociated_target_death_probs.append(p_target_deaths[i])
@@ -263,23 +380,21 @@ def sample_meas_assoc_and_death(particle, measurement_lists, total_target_count,
     assert(proposal_probability != 0.0)
 
     #debug
-    for meas_source_index in range(len(measurement_associations)):
-        for i in range(total_target_count):
-            assert(measurement_associations[meas_source_index].count(i) == 0 or \
-                   measurement_associations[meas_source_index].count(i) == 1), (measurement_associations[meas_source_index],  measurement_list, total_target_count, p_target_deaths)
+    for i in range(total_target_count):
+        assert(meas_grp_associations.count(i) == 0 or \
+               meas_grp_associations.count(i) == 1), (meas_grp_associations,  measurement_list, total_target_count, p_target_deaths)
     #done debug
 
-    return (targets_to_kill, measurement_associations, proposal_probability, unassociated_target_death_probs)
+    return (targets_to_kill, meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, unassociated_target_death_probs)
 
-
-def associate_measurements_sequentially(particle, meas_source_index, measurement_list, total_target_count, \
-    p_target_deaths, measurement_scores, params):
+def associate_measurements_sequentially(particle, meas_groups, total_target_count, p_target_deaths, params):
 
     """
     Try sampling associations with each measurement sequentially
     Input:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle     
-    - measurement_list: a list of all measurements from the current time instance
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
     - total_target_count: the number of living targets on the previous time instace
     - p_target_deaths: a list of length len(total_target_count) where 
         p_target_deaths[i] = the probability that target i has died between the last
@@ -287,7 +402,7 @@ def associate_measurements_sequentially(particle, meas_source_index, measurement
     - params: type Parameters, gives prior probabilities and other parameters we are using
 
     Output:
-    - list_of_measurement_associations: list of associations for each measurement
+    - list_of_measurement_associations: list of associations for each measurement group
     - proposal_probability: proposal probability of the sampled deaths and associations
         
     """
@@ -295,20 +410,22 @@ def associate_measurements_sequentially(particle, meas_source_index, measurement
     proposal_probability = 1.0
 
     #sample measurement associations
-    birth_count = [0 for i in range(len(params.score_intervals[meas_source_index]))]
-    clutter_count = [0 for i in range(len(params.score_intervals[meas_source_index]))]
-    remaining_meas_count = len(measurement_list)
+    birth_count = 0
+    clutter_count = 0
+    remaining_meas_count = len(meas_groups)
 
-    def get_remaining_meas_count(cur_meas_index, cur_meas_score):
-        assert(len(measurement_scores) == len(measurement_list))
-        remaining_meas_count = 0
-        cur_meas_score_idx = params.get_score_index(cur_meas_score, meas_source_index)
-        for idx in range(cur_meas_index+1, len(measurement_list)):
-            if(cur_meas_score_idx ==\
-               params.get_score_index(measurement_scores[idx], meas_source_index)):
-                remaining_meas_count = remaining_meas_count + 1
-
-        return remaining_meas_count
+    #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+    #of the position of meas_groups[i]
+    meas_grp_covs = []   
+    meas_grp_means2D = []
+    meas_grp_means4D = []
+    for (index, detection_group) in enumerate(meas_groups):
+        (combined_meas_mean, combined_covariance) = combine_arbitrary_number_measurements_4d(params.posAndSize_inv_covariance_blocks, 
+                            params.meas_noise_mean, detection_group)
+        combined_meas_pos = combined_meas_mean[0:2]
+        meas_grp_means2D.append(combined_meas_pos)
+        meas_grp_means4D.append(combined_meas_mean)
+        meas_grp_covs.append(combined_covariance)
 
 
     def get_k_nearest_targets(measurement, k):
@@ -339,73 +456,57 @@ def associate_measurements_sequentially(particle, meas_source_index, measurement
         return k_nearest_target_indices
 
 
-    for (index, cur_meas) in enumerate(measurement_list):
-        meas_score = measurement_scores[index]
+    for (index, detection_group) in enumerate(meas_groups):
         #create proposal distribution for the current measurement
         #compute target association proposal probabilities
         proposal_distribution_list = []
 
+        #create set of the names of detection sources preset in this detection group
+        group_det_names = []
+        for det_name, det in detection_group.iteritems():
+            group_det_names.append(det_name)
+        det_names_set = ImmutableSet(group_det_names)
+
         if params.CHECK_K_NEAREST_TARGETS:
-            targets_to_check = get_k_nearest_targets(cur_meas, params.K_NEAREST_TARGETS)
+            targets_to_check = get_k_nearest_targets(meas_grp_means2D[index], params.K_NEAREST_TARGETS)
         else:
             targets_to_check = [i for i in range(total_target_count)]
 
 #        for target_index in range(total_target_count):
         for target_index in targets_to_check:
-            cur_target_likelihood = memoized_assoc_likelihood(particle, cur_meas, meas_source_index, target_index, params, meas_score)
+            cur_target_likelihood = memoized_assoc_likelihood(particle, detection_group, target_index, params)
+
             targ_likelihoods_summed_over_meas = 0.0
 
-            for meas_index in range(len(measurement_list)):
-                temp_score = measurement_scores[meas_index] #measurement score for the meas_index in this loop
-                targ_likelihoods_summed_over_meas += memoized_assoc_likelihood(particle, measurement_list[meas_index], meas_source_index, target_index, params, temp_score)
+            for meas_index2, detection_group2 in enumerate(meas_groups):
+                cur_target_likelihood = memoized_assoc_likelihood(particle, detection_group2, target_index, params)
             
             if((targ_likelihoods_summed_over_meas != 0.0) and (not target_index in list_of_measurement_associations)\
                 and p_target_deaths[target_index] < 1.0):
-                cur_target_prior = params.emission_prior(meas_source_index, meas_score)*cur_target_likelihood \
+                cur_target_prior = params.target_groupEmission_priors[det_names_set]*cur_target_likelihood \
                                   /targ_likelihoods_summed_over_meas
             else:
                 cur_target_prior = 0.0
-
             proposal_distribution_list.append(cur_target_likelihood*cur_target_prior)
 
 
-#        score_index = params.get_score_index(meas_score, meas_source_index)
-        remaining_meas_count_by_score = get_remaining_meas_count(index, meas_score)
-        #compute birth association proposal probability
-        cur_birth_prior = 0.0
-
-        assert(params.get_score_index(meas_score, meas_source_index) < len(birth_count)), (params.get_score_index(meas_score, meas_source_index), len(birth_count))
-
-        for i in range(birth_count[params.get_score_index(meas_score, meas_source_index)]+1, min(params.max_birth_count(meas_source_index, meas_score) + 1, remaining_meas_count_by_score + birth_count[params.get_score_index(meas_score, meas_source_index)] + 2)):
-            cur_birth_prior += params.birth_prior(meas_source_index, meas_score, i)*(i - birth_count[params.get_score_index(meas_score, meas_source_index)])/(remaining_meas_count_by_score + 1)
-            #print "cur_birth_prior =", cur_birth_prior
-            #print "params.birth_prior(meas_source_index, meas_score, i) =", params.birth_prior(meas_source_index, meas_score, i)
-            #print "meas_source_index =", meas_source_index
-            #print "meas_score =", meas_score
-            #print "(i - birth_count[params.get_score_index(meas_score, meas_source_index)])/(remaining_meas_count_by_score + 1) =", (i - birth_count[params.get_score_index(meas_score, meas_source_index)])/(remaining_meas_count_by_score + 1)
-        proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood)
-#        for i in range(birth_count+1, min(len(params.birth_probabilities[meas_source_index][score_index]), remaining_meas_count_by_score + birth_count + 1)):
-#            cur_birth_prior += params.birth_probabilities[meas_source_index][score_index][i]*(i - birth_count)/remaining_meas_count_by_score 
-#        proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood)
-
-#        assert(len(params.birth_probabilities[meas_source_index][score_index]) == params.max_birth_count(meas_source_index, meas_score) + 1), (len(params.birth_probabilities[meas_source_index][score_index]), params.max_birth_count(meas_source_index, meas_score) + 1)
-
-        #compute clutter association proposal probability
-        cur_clutter_prior = 0.0
-        for i in range(clutter_count[params.get_score_index(meas_score, meas_source_index)]+1, min(params.max_clutter_count(meas_source_index, meas_score) + 1, remaining_meas_count_by_score + clutter_count[params.get_score_index(meas_score, meas_source_index)] + 2)):
-            cur_clutter_prior += params.clutter_prior(meas_source_index, meas_score, i)*(i - clutter_count[params.get_score_index(meas_score, meas_source_index)])/(remaining_meas_count_by_score + 1)
-            #print "cur_clutter_prior =", cur_clutter_prior
-            #print "params.clutter_prior(meas_source_index, meas_score, i) =", params.clutter_prior(meas_source_index, meas_score, i)            
-            #print "meas_source_index =", meas_source_index
-            #print "meas_score =", meas_score
-            #print "(i - birth_count[params.get_score_index(meas_score, meas_source_index)])/(remaining_meas_count_by_score + 1) =", (i - birth_count[params.get_score_index(meas_score, meas_source_index)])/(remaining_meas_count_by_score + 1)
-
-        proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood)
-#        for i in range(clutter_count+1, min(len(params.clutter_probabilities[meas_source_index][score_index]), remaining_meas_count_by_score + clutter_count + 1)):
-#            cur_clutter_prior += params.clutter_probabilities[meas_source_index][score_index][i]*(i - clutter_count)/remaining_meas_count_by_score 
-#        proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood)
+        cur_birth_prior = PRIOR_EPSILON
+        for bc, prior in params.birth_count_priors.iteritems():
+            additional_births = max(0.0, min(bc - birth_count, remaining_meas_count))
+            cur_birth_prior += prior*additional_births/remaining_meas_count 
+        cur_birth_prior *= params.birth_group_prior(det_names_set)
+        assert(cur_birth_prior*params.p_birth_likelihood**len(detection_group) > 0), (cur_birth_prior,params.p_birth_likelihood,len(detection_group))
+        proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood**len(detection_group)) #Quick test, make nicer!!
 
 
+
+        cur_clutter_prior = PRIOR_EPSILON
+        for cc, prior in params.clutter_grpCountByFrame_priors.iteritems():
+            additional_clutter = max(0.0, min(cc - clutter_count, remaining_meas_count))
+            cur_clutter_prior += prior*additional_clutter/remaining_meas_count 
+        cur_clutter_prior *= params.clutter_group_prior(det_names_set)
+        assert(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group) > 0), (cur_clutter_prior, params.p_clutter_likelihood, len(detection_group))
+        proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group)) #Quick test, make nicer!!
 
         #normalize the proposal distribution
         proposal_distribution = np.asarray(proposal_distribution_list)
@@ -421,18 +522,16 @@ def associate_measurements_sequentially(particle, meas_source_index, measurement
         else:
             assert(len(proposal_distribution) == total_target_count+2), len(proposal_distribution)
 
+        print proposal_distribution
 
         sampled_assoc_idx = np.random.choice(len(proposal_distribution),
                                                 p=proposal_distribution)
-
-        #print proposal_distribution
-#        sleep(5)
 
         if params.CHECK_K_NEAREST_TARGETS:
             possible_target_assoc_count = min(params.K_NEAREST_TARGETS, total_target_count)
             if(sampled_assoc_idx <= possible_target_assoc_count): #target or birth association
                 if(sampled_assoc_idx == possible_target_assoc_count): #birth
-                    birth_count[params.get_score_index(meas_score, meas_source_index)] += 1
+                    birth_count += 1
                     list_of_measurement_associations.append(total_target_count)
                 else: #target
                     list_of_measurement_associations.append(targets_to_check[sampled_assoc_idx])
@@ -440,27 +539,25 @@ def associate_measurements_sequentially(particle, meas_source_index, measurement
             else: #clutter association
                 assert(sampled_assoc_idx == possible_target_assoc_count+1)
                 list_of_measurement_associations.append(-1)
-                clutter_count[params.get_score_index(meas_score, meas_source_index)] += 1
+                clutter_count += 1
 
         else: #we considered association with all targets
             if(sampled_assoc_idx <= total_target_count): #target or birth association
                 list_of_measurement_associations.append(sampled_assoc_idx)
                 if(sampled_assoc_idx == total_target_count):
-                    birth_count[params.get_score_index(meas_score, meas_source_index)] += 1
+                    birth_count += 1
             else: #clutter association
                 assert(sampled_assoc_idx == total_target_count+1)
                 list_of_measurement_associations.append(-1)
-                clutter_count[params.get_score_index(meas_score, meas_source_index)] += 1
+                clutter_count += 1
 
         proposal_probability *= proposal_distribution[sampled_assoc_idx]
 
         remaining_meas_count -= 1
 
-        assert(clutter_count[params.get_score_index(meas_score, meas_source_index)] <= params.max_clutter_count(meas_source_index, meas_score))
-        assert(birth_count[params.get_score_index(meas_score, meas_source_index)] <= params.max_birth_count(meas_source_index, meas_score)), (proposal_distribution, sampled_assoc_idx, birth_count, params.max_birth_count(meas_source_index, meas_score), index, remaining_meas_count, len(proposal_distribution), birth_count, clutter_count, len(measurement_list), total_target_count)
 
     assert(remaining_meas_count == 0)
-    return(list_of_measurement_associations, proposal_probability)
+    return(list_of_measurement_associations, meas_grp_means4D, meas_grp_covs, proposal_probability)
 
 
 def sample_target_deaths(particle, unassociated_targets, cur_time):
@@ -563,7 +660,104 @@ def count_meas_orderings(M, T, b, c):
     return float(combinations)
 
 
-def get_assoc_prior(living_target_indices, total_target_count, number_measurements, 
+def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, detection_group):
+    """
+    
+    Inputs:
+    - blocked_cov_inv: dictionary containing the inverse of the measurement noise covariance matrix, between
+    all measurement source
+
+    [sigma_11    sigma_1j     sigma_1n]
+    [.       .                        ]
+    [.          .                     ]
+    [.             .                  ]
+    [sigma_i1    sigma_ij     sigma_in]
+    [.                 .              ]
+    [.                    .           ]
+    [.                       .        ]
+    [sigma_n1    sigma_nj     sigma_nn]
+    
+    Where there are n measurement sources and sigma_ij represents the block of the INVERSE of the noise covariance
+    corresponding to the ith blocked row and the jth blocked column.  To access sigma_ij, call 
+    blocked_cov_inv[('meas_namei','meas_namej')] where 'meas_namei' is the string representation of the name of
+    measurement source i.
+
+    -meas_noise_mean: a dictionary where meas_noise_mean['meas_namei'] = the mean measurement noise for measurement
+    source with name 'meas_namei'
+
+    -detection_group: dictionary of detections to combine, key='det_name', value=detection
+
+    """
+    meas_count = len(detection_group) #number of associated measurements
+
+    #dictionary containing all measurements in appropriately formatted numpy arrays
+    reformatted_zs = {}
+    for det_name, det in detection_group.iteritems():
+        cur_z = np.array([det[0] - meas_noise_mean[det_name][0], 
+                          det[1] - meas_noise_mean[det_name][1],
+                          det[2] - meas_noise_mean[det_name][2],
+                          det[3] - meas_noise_mean[det_name][3]])
+        reformatted_zs[det_name] = cur_z
+    A = 0
+    b = 0
+    for det_name1, det in reformatted_zs.iteritems():
+        for det_name2, ignore_me_det in detection_group.iteritems():
+            A += blocked_cov_inv[(det_name1, det_name2)]
+            b += np.dot(det, blocked_cov_inv[(det_name1, det_name2)])
+    combined_meas_mean = np.dot(inv(A), b.transpose())
+    combined_covariance = inv(A)
+    assert(combined_meas_mean.shape == (4,)), (meas_count, detection_group)
+    return (combined_meas_mean.flatten(), combined_covariance)
+
+
+
+
+def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, params):
+    """
+    Inputs:
+    - living_target_count: number of living counts, measurement associations that correspond to association
+        with a target will be in the range [0, living_target_count)
+    """
+    #get list of detection names present in our detection group
+
+    #count the number of unique target associations
+    unique_assoc = set(meas_grp_associations)
+    if(living_target_count in unique_assoc):
+        unique_assoc.remove(living_target_count)
+    if((-1) in unique_assoc):
+        unique_assoc.remove((-1))
+
+    #the number of targets we observed on this time instance
+    observed_target_count = len(unique_assoc)
+    #the number of targets we don't observe on this time instance
+    #but are still alive on this time instance
+    unobserved_target_count = living_target_count - observed_target_count
+
+    prior = params.target_groupEmission_priors[ImmutableSet([])]**unobserved_target_count
+    for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
+        #get the names of detection sources in this group
+        group_det_names = []
+        for det_name, det in meas_groups[meas_grp_idx].iteritems():
+            group_det_names.append(det_name)
+        det_names_set = ImmutableSet(group_det_names)          
+  
+        if meas_grp_assoc>=0 and meas_grp_assoc < living_target_count: #target association
+            prior *= params.target_groupEmission_priors[det_names_set]
+        elif meas_grp_assoc == -1:
+            prior *= params.clutter_group_prior(det_names_set)
+        else:
+            assert(meas_grp_assoc == living_target_count), (meas_grp_assoc, living_target_count)
+            prior *= params.birth_group_prior(det_names_set)
+
+    birth_count = meas_grp_associations.count(living_target_count)
+    prior *= params.birth_groupCount_prior(birth_count)
+
+    clutter_count = meas_grp_associations.count(-1)
+    prior *= params.clutter_groupCount_prior(clutter_count)
+
+    return prior
+
+def get_assoc_prior_prev(living_target_indices, total_target_count, number_measurements, 
              measurement_associations, measurement_scores, params,\
              meas_source_index):
     """
@@ -691,45 +885,30 @@ def get_assoc_prior(living_target_indices, total_target_count, number_measuremen
     return assoc_prior
 
 
-def get_likelihood(particle, meas_source_index, measurement_list, total_target_count,
-                   measurement_associations, measurement_scores, params):
+def get_likelihood(particle, meas_groups, total_target_count,
+                   measurement_associations, params):
     """
-    REDOCUMENT, BELOW INCORRECT, not including death probability now
-    Calculate p(data, associations, #measurements, deaths) as:
-    p(data|deaths, associations, #measurements)*p(deaths)*p(associations, #measurements|deaths)
-    Input:
-    - particle: type Particle, we will perform sampling and importance reweighting on this particle             
-    - measurement_list: a list of all measurements from the current time instance, from the measurement
-        source with index meas_source_index
-    - total_target_count: the number of living targets on the previous time instace
-    - measurement_associations: a list of association values for each measurement. Each association has the value
-        of a living target index (index from last time instance), target birth (total_target_count), 
-        or clutter (-1)
-    - params: type Parameters, gives prior probabilities and other parameters we are using
 
-    Return:
-    - p(data, associations, #measurements, deaths)
 
     """
 
     likelihood = 1.0
-    assert(len(measurement_associations) == len(measurement_list))
+    assert(len(measurement_associations) == len(meas_groups))
     for meas_index, meas_association in enumerate(measurement_associations):
         if(meas_association == total_target_count): #birth
-            likelihood *= params.p_birth_likelihood
+            likelihood *= params.p_birth_likelihood  #FIX ME!!
         elif(meas_association == -1): #clutter
-            likelihood *= params.p_clutter_likelihood
+            likelihood *= params.p_clutter_likelihood  #FIX ME!!
         else:
             assert(meas_association >= 0 and meas_association < total_target_count), (meas_association, total_target_count)
-            meas_score = measurement_scores[meas_index]
-            likelihood *= memoized_assoc_likelihood(particle, measurement_list[meas_index], meas_source_index, \
-                                                         meas_association, params, meas_score)
+            likelihood *= memoized_assoc_likelihood(particle, meas_groups[meas_index], meas_association, params)
 
     assert(likelihood != 0.0), (likelihood)
 
     return likelihood
 
-def memoized_assoc_likelihood(particle, measurement, meas_source_index, target_index, params, meas_score):
+
+def memoized_assoc_likelihood(particle, detection_group, target_index, params):
     """
         LSVM and regionlets produced two measurements with the same locations (centers), so using the 
         meas_source_index as part of the key is (sort of) necessary.  Currently also using the score_index, 
@@ -744,35 +923,60 @@ def memoized_assoc_likelihood(particle, measurement, meas_source_index, target_i
     """
 
 
-    if((measurement[0], measurement[1], target_index, meas_source_index, meas_score) in particle.assoc_likelihood_cache):
-        (assoc_likelihood, cached_score_index, cached_measurement, cached_meas_source_index) = particle.assoc_likelihood_cache[(measurement[0], measurement[1], target_index, meas_source_index, meas_score)]
-        assert(cached_score_index == meas_score), (cached_score_index, meas_score, measurement, cached_measurement, target_index, meas_noise_cov, cached_meas_source_index, meas_source_index)
-        assert(cached_meas_source_index == meas_source_index), (cached_score_index, meas_score, measurement, cached_measurement, target_index, meas_noise_cov, cached_meas_source_index, meas_source_index)
+    if((str(detection_group), target_index) in particle.assoc_likelihood_cache):
+        (assoc_likelihood, cached_measurement) = particle.assoc_likelihood_cache[(str(detection_group), target_index)]
         return assoc_likelihood
     else: #likelihood not cached
-        R = params.get_R(meas_source_index, meas_score)
+
         target = particle.targets.living_targets[target_index]
-        S = np.dot(np.dot(params.H, target.P), params.H.T) + R
+        target_cov = np.dot(np.dot(params.H, target.P), params.H.T)
         assert(target.x.shape == (4, 1))
 
         state_mean_meas_space = np.dot(params.H, target.x)
         state_mean_meas_space = np.squeeze(state_mean_meas_space)
 
 
-        if params.USE_PYTHON_GAUSSIAN:
-            distribution = multivariate_normal(mean=state_mean_meas_space, cov=S)
-            assoc_likelihood = distribution.pdf(measurement)
-        else:
-            S_det = S[0][0]*S[1][1] - S[0][1]*S[1][0] # a little faster
-            S_inv = inv(S)
-            assert(S_det > 0), S_det
-            LIKELIHOOD_DISTR_NORM = 1.0/math.sqrt((2*math.pi)**2*S_det)
 
-            offset = measurement - state_mean_meas_space
-            a = -.5*np.dot(np.dot(offset, S_inv), offset)
-            assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
+        #get list of detection names present in our detection group
+        dets_present = []
+        for det_name, detection in detection_group.iteritems():
+            dets_present.append(det_name)
+        # create array of all detection positions in the group
+        all_det_loc = np.zeros(2*len(detection_group))
+        # repeat the target location to map it to the #detections * 2 dimension space
+        target_loc_repeated = np.zeros(2*len(detection_group))
+        for idx, det_name in enumerate(dets_present):
+            all_det_loc[idx*2] = detection_group[det_name][0]
+            all_det_loc[idx*2+1] = detection_group[det_name][1]
 
-        particle.assoc_likelihood_cache[(measurement[0], measurement[1], target_index, meas_source_index, meas_score)] = (assoc_likelihood, meas_score, measurement, meas_source_index)
+            target_loc_repeated[idx*2] = state_mean_meas_space[0]
+            target_loc_repeated[idx*2+1] = state_mean_meas_space[1]
+
+
+        complete_covariance = np.zeros((2*len(detection_group), 2*len(detection_group)))
+        for idx1, det_name1 in enumerate(dets_present):
+            for idx2, det_name2 in enumerate(dets_present):
+                complete_covariance[idx1*2:(idx1+1)*2][idx2*2:(idx2+1)*2] = params.posOnly_covariance_blocks[(det_name1, det_name2)] + target_cov
+
+
+        distribution = multivariate_normal(mean=target_loc_repeated, cov=complete_covariance)
+        assoc_likelihood = distribution.pdf(all_det_loc)
+
+
+#        if params.USE_PYTHON_GAUSSIAN:
+#            distribution = multivariate_normal(mean=state_mean_meas_space, cov=S)
+#            assoc_likelihood = distribution.pdf(measurement)
+#        else:
+#            S_det = S[0][0]*S[1][1] - S[0][1]*S[1][0] # a little faster
+#            S_inv = inv(S)
+#            assert(S_det > 0), S_det
+#            LIKELIHOOD_DISTR_NORM = 1.0/math.sqrt((2*math.pi)**2*S_det)
+#
+#            offset = measurement - state_mean_meas_space
+#            a = -.5*np.dot(np.dot(offset, S_inv), offset)
+#            assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
+#
+#        particle.assoc_likelihood_cache[(str(detection_group), target_index)] = (assoc_likelihood, measurement)
         return assoc_likelihood
 
 
