@@ -3461,7 +3461,7 @@ def calc_gaussian_paramaters(group_type, gt_objects, detection_names):
         posOnly_cov_block_21 = cov[4:6, 0:2]
 
         if(det_name1 == det_name2):
-            assert(np.all(posAndSize_cov_block_12==posAndSIze_cov_block_21))
+            assert(np.all(posAndSize_cov_block_12-posAndSIze_cov_block_21 < .0000001))
         else:
             assert(np.all(np.transpose(posAndSize_cov_block_12)==posAndSIze_cov_block_21))
 
