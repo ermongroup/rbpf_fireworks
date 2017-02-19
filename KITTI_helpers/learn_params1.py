@@ -2664,7 +2664,7 @@ class MultiDetections_many:
                 all_assoc_gt_ids_by_frame[seq_idx].append([])
                 for gt_idx in range(len(self.gt_objects[seq_idx][frame_idx])):
                     all_gt_ids_by_frame[seq_idx][frame_idx].append(self.gt_objects[seq_idx][frame_idx][gt_idx].track_id)
-                    if self.gt_objects[seq_idx][frame_idx][gt_idx].associated_detection:
+                    if len(self.gt_objects[seq_idx][frame_idx][gt_idx].assoc_dets) > 0:
                         all_assoc_gt_ids_by_frame[seq_idx][frame_idx].append(self.gt_objects[seq_idx][frame_idx][gt_idx].track_id)
 
         assert(len(all_gt_ids_by_frame) == len(self.gt_objects))
@@ -2765,6 +2765,10 @@ class MultiDetections_many:
         perfect_group_count = 0
         imperfect_group_count = 0
 
+
+        det_grp_assoc_wClutter = 0
+        det_grp_assoc_wGTObject = 0
+
         for det_name, det_objects in self.all_det_objects.iteritems():
             for seq_idx in range(len(det_objects)):
                 for frame_idx in range(len(det_objects[seq_idx])):
@@ -2781,6 +2785,10 @@ class MultiDetections_many:
                             correctly_assoc_group = False
                     if correctly_assoc_group:
                         perfect_group_count += 1
+                        if det_grp_assoc == -1:
+                            det_grp_assoc_wClutter += 1
+                        else:
+                            det_grp_assoc_wGTObject += 1
                     else:
                         imperfect_group_count += 1
 
@@ -2789,6 +2797,8 @@ class MultiDetections_many:
         print "perfect_group_count =", perfect_group_count
         print "imperfect_group_count =", imperfect_group_count
         print "detection_group_count =", detection_group_count
+        print "# detection groups associated with clutter =", det_grp_assoc_wClutter
+        print "# detection groups associated with a gt Object =", det_grp_assoc_wGTObject
 
         #self.detection_groups[seq_idx][frame_idx], detection_groups for the specified sequence and frame
         #detection_groups, list where each element is a detection_group
@@ -3060,7 +3070,7 @@ class MultiDetections_many:
                     alive_correctly = True
                     near_border_correctly = (self.gt_objects[seq_idx][frame_idx][gt_idx].near_border == near_border)
 
-                    if self.gt_objects[seq_idx][frame_idx][gt_idx].associated_detection == None:
+                    if len(self.gt_objects[seq_idx][frame_idx][gt_idx].assoc_dets) == 0:
                         initially_associated = False
                     else:
                         initially_associated = True
@@ -3071,7 +3081,7 @@ class MultiDetections_many:
                         for j in range(len(self.gt_objects[seq_idx][frame_idx+i])):
                             if(cur_gt_id == self.gt_objects[seq_idx][frame_idx+i][j].track_id):
                                 alive = True
-                                if(self.gt_objects[seq_idx][frame_idx+i][j].associated_detection):
+                                if(len(self.gt_objects[seq_idx][frame_idx+i][j].assoc_dets) > 0):
                                     associated = True
                                 if(i == time_unassociated):
                                     near_border_correctly = (self.gt_objects[seq_idx][frame_idx + time_unassociated][j].near_border == near_border)
@@ -3230,7 +3240,7 @@ class MultiDetections_many:
                     cur_gt_id = self.gt_objects[seq_idx][frame_idx][gt_idx].track_id
                     alive_correctly = True
                     near_border_correctly = (self.gt_objects[seq_idx][frame_idx][gt_idx].near_border == near_border)
-                    if self.gt_objects[seq_idx][frame_idx][gt_idx].associated_detection == None:
+                    if len(self.gt_objects[seq_idx][frame_idx][gt_idx].assoc_dets) == 0:
                         initially_associated = False
                     else:
                         initially_associated = True
@@ -3241,7 +3251,7 @@ class MultiDetections_many:
                         for j in range(len(self.gt_objects[seq_idx][frame_idx+i])):
                             if(cur_gt_id == self.gt_objects[seq_idx][frame_idx+i][j].track_id):
                                 alive = True
-                                if(self.gt_objects[seq_idx][frame_idx+i][j].associated_detection):
+                                if(len(self.gt_objects[seq_idx][frame_idx+i][j].assoc_dets) > 0):
                                     associated = True
                                 if(i == time_unassociated):
                                     near_border_correctly = (self.gt_objects[seq_idx][frame_idx + time_unassociated][j].near_border == near_border)
@@ -3327,8 +3337,6 @@ def get_meas_target_sets_general(training_sequences, score_intervals, detection_
 
     """
 
-
-
     #Should have a score interval for each detection type
     assert(len(detection_names) == len(score_intervals))
 
@@ -3405,6 +3413,7 @@ def get_meas_target_sets_general(training_sequences, score_intervals, detection_
     #return (returnTargSets, target_emission_probs, clutter_probabilities, birth_probabilities, meas_noise_covs, death_probs_near_border, death_probs_not_near_border)
 
     #BIRTH AND CLUTTER PROBS ARE NOT DOCTORED, NEED TO DO LATER, e.g. replace any missing dictionary entry with epsilon when called
+
 
     return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, 
             birth_count_priors, death_probs_near_border, death_probs_not_near_border, 
