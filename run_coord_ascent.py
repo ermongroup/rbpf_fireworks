@@ -35,6 +35,8 @@ import errno
 import sys
 import numpy as np
 import copy
+import math
+
 from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 from fireworks import Firework, Workflow, FWorker, LaunchPad
@@ -57,10 +59,10 @@ from jdk_helper_evaluate_results import RunEval
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
 #TRAINING_SEQUENCES = [i for i in range(21)]
-TRAINING_SEQUENCES = [i for i in range(9)]
+#####TRAINING_SEQUENCES = [i for i in range(9)]
 #TRAINING_SEQUENCES = [0]
 #TRAINING_SEQUENCES = [11]
-#TRAINING_SEQUENCES = [12,13,17]
+TRAINING_SEQUENCES = [12,13,17]
 #TRAINING_SEQUENCES = [13]
 NUM_PARTICLES = 100
 
@@ -93,7 +95,7 @@ Q_ALPHA_INIT = np.array([[ alpha_init,  alpha_init,  alpha_init,   alpha_init],
 R_ALPHA_INIT = np.array([[ alpha_init,   alpha_init],
                          [ alpha_init,   alpha_init]])
 #Diagonal covariance matrix elements are not allowed to take values less than EPSILON
-EPSILON = .01
+EPSILON = .4
 
 ###################################### RBPF Parameters ######################################
 #Specify how the proposal distribution should be pruned
@@ -292,15 +294,40 @@ def modify_parameter(spec, direction):
     spec['mod_direction'] = direction
     (param_name, row_idx, col_idx) = get_param(spec['param_idx'])
     mod_percent = spec["%s_alpha"%param_name][row_idx][col_idx]/100.0
+
+    cov = np.copy(spec[param_name])
+    (num_rows, num_cols) = cov.shape
+    if row_idx == col_idx:
+        for r in range(num_rows):
+            for c in range(num_cols):
+                if r!=c:
+                    cov[r][c] = cov[r][c]/(math.sqrt(cov[r][r])*math.sqrt(cov[c][c]))
+
     if direction == 'inc':
         spec[param_name][row_idx][col_idx] += spec[param_name][row_idx][col_idx]*mod_percent
+
     elif direction == 'dec':
         spec[param_name][row_idx][col_idx] -= spec[param_name][row_idx][col_idx]*mod_percent
+
+
     #make the matrix symmetric
     spec[param_name][col_idx][row_idx] = spec[param_name][row_idx][col_idx]
     #make sure diagonal elements to not go below 0
     if col_idx == row_idx and spec[param_name][row_idx][col_idx] < EPSILON:
         spec[param_name][row_idx][col_idx] = EPSILON
+
+
+    #make sure covariances are still valid if changing a diagonal
+    if row_idx == col_idx:
+        for r in range(num_rows):
+            for c in range(num_cols):
+                if r==row_idx or c==col_idx:
+                    assert (spec[param_name][r][r] > 0 and
+                            spec[param_name][c][c] > 0), spec[param_name]
+                    spec[param_name][row_idx][col_idx] = cov[r][c]*\
+                                                        math.sqrt(spec[param_name][r][r])*\
+                                                        math.sqrt(spec[param_name][c][c])
+
     new_param_value = spec[param_name][row_idx][col_idx]
     return new_param_value
 
@@ -417,14 +444,15 @@ def get_indices_covMatrix(param_idx, d):
     [  3 4]
     [    5]
     """
+    assert(param_idx <(d+1)*d/2)
     for r in range(d):
         for c in range(r, d):
             if param_idx == 0:
                 row_idx = r
                 col_idx = c
+                return (row_idx, col_idx)
             else:
                 param_idx -= 1
-    return (row_idx, col_idx)
 
 
 def get_param(param_idx):
@@ -510,7 +538,9 @@ if __name__ == "__main__":
             'R_alpha': R_ALPHA_INIT.tolist(),
             'coord_ascent_iter': 0,
             'derandomize_with_seed': False,
-            'use_general_num_dets': False}
+            'use_general_num_dets': False,
+            'scale_prior_by_meas_orderings': 'corrected_with_score_intervals',
+            'set_birth_clutter_prop_equal': False}
             
 
 

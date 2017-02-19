@@ -765,7 +765,7 @@ def memoized_assoc_likelihood(particle, measurement, meas_source_index, target_i
         else:
             S_det = S[0][0]*S[1][1] - S[0][1]*S[1][0] # a little faster
             S_inv = inv(S)
-            assert(S_det > 0), S_det
+            assert(S_det > 0), (S_det, S, target.P, R, params.SPEC['Q'])
             LIKELIHOOD_DISTR_NORM = 1.0/math.sqrt((2*math.pi)**2*S_det)
 
             offset = measurement - state_mean_meas_space
