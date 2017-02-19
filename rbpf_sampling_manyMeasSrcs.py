@@ -59,14 +59,17 @@ class Parameters:
 
         self.scale_prior_by_meas_orderings = scale_prior_by_meas_orderings
 
+        print "posOnly_covariance_blocks"
+        print posOnly_covariance_blocks
+        #sleep(5)
 
-        print "target_groupEmission_priors: ", self.target_groupEmission_priors
-        print "clutter_grpCountByFrame_priors: ", self.clutter_grpCountByFrame_priors
-        print "clutter_group_priors: ", self.clutter_group_priors
-        print "birth_count_priors: ", self.birth_count_priors
-        print "posOnly_covariance_blocks: ", self.posOnly_covariance_blocks
-        print "meas_noise_mean: ", self.meas_noise_mean
-        print "posAndSize_inv_covariance_blocks: ", self.posAndSize_inv_covariance_blocks
+        #print "target_groupEmission_priors: ", self.target_groupEmission_priors
+        #print "clutter_grpCountByFrame_priors: ", self.clutter_grpCountByFrame_priors
+        #print "clutter_group_priors: ", self.clutter_group_priors
+        #print "birth_count_priors: ", self.birth_count_priors
+        #print "posOnly_covariance_blocks: ", self.posOnly_covariance_blocks
+        #print "meas_noise_mean: ", self.meas_noise_mean
+        #print "posAndSize_inv_covariance_blocks: ", self.posAndSize_inv_covariance_blocks
 
     def birth_groupCount_prior(self, group_count):
         if group_count in self.birth_count_priors:
@@ -300,6 +303,8 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
 
     particle.likelihood_DOUBLE_CHECK_ME = exact_probability
 
+    print "imprt_re_weight:", imprt_re_weight
+
     return (meas_grp_associations, meas_grp_means, meas_grp_covs, targets_to_kill, imprt_re_weight)
 
 def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_count, 
@@ -475,45 +480,65 @@ def associate_measurements_sequentially(particle, meas_groups, total_target_coun
 #        for target_index in range(total_target_count):
         for target_index in targets_to_check:
             cur_target_likelihood = memoized_assoc_likelihood(particle, detection_group, target_index, params)
-
             targ_likelihoods_summed_over_meas = 0.0
 
+            debug_idx = 0
             for meas_index2, detection_group2 in enumerate(meas_groups):
-                cur_target_likelihood = memoized_assoc_likelihood(particle, detection_group2, target_index, params)
-            
+                targ_likelihoods_summed_over_meas += memoized_assoc_likelihood(particle, detection_group2, target_index, params)
+                debug_idx += 1
+
             if((targ_likelihoods_summed_over_meas != 0.0) and (not target_index in list_of_measurement_associations)\
                 and p_target_deaths[target_index] < 1.0):
                 cur_target_prior = params.target_groupEmission_priors[det_names_set]*cur_target_likelihood \
                                   /targ_likelihoods_summed_over_meas
             else:
                 cur_target_prior = 0.0
+
+#            print "debug_idx", debug_idx
+#            print "len(meas_groups)", len(meas_groups)
+#            print "cur_target_prior", cur_target_prior
+#            print "targ_likelihoods_summed_over_meas", targ_likelihoods_summed_over_meas
+#            print "target_index in list_of_measurement_associations", (target_index in list_of_measurement_associations)
+#            print " p_target_deaths[target_index] < 1.0", ( p_target_deaths[target_index] < 1.0)
+#            print "p_target_deaths:", p_target_deaths
+#            sleep(5)
             proposal_distribution_list.append(cur_target_likelihood*cur_target_prior)
 
 
         cur_birth_prior = PRIOR_EPSILON
         for bc, prior in params.birth_count_priors.iteritems():
             additional_births = max(0.0, min(bc - birth_count, remaining_meas_count))
-            cur_birth_prior += prior*additional_births/remaining_meas_count 
+            if additional_births <= remaining_meas_count:
+                cur_birth_prior += prior*additional_births/remaining_meas_count 
         cur_birth_prior *= params.birth_group_prior(det_names_set)
         assert(cur_birth_prior*params.p_birth_likelihood**len(detection_group) > 0), (cur_birth_prior,params.p_birth_likelihood,len(detection_group))
-        proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood**len(detection_group)) #Quick test, make nicer!!
 
 
 
         cur_clutter_prior = PRIOR_EPSILON
         for cc, prior in params.clutter_grpCountByFrame_priors.iteritems():
             additional_clutter = max(0.0, min(cc - clutter_count, remaining_meas_count))
-            cur_clutter_prior += prior*additional_clutter/remaining_meas_count 
+            if additional_clutter <= remaining_meas_count:            
+                cur_clutter_prior += prior*additional_clutter/remaining_meas_count 
         cur_clutter_prior *= params.clutter_group_prior(det_names_set)
         assert(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group) > 0), (cur_clutter_prior, params.p_clutter_likelihood, len(detection_group))
+
+
+
+
+#        cur_birth_prior = cur_clutter_prior
+
+        proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood**len(detection_group)) #Quick test, make nicer!!
+
+
         proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group)) #Quick test, make nicer!!
+
+
+
 
         #normalize the proposal distribution
         proposal_distribution = np.asarray(proposal_distribution_list)
         assert(np.sum(proposal_distribution) != 0.0), (index, remaining_meas_count, len(proposal_distribution), proposal_distribution, birth_count, clutter_count, len(measurement_list), total_target_count)
-
-
-
         proposal_distribution /= float(np.sum(proposal_distribution))
         if params.CHECK_K_NEAREST_TARGETS:
             proposal_length = min(params.K_NEAREST_TARGETS+2, total_target_count+2)
@@ -522,7 +547,8 @@ def associate_measurements_sequentially(particle, meas_groups, total_target_coun
         else:
             assert(len(proposal_distribution) == total_target_count+2), len(proposal_distribution)
 
-        print proposal_distribution
+ #       if particle.max_importance_weight:
+ #           print proposal_distribution
 
         sampled_assoc_idx = np.random.choice(len(proposal_distribution),
                                                 p=proposal_distribution)
@@ -921,7 +947,6 @@ def memoized_assoc_likelihood(particle, detection_group, target_index, params):
     - params: type Parameters, gives prior probabilities and other parameters we are using
 
     """
-
 
     if((str(detection_group), target_index) in particle.assoc_likelihood_cache):
         (assoc_likelihood, cached_measurement) = particle.assoc_likelihood_cache[(str(detection_group), target_index)]
