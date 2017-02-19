@@ -3,6 +3,7 @@
 # $ export PATH=$PACKAGE_DIR/anaconda2/bin:$PATH
 # $ export LD_LIBRARY_PATH=$PACKAGE_DIR/anaconda2/local:$LD_LIBRARY_PATH
 # $ source activate anaconda_venv
+# $ cd /atlas/u/jkuck/rbpf_fireworks/
 #
 # To install anaconda packages run, e.g.:
 # $ conda install -c matsci fireworks=1.3.9

@@ -80,7 +80,7 @@ CUR_EXPERIMENT_BATCH_NAME = 'CHECK_1_NEAREST_TARGETS/Rto0_4xQ_max1MeasUpdate_onl
 #Objective to maximize (need to adjust code to minimize 'Mostly Lost')
 OBJECTIVE_METRIC = 'MOTA'
 #The percent by which to initially increase and decrease every parameter during coordinate descent
-alpha_init = 30.0
+alpha_init = 100.0
 #If changing a parameter improves the objective, increase the parameter's alpha value by a factor of alpha_inc
 alpha_inc = 1.3
 #If changing a parameter does not improve the objective, decrease the parameter's alpha value by multiplying it
@@ -244,12 +244,12 @@ class RunRBPF_Batch(FireTaskBase):
     #run a batch of RBPF jobs on fw_spec['TRAINING_SEQUENCES'] with fw_spec['NUM_RUNS'] in parallel
     def run_task(self, fw_spec):
         rbpf_batch = []
-        if '_job_info' in fw_spec:
+        if fw_spec['coord_ascent_iter'] > 0:
             assert('mod_direction' in fw_spec)
-            fw_spec['results_folder'] = "%s/iterID_%s_dir-%s"%(fw_spec['results_folder'], fw_spec['_job_info'][-1]['fw_id'],
+            fw_spec['results_folder'] = "%s/iterID_%d_dir-%s"%(fw_spec['results_folder'], fw_spec['coord_ascent_iter'],
                                                                fw_spec['mod_direction'])
         else:
-            fw_spec['results_folder'] = "%s/iterID_%s"%(fw_spec['results_folder'], '0')
+            fw_spec['results_folder'] = "%s/iterID_%d"%(fw_spec['results_folder'], fw_spec['coord_ascent_iter'])
 
         setup_results_folder(fw_spec['results_folder'])
         rbpf_batch = []
@@ -315,6 +315,7 @@ class Iterate(FireTaskBase):
     def run_task(self, fw_spec):
         (param_name, row_idx, col_idx) = get_param(fw_spec['param_idx'])
         fw_spec['orig_param_val'] = fw_spec[param_name][row_idx][col_idx]
+        fw_spec['coord_ascent_iter'] += 1
         #run an RBPF batch with the parameter increased
         inc_spec = copy.deepcopy(fw_spec)
         inc_param_value = modify_parameter(inc_spec, 'inc')
@@ -507,9 +508,9 @@ if __name__ == "__main__":
             'param_idx': 0, #index of the parameter to adjust next in coordinate descent
             'Q_alpha': Q_ALPHA_INIT.tolist(),
             'R_alpha': R_ALPHA_INIT.tolist(),
-            '_pass_job_info': True,
+            'coord_ascent_iter': 0,
             'derandomize_with_seed': False,
-            'use_general_num_dets': True}
+            'use_general_num_dets': False}
             
 
 
