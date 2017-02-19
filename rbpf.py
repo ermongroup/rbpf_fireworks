@@ -1935,7 +1935,10 @@ class RunRBPF(FireTaskBase):
                     (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset([meas_target_set], results_filename, params)
             else:       
                 if PROFILE:
-                    cProfile.run('run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)')
+                    cProfile.runctx('run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)',
+                        {'measurementTargetSetsBySequence': measurementTargetSetsBySequence, 'seq_idx': seq_idx,
+                        'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset}, {})
+#                    cProfile.run('run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)')
                 else:
                     (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)
             print "done processing sequence: ", seq_idx

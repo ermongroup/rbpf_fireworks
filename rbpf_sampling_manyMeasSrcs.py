@@ -2,6 +2,7 @@ from __future__ import division
 from scipy.stats import multivariate_normal
 import numpy as np
 from numpy.linalg import inv
+import numpy.linalg
 import random
 from sets import ImmutableSet
 from munkres import Munkres
@@ -303,7 +304,7 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
 
     particle.likelihood_DOUBLE_CHECK_ME = exact_probability
 
-    print "imprt_re_weight:", imprt_re_weight
+#    print "imprt_re_weight:", imprt_re_weight
 
     return (meas_grp_associations, meas_grp_means, meas_grp_covs, targets_to_kill, imprt_re_weight)
 
@@ -948,11 +949,11 @@ def memoized_assoc_likelihood(particle, detection_group, target_index, params):
 
     """
 
-    if((str(detection_group), target_index) in particle.assoc_likelihood_cache):
-        (assoc_likelihood, cached_measurement) = particle.assoc_likelihood_cache[(str(detection_group), target_index)]
-        return assoc_likelihood
-    else: #likelihood not cached
-
+#    if((str(detection_group), target_index) in particle.assoc_likelihood_cache):
+#        (assoc_likelihood) = particle.assoc_likelihood_cache[(str(detection_group), target_index)]
+#        return assoc_likelihood
+#    else: #likelihood not cached
+    if True:
         target = particle.targets.living_targets[target_index]
         target_cov = np.dot(np.dot(params.H, target.P), params.H.T)
         assert(target.x.shape == (4, 1))
@@ -984,9 +985,31 @@ def memoized_assoc_likelihood(particle, detection_group, target_index, params):
                 complete_covariance[idx1*2:(idx1+1)*2][idx2*2:(idx2+1)*2] = params.posOnly_covariance_blocks[(det_name1, det_name2)] + target_cov
 
 
-        distribution = multivariate_normal(mean=target_loc_repeated, cov=complete_covariance)
-        assoc_likelihood = distribution.pdf(all_det_loc)
+#        if params.USE_PYTHON_GAUSSIAN:        
+#            distribution = multivariate_normal(mean=target_loc_repeated, cov=complete_covariance)
+#            assoc_likelihood = distribution.pdf(all_det_loc)
+#        else:
+#            S_det = numpy.linalg.det(complete_covariance)
+#            S_inv = inv(complete_covariance)
+#            assert(S_det > 0), S_det
+#            LIKELIHOOD_DISTR_NORM = 1.0/(math.sqrt(S_det)*(2*math.pi)**(len(target_loc_repeated)/2))
+#
+#            offset = all_det_loc - target_loc_repeated
+#            a = -.5*np.dot(np.dot(offset, S_inv), offset)
+#            assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
 
+        distribution = multivariate_normal(mean=target_loc_repeated, cov=complete_covariance)
+        assoc_likelihood_compare = distribution.pdf(all_det_loc)
+
+        S_det = numpy.linalg.det(complete_covariance)
+        S_inv = inv(complete_covariance)
+        assert(S_det > 0), S_det
+        LIKELIHOOD_DISTR_NORM = 1.0/(math.sqrt(S_det)*(2*math.pi)**(len(target_loc_repeated)/2))
+        offset = all_det_loc - target_loc_repeated
+        a = -.5*np.dot(np.dot(offset, S_inv), offset)
+        assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
+
+        assert(abs(assoc_likelihood_compare - assoc_likelihood) < .0000001), (assoc_likelihood, assoc_likelihood_compare)
 
 #        if params.USE_PYTHON_GAUSSIAN:
 #            distribution = multivariate_normal(mean=state_mean_meas_space, cov=S)
@@ -1001,7 +1024,10 @@ def memoized_assoc_likelihood(particle, detection_group, target_index, params):
 #            a = -.5*np.dot(np.dot(offset, S_inv), offset)
 #            assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
 #
-#        particle.assoc_likelihood_cache[(str(detection_group), target_index)] = (assoc_likelihood, measurement)
+
+
+
+#        particle.assoc_likelihood_cache[(str(detection_group), target_index)] = (assoc_likelihood)
         return assoc_likelihood
 
 
