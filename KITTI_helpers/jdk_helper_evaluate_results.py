@@ -1031,6 +1031,7 @@ def eval_results(all_run_results, seq_idx_to_eval, use_corrected_eval=True, info
     all_runs_metrics = None
 
     number_of_runs = 0
+    print "all_run_results:", all_run_results
     for cur_run_results in glob.iglob(all_run_results + "/*"): # + operator used for string concatenation!
         if os.path.isdir(cur_run_results):
             all_sequences_completed = True

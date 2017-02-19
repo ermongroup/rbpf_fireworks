@@ -32,15 +32,15 @@ from collections import defaultdict
 
 from cluster_config import RBPF_HOME_DIRECTORY
 sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
-from learn_params1 import get_meas_target_set
-from learn_params1 import get_meas_target_sets_lsvm_and_regionlets
-from learn_params1 import get_meas_target_sets_regionlets_general_format
-from learn_params1 import get_meas_target_sets_mscnn_general_format
-from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
-from learn_params1 import get_meas_target_sets_2sources_general
-from learn_params1 import get_meas_target_sets_1sources_general
+from learn_params1_local import get_meas_target_set
+from learn_params1_local import get_meas_target_sets_lsvm_and_regionlets
+from learn_params1_local import get_meas_target_sets_regionlets_general_format
+from learn_params1_local import get_meas_target_sets_mscnn_general_format
+from learn_params1_local import get_meas_target_sets_mscnn_and_regionlets
+from learn_params1_local import get_meas_target_sets_2sources_general
+from learn_params1_local import get_meas_target_sets_1sources_general
 
-from learn_params1 import get_meas_target_sets_general
+from learn_params1_local import get_meas_target_sets_general
 
 import cProfile
 import time
@@ -1082,6 +1082,7 @@ class Particle:
             (meas_grp_associations, meas_grp_means, meas_grp_covs, dead_target_indices, imprt_re_weight) = \
             sample_and_reweight(self, measurement_lists,  widths, heights, SPEC['det_names'], \
                 cur_time, measurement_scores, params)
+            self.importance_weight *= imprt_re_weight #update particle's importance weight            
             assert(len(meas_grp_associations) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
             for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
                 self.process_meas_grp_assoc(birth_value, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx], cur_time)
@@ -1410,6 +1411,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 particle.max_importance_weight = True
                 particle_count_with_max_imprt_weight += 1
         print particle_count_with_max_imprt_weight, "particles have max importance weight of", cur_max_imprt_weight
+        max_imprt_weight_count_dict[particle_count_with_max_imprt_weight] += 1
 #END DEBUGGING
 
     max_imprt_weight = -1
@@ -1705,6 +1707,11 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, g
 class RunRBPF(FireTaskBase):   
  #   _fw_name = "Run RBPF Task"
     def run_task(self, fw_spec):
+        #debugging
+        global max_imprt_weight_count_dict
+        max_imprt_weight_count_dict = defaultdict(int)
+        #end debugging
+
         global NEXT_PARTICLE_ID
         global NEXT_TARGET_ID
         global N_PARTICLES
@@ -1890,6 +1897,10 @@ class RunRBPF(FireTaskBase):
                          p_birth_likelihood, p_clutter_likelihood, SPEC['CHECK_K_NEAREST_TARGETS'],
                          SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'])
 
+#                print "BORDER_DEATH_PROBABILITIES:", BORDER_DEATH_PROBABILITIES
+#                print "NOT_BORDER_DEATH_PROBABILITIES:", NOT_BORDER_DEATH_PROBABILITIES
+#                sleep(2.5)
+
             else:
                 det1_score_intervals = score_interval_dict_all_det[det1_name]
                 if det2_name:
@@ -1980,7 +1991,8 @@ class RunRBPF(FireTaskBase):
 
             sys.stdout.close()
             sys.stdout = stdout
-
+            print "max_imprt_weight_count_dict: "
+            print max_imprt_weight_count_dict
 
         print 'end run'
 
