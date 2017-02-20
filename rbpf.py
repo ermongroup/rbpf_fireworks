@@ -1884,7 +1884,7 @@ class RunRBPF(FireTaskBase):
                          meas_noise_mean, posAndSize_inv_covariance_blocks, SPEC['R'], H,\
                          USE_PYTHON_GAUSSIAN, SPEC['USE_CONSTANT_R'], SCORE_INTERVALS,\
                          p_birth_likelihood, p_clutter_likelihood, SPEC['CHECK_K_NEAREST_TARGETS'],
-                         SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'])
+                         SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'], SPEC)
 
 #                print "BORDER_DEATH_PROBABILITIES:", BORDER_DEATH_PROBABILITIES
 #                print "NOT_BORDER_DEATH_PROBABILITIES:", NOT_BORDER_DEATH_PROBABILITIES
