@@ -998,8 +998,8 @@ def memoized_assoc_likelihood(particle, detection_group, target_index, params):
 #            a = -.5*np.dot(np.dot(offset, S_inv), offset)
 #            assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
 
-        distribution = multivariate_normal(mean=target_loc_repeated, cov=complete_covariance)
-        assoc_likelihood_compare = distribution.pdf(all_det_loc)
+#        distribution = multivariate_normal(mean=target_loc_repeated, cov=complete_covariance)
+#        assoc_likelihood_compare = distribution.pdf(all_det_loc)
 
         S_det = numpy.linalg.det(complete_covariance)
         S_inv = inv(complete_covariance)
@@ -1009,7 +1009,7 @@ def memoized_assoc_likelihood(particle, detection_group, target_index, params):
         a = -.5*np.dot(np.dot(offset, S_inv), offset)
         assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
 
-        assert(abs(assoc_likelihood_compare - assoc_likelihood) < .0000001), (assoc_likelihood, assoc_likelihood_compare)
+#        assert(abs(assoc_likelihood_compare - assoc_likelihood) < .0000001), (assoc_likelihood, assoc_likelihood_compare)
 
 #        if params.USE_PYTHON_GAUSSIAN:
 #            distribution = multivariate_normal(mean=state_mean_meas_space, cov=S)
