@@ -3470,7 +3470,7 @@ def calc_gaussian_paramaters(group_type, gt_objects, detection_names):
         posOnly_cov_block_21 = cov[4:6, 0:2]
 
         if(det_name1 == det_name2):
-            assert(np.all(posAndSize_cov_block_12==posAndSIze_cov_block_21))
+            assert(np.all(posAndSize_cov_block_12-posAndSIze_cov_block_21 < .0000001))
         else:
             assert(np.all(np.transpose(posAndSize_cov_block_12)==posAndSIze_cov_block_21))
 
@@ -3587,7 +3587,6 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, g
     combined_covariance = inv(A)
     assert(combined_meas_mean.shape == (4,)), (meas_count, gt_obj.assoc_dets)
     return (combined_meas_mean.flatten(), combined_covariance)
-
 
 
 

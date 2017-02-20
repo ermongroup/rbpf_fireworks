@@ -10,6 +10,10 @@
 #MONGODB_PORT = 53609
 #MONGODB_NAME = 'atlas_mult_meas'
 
-MONGODB_HOST = 'ds153179.mlab.com'
-MONGODB_PORT = 53179
-MONGODB_NAME = 'local_testing'
+#MONGODB_HOST = 'ds153179.mlab.com'
+#MONGODB_PORT = 53179
+#MONGODB_NAME = 'local_testing'
+
+MONGODB_HOST = 'ds145355.mlab.com'
+MONGODB_PORT = 45355
+MONGODB_NAME = 'atlas_general_meas'

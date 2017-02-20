@@ -32,15 +32,15 @@ from collections import defaultdict
 
 from cluster_config import RBPF_HOME_DIRECTORY
 sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
-from learn_params1_local import get_meas_target_set
-from learn_params1_local import get_meas_target_sets_lsvm_and_regionlets
-from learn_params1_local import get_meas_target_sets_regionlets_general_format
-from learn_params1_local import get_meas_target_sets_mscnn_general_format
-from learn_params1_local import get_meas_target_sets_mscnn_and_regionlets
-from learn_params1_local import get_meas_target_sets_2sources_general
-from learn_params1_local import get_meas_target_sets_1sources_general
+from learn_params1 import get_meas_target_set
+from learn_params1 import get_meas_target_sets_lsvm_and_regionlets
+from learn_params1 import get_meas_target_sets_regionlets_general_format
+from learn_params1 import get_meas_target_sets_mscnn_general_format
+from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
+from learn_params1 import get_meas_target_sets_2sources_general
+from learn_params1 import get_meas_target_sets_1sources_general
 
-from learn_params1_local import get_meas_target_sets_general
+from learn_params1 import get_meas_target_sets_general
 
 import cProfile
 import time
@@ -1884,7 +1884,7 @@ class RunRBPF(FireTaskBase):
                          meas_noise_mean, posAndSize_inv_covariance_blocks, SPEC['R'], H,\
                          USE_PYTHON_GAUSSIAN, SPEC['USE_CONSTANT_R'], SCORE_INTERVALS,\
                          p_birth_likelihood, p_clutter_likelihood, SPEC['CHECK_K_NEAREST_TARGETS'],
-                         SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'])
+                         SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'], SPEC)
 
 #                print "BORDER_DEATH_PROBABILITIES:", BORDER_DEATH_PROBABILITIES
 #                print "NOT_BORDER_DEATH_PROBABILITIES:", NOT_BORDER_DEATH_PROBABILITIES

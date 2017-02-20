@@ -18,7 +18,7 @@ class Parameters:
                  meas_noise_mean, posAndSize_inv_covariance_blocks, R_default, H,\
                  USE_PYTHON_GAUSSIAN, USE_CONSTANT_R, score_intervals,\
                  p_birth_likelihood, p_clutter_likelihood, CHECK_K_NEAREST_TARGETS,
-                 K_NEAREST_TARGETS, scale_prior_by_meas_orderings):
+                 K_NEAREST_TARGETS, scale_prior_by_meas_orderings, SPEC):
         '''
         Inputs:
         - det_names: list of detection source names
@@ -60,6 +60,7 @@ class Parameters:
 
         self.scale_prior_by_meas_orderings = scale_prior_by_meas_orderings
 
+        self.SPEC = SPEC
         print "posOnly_covariance_blocks"
         print posOnly_covariance_blocks
         #sleep(5)
@@ -528,13 +529,18 @@ def associate_measurements_sequentially(particle, meas_groups, total_target_coun
 
 
 #        cur_birth_prior = cur_clutter_prior
+        if params.SPEC['birth_clutter_likelihood'] = 'const1':
+            proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood**len(detection_group)) #Quick test, make nicer!!
+            proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group)) #Quick test, make nicer!!
 
-        proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood**len(detection_group)) #Quick test, make nicer!!
+        else params.SPEC['birth_clutter_likelihood'] = 'const2':
+            proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood) #Quick test, make nicer!!
+            proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood) #Quick test, make nicer!!
 
-
-        proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group)) #Quick test, make nicer!!
-
-
+        else params.SPEC['birth_clutter_likelihood'] = 'aprox1':
+            likelihood = birth_clutter_likelihood(detection_group, params)
+            proposal_distribution_list.append(cur_birth_prior*likelihood) #Quick test, make nicer!!
+            proposal_distribution_list.append(cur_clutter_prior*likelihood) #Quick test, make nicer!!
 
 
         #normalize the proposal distribution
@@ -911,6 +917,59 @@ def get_assoc_prior_prev(living_target_indices, total_target_count, number_measu
 
     return assoc_prior
 
+def birth_clutter_likelihood(detection_group, params):
+    """
+    Inputs:
+    - detection_group: dictionary of associated detections with key='det_name' and
+        value=detection where detection is a numpy array of [x,y,width,height]
+    - params: type Parameters, we will use posOnly_covariance_blocks  where 
+        posOnly_covariance_blocks[(det_name1, det_name2)] = posOnly_cov_block_12
+
+    Outputs:
+    - likelihood: float, the likelihood that this group of detections
+        was produced by a clutter or birth object.
+    """
+    #number of dimensions in measurement space
+    d = posOnly_covariance_blocks[posOnly_covariance_blocks.keys()[0]].shape[0]
+    #number of measurements in the group
+    n = len(detection_group)
+    likelihood = (2*math.pi)**(-.5*(n-1)*d)
+
+    #calculate the product over all detections of the determinant of the inverse
+    #of the detection's measurement noise covariance matrix
+    prod_of_determinants = 1.0
+    for (det_name, det) in detection_group.iteritems():
+        cur_cov = params.posOnly_covariance_blocks[(det_name, det_name)]
+        cur_cov_inv_det = numpy.linalg.det(inv(cur_cov))
+        prod_of_determinants *= cur_cov_inv_det
+
+    #calculate the determinant of the sum over all detections' inverse measurement
+    #noise covariance matrices
+    determinant_of_sum = 0.0
+    for (det_name, det) in detection_group.iteritems():
+        cur_cov = params.posOnly_covariance_blocks[(det_name, det_name)]
+        determinant_of_sum += inv(cur_cov)
+    determinant_of_sum = numpy.linalg.det(determinant_of_sum)
+
+    likelihood *= math.sqrt(prod_of_determinants/determinant_of_sum)
+
+    #calculate terms in the likelihood's exponent
+    A = 0.0
+    sum_cInv_pos = 0.0
+    sum_cInv = 0.0    
+    for (det_name, det) in detection_group.iteritems():
+        cur_cov = params.posOnly_covariance_blocks[(det_name, det_name)]
+        det_pos = np.array([[det[0]],
+                            [det[1]]])
+        cInv_pos = np.dot(inv(cur_cov), det_pos)
+        A += np.dot(np.dot(cInv_pos.T, cur_cov), cInv_pos)
+        sum_cInv_pos += cInv_pos
+        sum_cInv += inv(cur_cov)        
+
+    B = np.dot(np.dot(sum_cInv_pos.T, inv(sum_cInv)), sum_cInv_pos)
+    likelihood *= math.exp(-.5*(A - B))
+
+    return likelihood
 
 def get_likelihood(particle, meas_groups, total_target_count,
                    measurement_associations, params):
@@ -985,31 +1044,32 @@ def memoized_assoc_likelihood(particle, detection_group, target_index, params):
                 complete_covariance[idx1*2:(idx1+1)*2][idx2*2:(idx2+1)*2] = params.posOnly_covariance_blocks[(det_name1, det_name2)] + target_cov
 
 
-#        if params.USE_PYTHON_GAUSSIAN:        
-#            distribution = multivariate_normal(mean=target_loc_repeated, cov=complete_covariance)
-#            assoc_likelihood = distribution.pdf(all_det_loc)
-#        else:
-#            S_det = numpy.linalg.det(complete_covariance)
-#            S_inv = inv(complete_covariance)
-#            assert(S_det > 0), S_det
-#            LIKELIHOOD_DISTR_NORM = 1.0/(math.sqrt(S_det)*(2*math.pi)**(len(target_loc_repeated)/2))
-#
-#            offset = all_det_loc - target_loc_repeated
-#            a = -.5*np.dot(np.dot(offset, S_inv), offset)
-#            assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
+        if params.USE_PYTHON_GAUSSIAN:        
+            distribution = multivariate_normal(mean=target_loc_repeated, cov=complete_covariance)
+            assoc_likelihood = distribution.pdf(all_det_loc)
+        else:
+            S_det = numpy.linalg.det(complete_covariance)
+            S_inv = inv(complete_covariance)
+            assert(S_det > 0), S_det
+            LIKELIHOOD_DISTR_NORM = 1.0/(math.sqrt(S_det)*(2*math.pi)**(len(target_loc_repeated)/2))
+            offset = all_det_loc - target_loc_repeated
+            a = -.5*np.dot(np.dot(offset, S_inv), offset)
+            assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
+
 
 #        distribution = multivariate_normal(mean=target_loc_repeated, cov=complete_covariance)
 #        assoc_likelihood_compare = distribution.pdf(all_det_loc)
-
-        S_det = numpy.linalg.det(complete_covariance)
-        S_inv = inv(complete_covariance)
-        assert(S_det > 0), S_det
-        LIKELIHOOD_DISTR_NORM = 1.0/(math.sqrt(S_det)*(2*math.pi)**(len(target_loc_repeated)/2))
-        offset = all_det_loc - target_loc_repeated
-        a = -.5*np.dot(np.dot(offset, S_inv), offset)
-        assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
-
+#
+#        S_det = numpy.linalg.det(complete_covariance)
+#        S_inv = inv(complete_covariance)
+#        assert(S_det > 0), S_det
+#        LIKELIHOOD_DISTR_NORM = 1.0/(math.sqrt(S_det)*(2*math.pi)**(len(target_loc_repeated)/2))
+#        offset = all_det_loc - target_loc_repeated
+#        a = -.5*np.dot(np.dot(offset, S_inv), offset)
+#        assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
+#
 #        assert(abs(assoc_likelihood_compare - assoc_likelihood) < .0000001), (assoc_likelihood, assoc_likelihood_compare)
+
 
 #        if params.USE_PYTHON_GAUSSIAN:
 #            distribution = multivariate_normal(mean=state_mean_meas_space, cov=S)
