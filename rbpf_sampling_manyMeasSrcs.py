@@ -516,7 +516,7 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
                 group_det_names.append(det_name)
             det_names_set = ImmutableSet(group_det_names)
 
-            
+
             #create proposal distribution for the current measurement
             #compute target association proposal probabilities
             proposal_distribution_list = []
@@ -1194,6 +1194,7 @@ def birth_clutter_likelihood(detection_group, params, likelihood_type):
 
     likelihood *= math.exp(-.5*(A - B))
 
+    print "likelihood3:", likelihood
     return likelihood
 
 def get_likelihood(particle, meas_groups, total_target_count,
@@ -1215,7 +1216,9 @@ def get_likelihood(particle, meas_groups, total_target_count,
                 likelihood *= birth_clutter_likelihood(meas_groups[meas_index], params, 'birth')*params.p_birth_likelihood
             else:
                 print "Invalid params.SPEC['birth_clutter_likelihood']"
-                sys.exit(1);            
+                sys.exit(1);       
+            assert(likelihood != 0.0), (likelihood, params.SPEC['birth_clutter_likelihood'], 'birth')
+     
         elif(meas_association == -1): #clutter
             if params.SPEC['birth_clutter_likelihood'] == 'const1':
                 likelihood *= params.p_clutter_likelihood**len(meas_groups[meas_index])
@@ -1226,9 +1229,14 @@ def get_likelihood(particle, meas_groups, total_target_count,
             else:
                 print "Invalid params.SPEC['birth_clutter_likelihood']"
                 sys.exit(1);               
+            assert(likelihood != 0.0), (likelihood, params.SPEC['birth_clutter_likelihood'], 'clutter')
+
         else:
             assert(meas_association >= 0 and meas_association < total_target_count), (meas_association, total_target_count)
-            likelihood *= memoized_assoc_likelihood(particle, meas_groups[meas_index], meas_association, params)
+            target_likelihood = memoized_assoc_likelihood(particle, meas_groups[meas_index], meas_association, params)
+            likelihood *= target_likelihood
+            assert(likelihood != 0.0), (likelihood, params.SPEC['birth_clutter_likelihood'], 'target', target_likelihood)
+
 
     assert(likelihood != 0.0), (likelihood)
 
@@ -1293,10 +1301,14 @@ def memoized_assoc_likelihood(particle, detection_group, target_index, params):
             S_inv = inv(complete_covariance)
             assert(S_det > 0), S_det
             LIKELIHOOD_DISTR_NORM = 1.0/(math.sqrt(S_det)*(2*math.pi)**(len(target_loc_repeated)/2))
+
+            assert(LIKELIHOOD_DISTR_NORM!=0.0), (S_det, complete_covariance, len(target_loc_repeated))
+
             offset = all_det_loc - target_loc_repeated
             a = -.5*np.dot(np.dot(offset, S_inv), offset)
             assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
 
+            assert(assoc_likelihood != 0.0), (a, offset, S_inv)
 
 #        distribution = multivariate_normal(mean=target_loc_repeated, cov=complete_covariance)
 #        assoc_likelihood_compare = distribution.pdf(all_det_loc)
