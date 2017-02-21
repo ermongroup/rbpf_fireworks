@@ -294,25 +294,48 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
         if(not i in meas_grp_associations):
             unassociated_target_indices.append(i)
 
-    exact_probability = 1.0
-    likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
-                                   meas_grp_associations, params)
-    assoc_prior = get_assoc_prior(particle.targets.living_count, meas_groups, meas_grp_associations, params)
-    exact_probability *= likelihood * assoc_prior
+
+    assert(params.SPEC['use_log_probs'] in ['True', 'False', 'Compare'])
+
+    if params.SPEC['use_log_probs'] in ['False', 'Compare']:
+        likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
+                                       meas_grp_associations, params, log=False)
+        assoc_prior = get_assoc_prior(particle.targets.living_count, meas_groups, meas_grp_associations, params, log=False)
+        death_prior = calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices, log=False)
+        exact_probability = likelihood * assoc_prior * death_prior
+
+        if params.SPEC['normalize_log_importance_weights']:
+            imprt_re_weight = math.log(exact_probability/proposal_probability)
+        else:
+            imprt_re_weight = exact_probability/proposal_probability
 
 
-    death_prior = calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices)
-    exact_probability *= death_prior
+    if params.SPEC['use_log_probs'] in ['True', 'Compare']:        
+        log_likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
+                                       meas_grp_associations, params, log=True)
+        log_assoc_prior = get_assoc_prior(particle.targets.living_count, meas_groups, meas_grp_associations, params, log=True)
+        log_death_prior = calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices, log=True)
+        log_exact_probability = log_likelihood + log_assoc_prior + log_death_prior
+
+        if params.SPEC['normalize_log_importance_weights']:
+            imprt_re_weight = log_exact_probability - math.log(proposal_probability)
+        else:
+            imprt_re_weight = math.exp(log_exact_probability - math.log(proposal_probability))    
+
+
+    if params.SPEC['use_log_probs'] == 'Compare':
+        imprt_re_weightA = exact_probability/proposal_probability
+        imprt_re_weightB = math.exp(log_exact_probability - math.log(proposal_probability))    
+        assert(abs(imprt_re_weightA -imprt_re_weightB) < .000001), (imprt_re_weightA, imprt_re_weightB, exact_probability, log_exact_probability, proposal_probability)
 
     assert(num_targs == particle.targets.living_count)
     #double check targets_to_kill is sorted
     assert(all([targets_to_kill[i] <= targets_to_kill[i+1] for i in xrange(len(targets_to_kill)-1)]))
 
-    imprt_re_weight = exact_probability/proposal_probability
+    if not params.SPEC['normalize_log_importance_weights']:
+        assert(imprt_re_weight != 0.0), (exact_probability, proposal_probability, death_prior)
 
-    assert(imprt_re_weight != 0.0), (exact_probability, proposal_probability, death_prior)
-
-    particle.likelihood_DOUBLE_CHECK_ME = exact_probability
+#    particle.likelihood_DOUBLE_CHECK_ME = exact_probability
 
 #    print "imprt_re_weight:", imprt_re_weight
 
@@ -830,17 +853,37 @@ def sample_target_deaths(particle, unassociated_targets, cur_time):
                 probability_of_deaths *= (1 - cur_death_prob)
     return (targets_to_kill, probability_of_deaths)
 
-def calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices):
-    death_prior = 1.0
-    for (cur_target_index, cur_target_death_prob) in enumerate(p_target_deaths):
-        if not(cur_target_index in living_target_indices):
-            death_prior *= cur_target_death_prob
-            assert((cur_target_death_prob) != 0.0), cur_target_death_prob        
-        elif cur_target_index in unassociated_target_indices:
-            death_prior *= (1.0 - cur_target_death_prob)
-            assert((1.0 - cur_target_death_prob) != 0.0), cur_target_death_prob
+def calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices, log):
+    """
+    - log: Bool, True return log probability, False return actual probability
 
-    return death_prior
+    """
+
+    if log: #return log of prior
+        log_death_prior = 0.0
+        for (cur_target_index, cur_target_death_prob) in enumerate(p_target_deaths):
+            if not(cur_target_index in living_target_indices):
+                log_death_prior += math.log(cur_target_death_prob)
+                assert((cur_target_death_prob) != 0.0), cur_target_death_prob        
+            elif cur_target_index in unassociated_target_indices:
+                log_death_prior += math.log((1.0 - cur_target_death_prob))
+                assert((1.0 - cur_target_death_prob) != 0.0), cur_target_death_prob
+
+        return log_death_prior
+
+
+
+    else: #return actual prior
+        death_prior = 1.0
+        for (cur_target_index, cur_target_death_prob) in enumerate(p_target_deaths):
+            if not(cur_target_index in living_target_indices):
+                death_prior *= cur_target_death_prob
+                assert((cur_target_death_prob) != 0.0), cur_target_death_prob        
+            elif cur_target_index in unassociated_target_indices:
+                death_prior *= (1.0 - cur_target_death_prob)
+                assert((1.0 - cur_target_death_prob) != 0.0), cur_target_death_prob
+
+        return death_prior
 
 def nCr(n,r):
     return math.factorial(n) / math.factorial(r) / math.factorial(n-r)
@@ -952,9 +995,10 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, d
 
 
 
-def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, params):
+def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, params, log):
     """
     Inputs:
+    - log: Bool, True return log probability, False return actual probability
     - living_target_count: number of living counts, measurement associations that correspond to association
         with a target will be in the range [0, living_target_count)
     """
@@ -973,29 +1017,56 @@ def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, par
     #but are still alive on this time instance
     unobserved_target_count = living_target_count - observed_target_count
 
-    prior = params.target_groupEmission_priors[ImmutableSet([])]**unobserved_target_count
-    for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
-        #get the names of detection sources in this group
-        group_det_names = []
-        for det_name, det in meas_groups[meas_grp_idx].iteritems():
-            group_det_names.append(det_name)
-        det_names_set = ImmutableSet(group_det_names)          
-  
-        if meas_grp_assoc>=0 and meas_grp_assoc < living_target_count: #target association
-            prior *= params.target_groupEmission_priors[det_names_set]
-        elif meas_grp_assoc == -1:
-            prior *= params.clutter_group_prior(det_names_set)
-        else:
-            assert(meas_grp_assoc == living_target_count), (meas_grp_assoc, living_target_count)
-            prior *= params.birth_group_prior(det_names_set)
 
-    birth_count = meas_grp_associations.count(living_target_count)
-    prior *= params.birth_groupCount_prior(birth_count)
+    if log: #return log prior
+        log_prior = unobserved_target_count*math.log(params.target_groupEmission_priors[ImmutableSet([])])
+        for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
+            #get the names of detection sources in this group
+            group_det_names = []
+            for det_name, det in meas_groups[meas_grp_idx].iteritems():
+                group_det_names.append(det_name)
+            det_names_set = ImmutableSet(group_det_names)          
+      
+            if meas_grp_assoc>=0 and meas_grp_assoc < living_target_count: #target association
+                log_prior += math.log(params.target_groupEmission_priors[det_names_set])
+            elif meas_grp_assoc == -1:
+                log_prior += math.log(params.clutter_group_prior(det_names_set))
+            else:
+                assert(meas_grp_assoc == living_target_count), (meas_grp_assoc, living_target_count)
+                log_prior += math.log(params.birth_group_prior(det_names_set))
 
-    clutter_count = meas_grp_associations.count(-1)
-    prior *= params.clutter_groupCount_prior(clutter_count)
+        birth_count = meas_grp_associations.count(living_target_count)
+        log_prior += math.log(params.birth_groupCount_prior(birth_count))
 
-    return prior
+        clutter_count = meas_grp_associations.count(-1)
+        log_prior += math.log(params.clutter_groupCount_prior(clutter_count))
+
+        return log_prior
+
+    else: #return actual prior
+        prior = params.target_groupEmission_priors[ImmutableSet([])]**unobserved_target_count
+        for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
+            #get the names of detection sources in this group
+            group_det_names = []
+            for det_name, det in meas_groups[meas_grp_idx].iteritems():
+                group_det_names.append(det_name)
+            det_names_set = ImmutableSet(group_det_names)          
+      
+            if meas_grp_assoc>=0 and meas_grp_assoc < living_target_count: #target association
+                prior *= params.target_groupEmission_priors[det_names_set]
+            elif meas_grp_assoc == -1:
+                prior *= params.clutter_group_prior(det_names_set)
+            else:
+                assert(meas_grp_assoc == living_target_count), (meas_grp_assoc, living_target_count)
+                prior *= params.birth_group_prior(det_names_set)
+
+        birth_count = meas_grp_associations.count(living_target_count)
+        prior *= params.birth_groupCount_prior(birth_count)
+
+        clutter_count = meas_grp_associations.count(-1)
+        prior *= params.clutter_groupCount_prior(clutter_count)
+
+        return prior
 
 def get_assoc_prior_prev(living_target_indices, total_target_count, number_measurements, 
              measurement_associations, measurement_scores, params,\
@@ -1201,50 +1272,85 @@ def birth_clutter_likelihood(detection_group, params, likelihood_type):
     return likelihood
 
 def get_likelihood(particle, meas_groups, total_target_count,
-                   measurement_associations, params):
+                   measurement_associations, params, log):
     """
+    - log: Bool, True return log probability, False return actual probability
 
 
     """
+    if not log:
+        likelihood = 1.0
+        assert(len(measurement_associations) == len(meas_groups))
+        for meas_index, meas_association in enumerate(measurement_associations):
+            if(meas_association == total_target_count): #birth
+                if params.SPEC['birth_clutter_likelihood'] == 'const1':
+                    likelihood *= params.p_birth_likelihood**len(meas_groups[meas_index])
+                elif params.SPEC['birth_clutter_likelihood'] == 'const2':
+                    likelihood *= params.p_birth_likelihood
+                elif params.SPEC['birth_clutter_likelihood'] == 'aprox1':
+                    likelihood *= birth_clutter_likelihood(meas_groups[meas_index], params, 'birth')*params.p_birth_likelihood
+                else:
+                    print "Invalid params.SPEC['birth_clutter_likelihood']"
+                    sys.exit(1);       
+#                assert(likelihood != 0.0), (likelihood, params.SPEC['birth_clutter_likelihood'], 'birth')
+         
+            elif(meas_association == -1): #clutter
+                if params.SPEC['birth_clutter_likelihood'] == 'const1':
+                    likelihood *= params.p_clutter_likelihood**len(meas_groups[meas_index])
+                elif params.SPEC['birth_clutter_likelihood'] == 'const2':
+                    likelihood *= params.p_clutter_likelihood
+                elif params.SPEC['birth_clutter_likelihood'] == 'aprox1':
+                    likelihood *= birth_clutter_likelihood(meas_groups[meas_index], params, 'clutter')*params.p_clutter_likelihood
+                else:
+                    print "Invalid params.SPEC['birth_clutter_likelihood']"
+                    sys.exit(1);               
+#                assert(likelihood != 0.0), (likelihood, params.SPEC['birth_clutter_likelihood'], 'clutter')
 
-    likelihood = 1.0
-    assert(len(measurement_associations) == len(meas_groups))
-    for meas_index, meas_association in enumerate(measurement_associations):
-        if(meas_association == total_target_count): #birth
-            if params.SPEC['birth_clutter_likelihood'] == 'const1':
-                likelihood *= params.p_birth_likelihood**len(meas_groups[meas_index])
-            elif params.SPEC['birth_clutter_likelihood'] == 'const2':
-                likelihood *= params.p_birth_likelihood
-            elif params.SPEC['birth_clutter_likelihood'] == 'aprox1':
-                likelihood *= birth_clutter_likelihood(meas_groups[meas_index], params, 'birth')*params.p_birth_likelihood
             else:
-                print "Invalid params.SPEC['birth_clutter_likelihood']"
-                sys.exit(1);       
-            assert(likelihood != 0.0), (likelihood, params.SPEC['birth_clutter_likelihood'], 'birth')
-     
-        elif(meas_association == -1): #clutter
-            if params.SPEC['birth_clutter_likelihood'] == 'const1':
-                likelihood *= params.p_clutter_likelihood**len(meas_groups[meas_index])
-            elif params.SPEC['birth_clutter_likelihood'] == 'const2':
-                likelihood *= params.p_clutter_likelihood
-            elif params.SPEC['birth_clutter_likelihood'] == 'aprox1':
-                likelihood *= birth_clutter_likelihood(meas_groups[meas_index], params, 'clutter')*params.p_clutter_likelihood
+                assert(meas_association >= 0 and meas_association < total_target_count), (meas_association, total_target_count)
+                target_likelihood = memoized_assoc_likelihood(particle, meas_groups[meas_index], meas_association, params)
+                likelihood *= target_likelihood
+#                assert(likelihood != 0.0), (likelihood, params.SPEC['birth_clutter_likelihood'], 'target', target_likelihood)
+
+
+#        assert(likelihood != 0.0), (likelihood)
+
+        return likelihood
+    else: #return log likelihood
+        log_likelihood = 0.0
+        assert(len(measurement_associations) == len(meas_groups))
+        for meas_index, meas_association in enumerate(measurement_associations):
+            cur_likelihood = -1
+            if(meas_association == total_target_count): #birth
+                if params.SPEC['birth_clutter_likelihood'] == 'const1':
+                    cur_likelihood = params.p_birth_likelihood**len(meas_groups[meas_index])
+                elif params.SPEC['birth_clutter_likelihood'] == 'const2':
+                    cur_likelihood = params.p_birth_likelihood
+                elif params.SPEC['birth_clutter_likelihood'] == 'aprox1':
+                    cur_likelihood = birth_clutter_likelihood(meas_groups[meas_index], params, 'birth')*params.p_birth_likelihood
+                else:
+                    print "Invalid params.SPEC['birth_clutter_likelihood']"
+                    sys.exit(1);       
+                
+            elif(meas_association == -1): #clutter
+                if params.SPEC['birth_clutter_likelihood'] == 'const1':
+                    cur_likelihood = params.p_clutter_likelihood**len(meas_groups[meas_index])
+                elif params.SPEC['birth_clutter_likelihood'] == 'const2':
+                    cur_likelihood = params.p_clutter_likelihood
+                elif params.SPEC['birth_clutter_likelihood'] == 'aprox1':
+                    cur_likelihood = birth_clutter_likelihood(meas_groups[meas_index], params, 'clutter')*params.p_clutter_likelihood
+                else:
+                    print "Invalid params.SPEC['birth_clutter_likelihood']"
+                    sys.exit(1);               
+
             else:
-                print "Invalid params.SPEC['birth_clutter_likelihood']"
-                sys.exit(1);               
-            assert(likelihood != 0.0), (likelihood, params.SPEC['birth_clutter_likelihood'], 'clutter')
+                assert(meas_association >= 0 and meas_association < total_target_count), (meas_association, total_target_count)
+                cur_likelihood = memoized_assoc_likelihood(particle, meas_groups[meas_index], meas_association, params)
 
-        else:
-            assert(meas_association >= 0 and meas_association < total_target_count), (meas_association, total_target_count)
-            target_likelihood = memoized_assoc_likelihood(particle, meas_groups[meas_index], meas_association, params)
-            likelihood *= target_likelihood
-            assert(likelihood != 0.0), (likelihood, params.SPEC['birth_clutter_likelihood'], 'target', target_likelihood)
+            assert(cur_likelihood > 0.0), (cur_likelihood, log_likelihood, params.SPEC['birth_clutter_likelihood'], 'birth')
+            log_likelihood += math.log(cur_likelihood)
 
-
-    assert(likelihood != 0.0), (likelihood)
-
-    return likelihood
-
+        return log_likelihood
 
 def memoized_assoc_likelihood(particle, detection_group, target_index, params):
     """

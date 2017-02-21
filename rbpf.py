@@ -1082,7 +1082,11 @@ class Particle:
             (meas_grp_associations, meas_grp_means, meas_grp_covs, dead_target_indices, imprt_re_weight) = \
             sample_and_reweight(self, measurement_lists,  widths, heights, SPEC['det_names'], \
                 cur_time, measurement_scores, params)
-            self.importance_weight *= imprt_re_weight #update particle's importance weight            
+            if SPEC['normalize_log_importance_weights'] == True:
+                #update particle's importance weight to be the log of updated importance weight                           
+                self.importance_weight = imprt_re_weight + math.log(self.importance_weight)
+            else:
+                self.importance_weight *= imprt_re_weight #update particle's importance weight            
             assert(len(meas_grp_associations) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
             for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
                 self.process_meas_grp_assoc(birth_value, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx], cur_time)
@@ -1094,7 +1098,11 @@ class Particle:
 
             assert(len(measurement_associations) == len(measurement_lists))
             assert(imprt_re_weight != 0.0), imprt_re_weight
-            self.importance_weight *= imprt_re_weight #update particle's importance weight
+            if SPEC['normalize_log_importance_weights'] == True:
+                #update particle's importance weight to be the log of updated importance weight                           
+                self.importance_weight = imprt_re_weight + math.log(self.importance_weight)
+            else:            
+                self.importance_weight *= imprt_re_weight #update particle's importance weight
             #process measurement associations
             for meas_source_index in range(len(measurement_associations)):
                 assert(len(measurement_associations[meas_source_index]) == len(measurement_lists[meas_source_index]) and
@@ -1153,6 +1161,22 @@ class Particle:
 
 
 def normalize_importance_weights(particle_set):
+    if SPEC['normalize_log_importance_weights'] == True:
+        max_imprt_weight = 'not_set'
+        for particle in particle_set:
+            if max_imprt_weight == 'not_set':
+                max_imprt_weight = particle.importance_weight
+            elif particle.importance_weight > max_imprt_weight:
+                max_imprt_weight = particle.importance_weight
+
+        for particle in particle_set:
+            #divide all importance weights by the largest importance weight (in log, so subtract)
+            #in case importance weights are all very small
+            #and convert log importance weights back to actual importance weights
+            particle.importance_weight = math.exp(particle.importance_weight - max_imprt_weight)
+
+
+    #now normalize importance weights   
     normalization_constant = 0.0
     for particle in particle_set:
         normalization_constant += particle.importance_weight
