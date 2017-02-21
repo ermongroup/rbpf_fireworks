@@ -1151,7 +1151,7 @@ class RunEval(FireTaskBase):
             sys.stdout.close()
             sys.stdout = stdout
 
-        if 'mod_direction' in fw_spec:
+        if 'mod_direction' in fw_spec and fw_spec['mod_direction'] != 'orig':
             mod_dir = fw_spec['mod_direction']
             if use_corrected_eval:
                 return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics_with_%s"%mod_dir: metric_medians}}])

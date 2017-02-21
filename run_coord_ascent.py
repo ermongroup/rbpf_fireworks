@@ -59,10 +59,10 @@ from jdk_helper_evaluate_results import RunEval
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
 #TRAINING_SEQUENCES = [i for i in range(21)]
-#####TRAINING_SEQUENCES = [i for i in range(9)]
+TRAINING_SEQUENCES = [i for i in range(9)]
 #TRAINING_SEQUENCES = [0]
 #TRAINING_SEQUENCES = [11]
-TRAINING_SEQUENCES = [12,13,17]
+#TRAINING_SEQUENCES = [12,13,17]
 #TRAINING_SEQUENCES = [13]
 NUM_PARTICLES = 100
 
@@ -79,10 +79,12 @@ CUR_EXPERIMENT_BATCH_NAME = 'CHECK_1_NEAREST_TARGETS/Rto0_4xQ_max1MeasUpdate_onl
 #CUR_EXPERIMENT_BATCH_NAME = 'measuredR_1xQ_max1MeasUpdate_online3frameDelay'
 
 ###################################### Coordinate Descent Parameters ######################################
+#Choose whether to use the new or old eval script
+EVAL_SCRIPT = 'NEW'
 #Objective to maximize (need to adjust code to minimize 'Mostly Lost')
 OBJECTIVE_METRIC = 'MOTA'
 #The percent by which to initially increase and decrease every parameter during coordinate descent
-alpha_init = 100.0
+alpha_init = 50.0
 #If changing a parameter improves the objective, increase the parameter's alpha value by a factor of alpha_inc
 alpha_inc = 1.3
 #If changing a parameter does not improve the objective, decrease the parameter's alpha value by multiplying it
@@ -94,8 +96,9 @@ Q_ALPHA_INIT = np.array([[ alpha_init,  alpha_init,  alpha_init,   alpha_init],
                            [ alpha_init,  alpha_init,  alpha_init,   alpha_init]])
 R_ALPHA_INIT = np.array([[ alpha_init,   alpha_init],
                          [ alpha_init,   alpha_init]])
-#Diagonal covariance matrix elements are not allowed to take values less than EPSILON
-EPSILON = .4
+#standard deviations are required to be larger than EPSILON and correlations in the
+#range [-1+EPSILON, 1-EPSILON]
+EPSILON = .05
 
 ###################################### RBPF Parameters ######################################
 #Specify how the proposal distribution should be pruned
@@ -140,8 +143,8 @@ if USE_LEARNED_KF_PARAMS:
                           [0,           0,           0, 3]])
 #    R_default = np.array([[ 0.0,   0.0],
 #                          [ 0.0,   0.0]])
-    R_default = np.array([[ 0.01,   0.0],
-                          [ 0.0,   0.01]])    
+    R_default = np.array([[ 10.0,   1.0],
+                          [ 1.0,   10.0]])    
     
     
     #learned from all GT
@@ -275,6 +278,68 @@ class RunRBPF_Batch(FireTaskBase):
 #        return FWAction(detours=parallel_workflow)
 
 
+def cov2corr(cov, return_std=False):
+    '''convert covariance matrix to correlation matrix
+
+    Parameters
+    ----------
+    cov : array_like, 2d
+        covariance matrix, see Notes
+
+    Returns
+    -------
+    corr : ndarray (subclass)
+        correlation matrix
+    return_std : bool
+        If this is true then the standard deviation is also returned.
+        By default only the correlation matrix is returned.
+
+    Notes
+    -----
+    This function does not convert subclasses of ndarrays. This requires
+    that division is defined elementwise. np.ma.array and np.matrix are allowed.
+
+    Author: Josef Perktold
+    License: BSD-3
+    '''
+    cov = np.asanyarray(cov)
+    std_ = np.sqrt(np.diag(cov))
+    corr = cov / np.outer(std_, std_)
+    if return_std:
+        return corr, std_
+    else:
+        return corr
+
+def corr2cov(corr, std):
+    '''convert correlation matrix to covariance matrix given standard deviation
+
+    Parameters
+    ----------
+    corr : array_like, 2d
+        correlation matrix, see Notes
+    std : array_like, 1d
+        standard deviation
+
+    Returns
+    -------
+    cov : ndarray (subclass)
+        covariance matrix
+
+    Notes
+    -----
+    This function does not convert subclasses of ndarrays. This requires
+    that multiplication is defined elementwise. np.ma.array are allowed, but
+    not matrices.
+
+    Author: Josef Perktold
+    License: BSD-3
+    '''
+    corr = np.asanyarray(corr)
+    std_ = np.asanyarray(std)
+    cov = corr * np.outer(std_, std_)
+    return cov
+
+
 def modify_parameter(spec, direction):
     """
     Inputs:
@@ -295,41 +360,140 @@ def modify_parameter(spec, direction):
     (param_name, row_idx, col_idx) = get_param(spec['param_idx'])
     mod_percent = spec["%s_alpha"%param_name][row_idx][col_idx]/100.0
 
-    cov = np.copy(spec[param_name])
-    (num_rows, num_cols) = cov.shape
+    (corr, std_dev) = cov2corr(spec[param_name], return_std=True)
+    (num_rows, num_cols) = corr.shape
+
+    for r in range(num_rows):
+        for c in range(num_cols):
+            assert(abs(corr[r][c] - corr[c][r]) < .0001)
+
     if row_idx == col_idx:
-        for r in range(num_rows):
-            for c in range(num_cols):
-                if r!=c:
-                    cov[r][c] = cov[r][c]/(math.sqrt(cov[r][r])*math.sqrt(cov[c][c]))
+        if direction == 'inc':
+            std_dev[row_idx] += std_dev[row_idx]*mod_percent
+        elif direction == 'dec':
+            std_dev[row_idx] -= std_dev[row_idx]*mod_percent
+        if std_dev[row_idx] < EPSILON:
+            std_dev[row_idx] = EPSILON
 
-    if direction == 'inc':
-        spec[param_name][row_idx][col_idx] += spec[param_name][row_idx][col_idx]*mod_percent
+    else:
+        if direction == 'inc':
+            corr[row_idx][col_idx] += corr[row_idx][col_idx]*mod_percent
+        elif direction == 'dec':
+            corr[row_idx][col_idx] -= corr[row_idx][col_idx]*mod_percent
+        #make sure correlation is between -1 and 1
+        if corr[row_idx][col_idx] >= 1.0:
+            corr[row_idx][col_idx] = 1.0 - EPSILON
+        elif corr[row_idx][col_idx] <= -1.0:
+            corr[row_idx][col_idx] = -1.0 + EPSILON
+        #make the matrix symmetric
+        corr[col_idx][row_idx] = corr[row_idx][col_idx]
 
-    elif direction == 'dec':
-        spec[param_name][row_idx][col_idx] -= spec[param_name][row_idx][col_idx]*mod_percent
+    for r in range(num_rows):
+        for c in range(num_cols):
+            assert(abs(corr[r][c] - corr[c][r]) < .0001)
 
+    spec[param_name] = corr2cov(corr, std_dev)
 
-    #make the matrix symmetric
-    spec[param_name][col_idx][row_idx] = spec[param_name][row_idx][col_idx]
-    #make sure diagonal elements to not go below 0
-    if col_idx == row_idx and spec[param_name][row_idx][col_idx] < EPSILON:
-        spec[param_name][row_idx][col_idx] = EPSILON
-
-
-    #make sure covariances are still valid if changing a diagonal
-    if row_idx == col_idx:
-        for r in range(num_rows):
-            for c in range(num_cols):
-                if r==row_idx or c==col_idx:
-                    assert (spec[param_name][r][r] > 0 and
-                            spec[param_name][c][c] > 0), spec[param_name]
-                    spec[param_name][row_idx][col_idx] = cov[r][c]*\
-                                                        math.sqrt(spec[param_name][r][r])*\
-                                                        math.sqrt(spec[param_name][c][c])
-
-    new_param_value = spec[param_name][row_idx][col_idx]
+    for r in range(num_rows):
+        for c in range(num_cols):
+            assert(abs(spec[param_name][r][c] - spec[param_name][c][r]) < .0001)
+            if (r==c):
+                assert(spec[param_name][r][r] > 0)
+                
+    new_param_value = spec[param_name]
     return new_param_value
+
+
+
+#    #construct correlation matrix
+#    cor = np.copy(spec[param_name])
+#    (num_rows, num_cols) = cor.shape
+#    for r in range(num_rows):
+#        for c in range(num_cols):
+#            cor[r][c] = orig_matrix[r][c]/(math.sqrt(orig_matrix[r][r])*math.sqrt(orig_matrix[c][c]))
+#
+#    for r in range(num_rows):
+#        for c in range(num_cols):
+#            assert(abs(cor[r][c] - cor[c][r]) < .0001)
+#    if direction == 'inc':
+#        cor[row_idx][col_idx] += cor[row_idx][col_idx]*mod_percent
+#    elif direction == 'dec':
+#        cor[row_idx][col_idx] -= cor[row_idx][col_idx]*mod_percent
+#    #make the matrix symmetric
+#    cor[col_idx][row_idx] = cor[row_idx][col_idx]
+#    #make sure diagonal elements to not go below 0
+#
+#    if col_idx == row_idx and cor[row_idx][col_idx] < EPSILON:
+#        cor[row_idx][col_idx] = EPSILON
+#        print "set col/row", col_idx, "to epsilon, proof:"
+#        print cor
+#    print "spec[param_name]:"
+#    print spec[param_name]
+#    print cor
+#
+#    for r in range(num_rows):
+#        for c in range(num_cols):
+#            assert(abs(cor[r][c] - cor[c][r]) < .0001)
+#
+#    #reconstruct covariance matrix
+#    for r in range(num_rows):
+#        for c in range(num_cols):
+#                spec[param_name][r][c] = cor[r][c]*\
+#                                                    math.sqrt(orig_matrix[r][r])*\
+#                                                    math.sqrt(orig_matrix[c][c])
+#
+#    for r in range(num_rows):
+#        for c in range(num_cols):
+#            assert(abs(spec[param_name][r][c] - spec[param_name][c][r]) < .0001)
+#            if (r==c):
+#                assert(spec[param_name][r][r] > 0)
+#                
+#    new_param_value = spec[param_name][row_idx][col_idx]
+#    return new_param_value
+
+#    cov = np.copy(spec[param_name])
+#    (num_rows, num_cols) = cov.shape
+#    if row_idx == col_idx:
+#        for r in range(num_rows):
+#            for c in range(num_cols):
+#                if r!=c:
+#                    cov[r][c] = cov[r][c]/(math.sqrt(cov[r][r])*math.sqrt(cov[c][c]))
+#
+#    if direction == 'inc':
+#        spec[param_name][row_idx][col_idx] += spec[param_name][row_idx][col_idx]*mod_percent
+#
+#    elif direction == 'dec':
+#        spec[param_name][row_idx][col_idx] -= spec[param_name][row_idx][col_idx]*mod_percent
+#
+#
+#    #make the matrix symmetric
+#    spec[param_name][col_idx][row_idx] = spec[param_name][row_idx][col_idx]
+#    #make sure diagonal elements to not go below 0
+#    print "col_idx == row_idx:", col_idx == row_idx
+#    print "spec[param_name][row_idx][col_idx] < EPSILON:", spec[param_name][row_idx][col_idx] < EPSILON
+#    print "spec[param_name]:"
+#    print spec[param_name]
+#    if col_idx == row_idx and spec[param_name][row_idx][col_idx] < EPSILON:
+#        spec[param_name][row_idx][col_idx] = EPSILON
+#        print "set col/row", col_idx, "to zero, proof:"
+#        print spec[param_name]
+#    print "spec[param_name]:"
+#    print spec[param_name]
+#    print cov
+#
+#    #make sure covariances are still valid if changing a diagonal
+#    if row_idx == col_idx:
+#        for r in range(num_rows):
+#            for c in range(num_cols):
+#                if r==row_idx or c==col_idx:
+#                    assert (spec[param_name][r][r] > 0 and
+#                            spec[param_name][c][c] > 0), (spec[param_name], col_idx, row_idx, direction, col_idx == row_idx, spec[param_name][row_idx][col_idx] < EPSILON)
+#                    spec[param_name][r][c] = cov[r][c]*\
+#                                                        math.sqrt(spec[param_name][r][r])*\
+#                                                        math.sqrt(spec[param_name][c][c])
+#
+#    new_param_value = spec[param_name][row_idx][col_idx]
+#    return new_param_value
 
 @explicit_serialize
 class Iterate(FireTaskBase):   
@@ -341,8 +505,19 @@ class Iterate(FireTaskBase):
 
     def run_task(self, fw_spec):
         (param_name, row_idx, col_idx) = get_param(fw_spec['param_idx'])
-        fw_spec['orig_param_val'] = fw_spec[param_name][row_idx][col_idx]
+        fw_spec['orig_param_val'] = fw_spec[param_name]
         fw_spec['coord_ascent_iter'] += 1
+
+        #run an RBPF batch with the original parameter (avoid randomly getting a
+        #great result at some point in the past)
+        orig_spec = copy.deepcopy(fw_spec)
+        orig_spec['mod_direction'] = 'orig'
+        orig_batch_firework = Firework(RunRBPF_Batch(), spec = orig_spec)
+        #evaluate the RBPF batch with the original parameter 
+        eval_orig_spec = copy.deepcopy(orig_spec)
+        eval_orig_spec['seq_idx_to_eval'] = eval_orig_spec['TRAINING_SEQUENCES']
+        orig_eval = Firework(RunEval(), spec = eval_orig_spec)
+
         #run an RBPF batch with the parameter increased
         inc_spec = copy.deepcopy(fw_spec)
         inc_param_value = modify_parameter(inc_spec, 'inc')
@@ -370,9 +545,11 @@ class Iterate(FireTaskBase):
         next_iter = Firework(ChooseNextIter(), spec = fw_spec)
 
         #Chain the fireworks together with proper dependencies and set 'em off!
-        iteration_workflow = Workflow([inc_batch_firework, dec_batch_firework, inc_eval, dec_eval, next_iter], 
-                            {inc_batch_firework: [inc_eval], dec_batch_firework: [dec_eval],
-                             inc_eval:[next_iter], dec_eval:[next_iter]})
+        iteration_workflow = Workflow([inc_batch_firework, dec_batch_firework, orig_batch_firework, \
+                                       inc_eval, dec_eval, orig_eval, next_iter], 
+                            {inc_batch_firework: [inc_eval], dec_batch_firework: [dec_eval], \
+                             orig_batch_firework: [orig_eval], inc_eval:[next_iter], dec_eval:[next_iter], \
+                             orig_eval:[next_iter]})
 
         return FWAction(additions = iteration_workflow)
 
@@ -385,29 +562,29 @@ class ChooseNextIter(FireTaskBase):
     #coordinate descent on the next parameter.
 
     def run_task(self, fw_spec):
-        objective_with_inc = fw_spec["metrics_with_inc"][OBJECTIVE_METRIC]
-        objective_with_dec = fw_spec["metrics_with_dec"][OBJECTIVE_METRIC]
-        orig_objective = fw_spec["orig_metrics"][OBJECTIVE_METRIC]
+        objective_with_inc = fw_spec["%s_eval_metrics_with_inc" % EVAL_SCRIPT][OBJECTIVE_METRIC]
+        objective_with_dec = fw_spec["%s_eval_metrics_with_dec" % EVAL_SCRIPT][OBJECTIVE_METRIC]
+        orig_objective = fw_spec["%s_eval_metrics" % EVAL_SCRIPT][OBJECTIVE_METRIC]
 
         (param_name, row_idx, col_idx) = get_param(fw_spec['param_idx'])
 
         if orig_objective>=objective_with_inc and orig_objective>=objective_with_dec:
-            fw_spec[param_name][row_idx][col_idx] = fw_spec['orig_param_val']#update parameter
+            fw_spec[param_name] = fw_spec['orig_param_val']#update parameter
             fw_spec["%s_alpha"%param_name][row_idx][col_idx] *= alpha_dec#update parameter's alpha
-            best_obj = fw_spec["orig_metrics"][OBJECTIVE_METRIC]
+            best_obj = fw_spec["%s_eval_metrics" % EVAL_SCRIPT][OBJECTIVE_METRIC]
             change_for_best_obj = 'const'
         elif objective_with_dec>=objective_with_inc and objective_with_dec>orig_objective:
-            fw_spec[param_name][row_idx][col_idx] = fw_spec['dec_param_val']#update parameter
+            fw_spec[param_name] = fw_spec['dec_param_val']#update parameter
             fw_spec["%s_alpha"%param_name][row_idx][col_idx] *= alpha_inc#update parameter's alpha
-            fw_spec["orig_metrics"] = fw_spec["metrics_with_dec"]#update baseline metrics for next iteration
-            best_obj = fw_spec["metrics_with_dec"][OBJECTIVE_METRIC]
+            fw_spec["%s_eval_metrics" % EVAL_SCRIPT] = fw_spec["%s_eval_metrics_with_dec" % EVAL_SCRIPT]#update baseline metrics for next iteration
+            best_obj = fw_spec["%s_eval_metrics_with_dec" % EVAL_SCRIPT][OBJECTIVE_METRIC]
             change_for_best_obj = 'dec'
 
         elif objective_with_inc>objective_with_dec and objective_with_inc>orig_objective:
-            fw_spec[param_name][row_idx][col_idx] = fw_spec['inc_param_val']#update parameter         
+            fw_spec[param_name] = fw_spec['inc_param_val']#update parameter         
             fw_spec["%s_alpha"%param_name][row_idx][col_idx] *= alpha_inc#update parameter's alpha
-            fw_spec["orig_metrics"] = fw_spec["metrics_with_inc"]#update baseline metrics for next iteration            
-            best_obj = fw_spec["metrics_with_inc"][OBJECTIVE_METRIC]
+            fw_spec["%s_eval_metrics" % EVAL_SCRIPT] = fw_spec["%s_eval_metrics_with_inc" % EVAL_SCRIPT]#update baseline metrics for next iteration            
+            best_obj = fw_spec["%s_eval_metrics_with_inc" % EVAL_SCRIPT][OBJECTIVE_METRIC]
             change_for_best_obj = 'inc'
 
         else:
