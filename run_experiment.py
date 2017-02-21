@@ -384,8 +384,9 @@ if __name__ == "__main__":
                                                 #the proposal distribution, using the clutter prior for both
                                                 'set_birth_clutter_prop_equal': False,
                                                 'birth_clutter_likelihood': birth_clutter_likelihood,
-                                                'proposal_distr': proposal_distr
-                                                }
+                                                'proposal_distr': proposal_distr,
+                                                'use_log_probs': 'True',
+                                                'normalize_log_importance_weights': True                                                }
                                         cur_firework = Firework(RunRBPF(), spec=cur_spec)
                         #                cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
 
