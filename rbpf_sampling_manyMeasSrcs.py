@@ -510,6 +510,13 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
     remaining_meas_count = list_of_measurement_associations.count(-1)
     for (index, detection_group) in enumerate(meas_groups):
         if list_of_measurement_associations[index] == -1:
+            #create set of the names of detection sources preset in this detection group
+            group_det_names = []
+            for det_name, det in detection_group.iteritems():
+                group_det_names.append(det_name)
+            det_names_set = ImmutableSet(group_det_names)
+
+            
             #create proposal distribution for the current measurement
             #compute target association proposal probabilities
             proposal_distribution_list = []
