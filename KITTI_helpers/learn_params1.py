@@ -2677,11 +2677,11 @@ class MultiDetections_many:
 
         return (all_gt_ids_by_frame, all_assoc_gt_ids_by_frame)
 
-    def group_detections(self, detection_groups, det_name, detections):
+    def group_detections(self, frame_detection_groups, det_name, detections):
         """
         Take a list of detections and try to associate them with detection groups from other measurement sources
         Inputs:
-        - detection_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        - frame_detection_groups: a list of detection groups, where each detection group is a dictionary of detections 
             in the group, key='det_name', value=detection
         - det_name: name of the detection source we are currently associating with current detection groups
         - detections: a list of detections from a specific measurement source, sequence, and frame
@@ -2689,7 +2689,7 @@ class MultiDetections_many:
         - frame_idx: the frame index (in the specified sequence)
 
         Outputs:
-        None, but detection_groups will be modified, with the new detections added (passed by reference)
+        None, but frame_detection_groups will be modified, with the new detections added (passed by reference)
         """
 
         hm = Munkres()
@@ -2703,9 +2703,9 @@ class MultiDetections_many:
 
         for cur_detection in detections:
             cost_row = []
-            for cur_detection_group in detection_groups:
+            for cur_detection_group in frame_detection_groups:
                 min_cost = max_cost
-                for det_name, grouped_detection in cur_detection_group.iteritems():
+                for grpd_det_name, grouped_detection in cur_detection_group.iteritems():
                     # overlap == 1 is cost ==0
                     c = 1-boxoverlap(cur_detection, grouped_detection)
                     if c < min_cost:
@@ -2722,20 +2722,30 @@ class MultiDetections_many:
         # associate
         association_matrix = hm.compute(cost_matrix)
 
+        PRINT_AFTER = False
+        if (len(frame_detection_groups)==4):
+            print "group_detections called with det_name = ", det_name
+            print "association_matrix:", association_matrix
+            print "cost_matrix:", cost_matrix
+            print "frame_detection_groups before new association: ", frame_detection_groups
+            PRINT_AFTER = True
+
         associated_detection_indices = []
         check_det_count = 0
         for row,col in association_matrix:
             # apply gating on boxoverlap
             c = cost_matrix[row][col]
+            print (row, col, c)
+
             if c < max_cost:
                 associated_detection = detections[row]
                 associated_detection_indices.append(row)
-                associated_detection_group = detection_groups[col]
+                associated_detection_group = frame_detection_groups[col]
 
                 #double check
                 check_det_count += 1
                 min_cost = max_cost
-                for det_name, grouped_detection in associated_detection_group.iteritems():
+                for grpd_det_name, grouped_detection in associated_detection_group.iteritems():
                     # overlap == 1 is cost ==0
                     check_c = 1-boxoverlap(associated_detection, grouped_detection)
                     if check_c < min_cost:
@@ -2743,13 +2753,20 @@ class MultiDetections_many:
                 assert(min_cost == c), (min_cost, c)
                 #done double check                
 
+                print "associated_detection_group before adding:", associated_detection_group
                 associated_detection_group[det_name] = associated_detection                
+                print "associated_detection_group after adding:", associated_detection_group
 
 
         for det_idx in range(len(detections)):
             if not(det_idx in associated_detection_indices):
-                detection_groups.append({det_name: detections[det_idx]})
+                frame_detection_groups.append({det_name: detections[det_idx]})
                 check_det_count += 1
+
+        if PRINT_AFTER:
+            print "frame_detection_groups aftern new association: ", frame_detection_groups
+
+
         assert(check_det_count == len(detections))
 
 
@@ -2769,14 +2786,21 @@ class MultiDetections_many:
         det_grp_assoc_wClutter = 0
         det_grp_assoc_wGTObject = 0
 
+        num_gt_objs_assoc_mult_grps = 0
+
+        det_group_size_counts = defaultdict(int)
         for det_name, det_objects in self.all_det_objects.iteritems():
+            print "associating detections with name:", det_name
             for seq_idx in range(len(det_objects)):
                 for frame_idx in range(len(det_objects[seq_idx])):
+                    print "det_name before calling = ", det_name
                     self.group_detections(self.detection_groups[seq_idx][frame_idx], det_name, det_objects[seq_idx][frame_idx])
 
         for seq_idx in range(len(self.detection_groups)):
             for frame_idx in range(len(self.detection_groups[seq_idx])):
                 for detection_group in self.detection_groups[seq_idx][frame_idx]:
+                    this_frame_assoc_gt_ids = []
+                    det_group_size_counts[len(detection_group)] += 1
                     detection_group_count +=1
                     det_grp_assoc = detection_group[detection_group.keys()[0]].assoc
                     correctly_assoc_group = True
@@ -2789,6 +2813,10 @@ class MultiDetections_many:
                             det_grp_assoc_wClutter += 1
                         else:
                             det_grp_assoc_wGTObject += 1
+                            if(det_grp_assoc in this_frame_assoc_gt_ids):
+                                num_gt_objs_assoc_mult_grps += 1
+                            else:
+                                this_frame_assoc_gt_ids.append(det_grp_assoc)
                     else:
                         imperfect_group_count += 1
 
@@ -2799,7 +2827,9 @@ class MultiDetections_many:
         print "detection_group_count =", detection_group_count
         print "# detection groups associated with clutter =", det_grp_assoc_wClutter
         print "# detection groups associated with a gt Object =", det_grp_assoc_wGTObject
-
+        print "# of ground truth objects associated with multiple detection groups =", num_gt_objs_assoc_mult_grps
+        print det_group_size_counts
+#        sleep(5)
         #self.detection_groups[seq_idx][frame_idx], detection_groups for the specified sequence and frame
         #detection_groups, list where each element is a detection_group
         #detection_group, dictionary of detections in the group, key='det_name', value=detection
@@ -3407,7 +3437,23 @@ def get_meas_target_sets_general(training_sequences, score_intervals, detection_
 
 ##############################################################################
 
-    (posAndSize_inv_covariance_blocks, posOnly_covariance_blocks, meas_noise_mean_posAndSize) = calc_gaussian_paramaters('ground_truth', gt_objects, detection_names)
+    (posAndSize_inv_covariance_blocks, posOnly_covariance_blocks, meas_noise_mean_posAndSize) = calc_gaussian_paramaters('ground_truth',\
+        all_detections.gt_objects, detection_names)
+
+    (clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize) = calc_gaussian_paramaters('clutter',\
+        all_detections.gt_objects, detection_names, posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, all_detections.clutter_detections)
+
+    print "Ground truth detection covariance:"
+    for det_name in detection_names:
+        print det_name
+        print posOnly_covariance_blocks[(det_name, det_name)]
+
+    print "Clutter detection covariance:"
+    for det_name in detection_names:
+        print det_name
+        print clutter_posOnly_covariance_blocks[(det_name, det_name)]
+
+#    sleep(2.3)
 
     #FIX ME, move to returning dictionaries with detection name keys instead of lists
     #return (returnTargSets, target_emission_probs, clutter_probabilities, birth_probabilities, meas_noise_covs, death_probs_near_border, death_probs_not_near_border)
@@ -3417,19 +3463,29 @@ def get_meas_target_sets_general(training_sequences, score_intervals, detection_
 
     return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, 
             birth_count_priors, death_probs_near_border, death_probs_not_near_border, 
-            posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks)
+            posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks,
+            clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize)
 
 
-def calc_gaussian_paramaters(group_type, gt_objects, detection_names):
+def calc_gaussian_paramaters(group_type, gt_objects, detection_names, blocked_cov_inv=None, meas_noise_mean=None, clutter_detections=None):
     """
     Inputs:
-    group_type: string, either "ground_truth" or "clutter" calculate Gaussian parameters for detection groups associated
+    - group_type: string, either "ground_truth" or "clutter" calculate Gaussian parameters for detection groups associated
         with either valid ground truth objects or clutter
 
+    - blocked_cov_inv: when calculating gaussian parameters of clutter, we need to come up with a position for the
+        underlying clutter object.  We take the blocked_cov_inv calculated from ground truth objects and combine clutter
+        measurements assuming the measurement sources have similar characteristics.
+    - meas_noise_mean: when calculating gaussian parameters of clutter, we need to come up with a position for the
+        underlying clutter object.  We take the meas_noise_mean calculated from ground truth objects and combine clutter
+        measurements assuming the measurement sources have similar characteristics.
+    - clutter_detections: should be MultiDetections_many.clutter_detections, only supply when group_type == 'clutter'
     Outputs:
 
     """
     assert(group_type in ['ground_truth', 'clutter'])
+    if group_type == 'ground_truth':
+        assert(blocked_cov_inv == None and meas_noise_mean == None)
     #dictionary where detection_ids['det_name'] is a list of obj_id's
     #that a detection of type 'det_name' is associated with
     detection_ids = defaultdict(list)
@@ -3453,8 +3509,19 @@ def calc_gaussian_paramaters(group_type, gt_objects, detection_names):
                                                        det.height - gt_obj.height])                        
                         detection_errors[det_name][obj_id] = cur_meas_loc_error
                         detection_ids[det_name].append(obj_id)
-            else:
-                assert(False), ("Not implemented yet!!")                
+            else: 
+                for clutter_grp in clutter_detections[seq_idx][frame_idx]:
+                    obj_id += 1
+                    num_det = len(clutter_grp)
+                    (clutter_loc, clutter_cov) = combine_arbitrary_number_measurements_4d(\
+                        blocked_cov_inv, meas_noise_mean, clutter_grp)
+                    for det_name, det in clutter_grp.iteritems():
+                        cur_meas_loc_error = np.array([det.x - clutter_loc[0], 
+                                                       det.y - clutter_loc[1],
+                                                       det.width - clutter_loc[2], 
+                                                       det.height - clutter_loc[3]])                        
+                        detection_errors[det_name][obj_id] = cur_meas_loc_error
+                        detection_ids[det_name].append(obj_id)
 
 
     def calc_cov_4DetAttributes(det_name1, det_name2, detection_errors, detection_ids):
@@ -3470,7 +3537,7 @@ def calc_gaussian_paramaters(group_type, gt_objects, detection_names):
         posOnly_cov_block_21 = cov[4:6, 0:2]
 
         if(det_name1 == det_name2):
-            assert(np.all(posAndSize_cov_block_12==posAndSIze_cov_block_21))
+            assert(np.all(abs(posAndSize_cov_block_12-posAndSIze_cov_block_21) < .0000001))
         else:
             assert(np.all(np.transpose(posAndSize_cov_block_12)==posAndSIze_cov_block_21))
 
@@ -3516,7 +3583,7 @@ def calc_gaussian_paramaters(group_type, gt_objects, detection_names):
 
     return (posAndSize_inv_covariance_blocks, posOnly_covariance_blocks, meas_noise_mean_posAndSize)
 
-def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, gt_obj):
+def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, detection_group):
     """
     
     Inputs:
@@ -3541,15 +3608,15 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, g
     -meas_noise_mean: a dictionary where meas_noise_mean['meas_namei'] = the mean measurement noise for measurement
     source with name 'meas_namei'
 
-    -gt_obj: the ground truth object whose associated measurements will be combined, can have an arbitrary number
-    of associations
+    -detection_group: dictionary with key='det_name', value=detection. The group of detections that will be combined, 
+    can have an arbitrary number of detections
 
     """
-    meas_count = len(gt_obj.assoc_dets) #number of associated measurements
+    meas_count = len(detection_group) #number of associated measurements
 
 #    #dictionary containing all measurements in appropriately formatted numpy arrays
 #    reformatted_zs = {}
-#    for det_name, det in gt_obj.assoc_dets.iteritems():
+#    for det_name, det in detection_group.iteritems():
 #        cur_z = np.array([det.x - meas_noise_mean[det_name][0], 
 #                          det.y - meas_noise_mean[det_name][1],
 #                          det.width - meas_noise_mean[det_name][2],
@@ -3559,19 +3626,19 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, g
 #    A = 0
 #    b = 0
 #    for det_name1, det in reformatted_zs.iteritems():
-#        for det_name2, ignore_me_det in gt_obj.assoc_dets.iteritems():
+#        for det_name2, ignore_me_det in detection_group.iteritems():
 #            A += blocked_cov_inv[(det_name1, det_name2)]
 #            b += np.dot(det, blocked_cov_inv[(det_name1, det_name2)])
 #
 #    combined_meas_mean = np.dot(inv(A), b)
 #    combined_covariance = inv(A)
 #
-#    assert(combined_meas_mean.shape == (4,)), (meas_count, gt_obj.assoc_dets)
+#    assert(combined_meas_mean.shape == (4,)), (meas_count, detection_group)
 #    return (combined_meas_mean, combined_covariance)
 
     #dictionary containing all measurements in appropriately formatted numpy arrays
     reformatted_zs = {}
-    for det_name, det in gt_obj.assoc_dets.iteritems():
+    for det_name, det in detection_group.iteritems():
         cur_z = np.array([det.x - meas_noise_mean[det_name][0], 
                           det.y - meas_noise_mean[det_name][1],
                           det.width - meas_noise_mean[det_name][2],
@@ -3580,14 +3647,13 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, g
     A = 0
     b = 0
     for det_name1, det in reformatted_zs.iteritems():
-        for det_name2, ignore_me_det in gt_obj.assoc_dets.iteritems():
+        for det_name2, ignore_me_det in detection_group.iteritems():
             A += blocked_cov_inv[(det_name1, det_name2)]
             b += np.dot(det, blocked_cov_inv[(det_name1, det_name2)])
     combined_meas_mean = np.dot(inv(A), b.transpose())
     combined_covariance = inv(A)
-    assert(combined_meas_mean.shape == (4,)), (meas_count, gt_obj.assoc_dets)
+    assert(combined_meas_mean.shape == (4,)), (meas_count, detection_group)
     return (combined_meas_mean.flatten(), combined_covariance)
-
 
 
 

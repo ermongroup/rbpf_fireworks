@@ -1884,18 +1884,23 @@ class RunRBPF(FireTaskBase):
 
                 (measurementTargetSetsBySequence, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, 
                 birth_count_priors, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES, 
-                posAndSize_inv_covariance_blocks, meas_noise_mean, posOnly_covariance_blocks) = get_meas_target_sets_general(
-                            training_sequences, SCORE_INTERVALS_DET_USED, det_names, \
+                posAndSize_inv_covariance_blocks, meas_noise_mean, posOnly_covariance_blocks,
+                clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize) =\
+                            get_meas_target_sets_general(training_sequences, SCORE_INTERVALS_DET_USED, det_names, \
                             obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
                             include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
                             include_ignored_detections = include_ignored_detections)
+
+                print "BORDER_DEATH_PROBABILITIES: ", BORDER_DEATH_PROBABILITIES
+                print "NOT_BORDER_DEATH_PROBABILITIES: ", NOT_BORDER_DEATH_PROBABILITIES
 
                 params = Parameters(det_names, target_groupEmission_priors, clutter_grpCountByFrame_priors,\
                          clutter_group_priors, birth_count_priors, posOnly_covariance_blocks, \
                          meas_noise_mean, posAndSize_inv_covariance_blocks, SPEC['R'], H,\
                          USE_PYTHON_GAUSSIAN, SPEC['USE_CONSTANT_R'], SCORE_INTERVALS,\
                          p_birth_likelihood, p_clutter_likelihood, SPEC['CHECK_K_NEAREST_TARGETS'],
-                         SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'])
+                         SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'], SPEC,
+                         clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize)
 
 #                print "BORDER_DEATH_PROBABILITIES:", BORDER_DEATH_PROBABILITIES
 #                print "NOT_BORDER_DEATH_PROBABILITIES:", NOT_BORDER_DEATH_PROBABILITIES
@@ -1946,7 +1951,10 @@ class RunRBPF(FireTaskBase):
                     (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset([meas_target_set], results_filename, params)
             else:       
                 if PROFILE:
-                    cProfile.run('run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)')
+                    cProfile.runctx('run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)',
+                        {'measurementTargetSetsBySequence': measurementTargetSetsBySequence, 'seq_idx': seq_idx,
+                        'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset}, {})
+#                    cProfile.run('run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)')
                 else:
                     (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)
             print "done processing sequence: ", seq_idx
