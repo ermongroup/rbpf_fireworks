@@ -287,9 +287,12 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
 
 
     living_target_indices = []
+    unassociated_target_indices = []
     for i in range(particle.targets.living_count):
         if(not i in targets_to_kill):
             living_target_indices.append(i)
+        if(not i in meas_grp_associations):
+            unassociated_target_indices.append(i)
 
     exact_probability = 1.0
     likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
@@ -298,7 +301,7 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
     exact_probability *= likelihood * assoc_prior
 
 
-    death_prior = calc_death_prior(living_target_indices, p_target_deaths)
+    death_prior = calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices)
     exact_probability *= death_prior
 
     assert(num_targs == particle.targets.living_count)
@@ -827,15 +830,15 @@ def sample_target_deaths(particle, unassociated_targets, cur_time):
                 probability_of_deaths *= (1 - cur_death_prob)
     return (targets_to_kill, probability_of_deaths)
 
-def calc_death_prior(living_target_indices, p_target_deaths):
+def calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices):
     death_prior = 1.0
     for (cur_target_index, cur_target_death_prob) in enumerate(p_target_deaths):
-        if cur_target_index in living_target_indices:
+        if not(cur_target_index in living_target_indices):
+            death_prior *= cur_target_death_prob
+            assert((cur_target_death_prob) != 0.0), cur_target_death_prob        
+        elif cur_target_index in unassociated_target_indices:
             death_prior *= (1.0 - cur_target_death_prob)
             assert((1.0 - cur_target_death_prob) != 0.0), cur_target_death_prob
-        else:
-            death_prior *= cur_target_death_prob
-            assert((cur_target_death_prob) != 0.0), cur_target_death_prob
 
     return death_prior
 

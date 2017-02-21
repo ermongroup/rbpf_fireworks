@@ -323,7 +323,7 @@ if __name__ == "__main__":
 ####                        firework_dependencies[fw] = eval_fireworks
 
 
-    for proposal_distr in ['sequential', 'min_cost']:
+    for proposal_distr in ['min_cost', 'sequential']:
 #    for online_delay in [0, 1, 3]:
         for online_delay in [3,0]:
             for birth_clutter_likelihood in ['aprox1', 'const1', 'const2']:
