@@ -18,7 +18,8 @@ class Parameters:
                  meas_noise_mean, posAndSize_inv_covariance_blocks, R_default, H,\
                  USE_PYTHON_GAUSSIAN, USE_CONSTANT_R, score_intervals,\
                  p_birth_likelihood, p_clutter_likelihood, CHECK_K_NEAREST_TARGETS,
-                 K_NEAREST_TARGETS, scale_prior_by_meas_orderings, SPEC):
+                 K_NEAREST_TARGETS, scale_prior_by_meas_orderings, SPEC,
+                 clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize):
         '''
         Inputs:
         - det_names: list of detection source names
@@ -43,6 +44,11 @@ class Parameters:
 
         self.meas_noise_mean = meas_noise_mean
         self.posAndSize_inv_covariance_blocks = posAndSize_inv_covariance_blocks
+
+
+        self.clutter_posAndSize_inv_covariance_blocks = clutter_posAndSize_inv_covariance_blocks
+        self.clutter_posOnly_covariance_blocks = clutter_posOnly_covariance_blocks
+        self.clutter_meas_noise_mean_posAndSize = clutter_meas_noise_mean_posAndSize
 
         self.R_default = R_default
         self.H = H
@@ -185,7 +191,7 @@ def group_detections(meas_groups, det_name, detection_locations, det_widths, det
         cost_row = []
         for cur_detection_group in meas_groups:
             min_cost = max_cost
-            for det_name, grouped_detection in cur_detection_group.iteritems():
+            for grpd_det_name, grouped_detection in cur_detection_group.iteritems():
                 # overlap == 1 is cost ==0
                 c = 1-boxoverlap(cur_detection, grouped_detection)
                 if c < min_cost:
@@ -215,7 +221,7 @@ def group_detections(meas_groups, det_name, detection_locations, det_widths, det
             #double check
             check_det_count += 1
             min_cost = max_cost
-            for det_name, grouped_detection in associated_detection_group.iteritems():
+            for grpd_det_name, grouped_detection in associated_detection_group.iteritems():
                 # overlap == 1 is cost ==0
                 check_c = 1-boxoverlap(associated_detection, grouped_detection)
                 if check_c < min_cost:
@@ -529,19 +535,23 @@ def associate_measurements_sequentially(particle, meas_groups, total_target_coun
 
 
 #        cur_birth_prior = cur_clutter_prior
-        if params.SPEC['birth_clutter_likelihood'] = 'const1':
+        if params.SPEC['birth_clutter_likelihood'] == 'const1':
             proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood**len(detection_group)) #Quick test, make nicer!!
             proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group)) #Quick test, make nicer!!
 
-        else params.SPEC['birth_clutter_likelihood'] = 'const2':
+        elif params.SPEC['birth_clutter_likelihood'] == 'const2':
             proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood) #Quick test, make nicer!!
             proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood) #Quick test, make nicer!!
 
-        else params.SPEC['birth_clutter_likelihood'] = 'aprox1':
-            likelihood = birth_clutter_likelihood(detection_group, params)
-            proposal_distribution_list.append(cur_birth_prior*likelihood) #Quick test, make nicer!!
-            proposal_distribution_list.append(cur_clutter_prior*likelihood) #Quick test, make nicer!!
+        elif params.SPEC['birth_clutter_likelihood'] == 'aprox1':
+            birth_likelihood = birth_clutter_likelihood(detection_group, params, 'birth')
+            proposal_distribution_list.append(cur_birth_prior*birth_likelihood*params.p_birth_likelihood) 
 
+            clutter_likelihood = birth_clutter_likelihood(detection_group, params, 'clutter')
+            proposal_distribution_list.append(cur_clutter_prior*clutter_likelihood*params.p_clutter_likelihood) #Quick test, make nicer!!
+        else:
+            print "Invalid params.SPEC['birth_clutter_likelihood']"
+            sys.exit(1);
 
         #normalize the proposal distribution
         proposal_distribution = np.asarray(proposal_distribution_list)
@@ -554,8 +564,8 @@ def associate_measurements_sequentially(particle, meas_groups, total_target_coun
         else:
             assert(len(proposal_distribution) == total_target_count+2), len(proposal_distribution)
 
- #       if particle.max_importance_weight:
- #           print proposal_distribution
+        if particle.max_importance_weight:
+            print "proposal_distribution:", proposal_distribution
 
         sampled_assoc_idx = np.random.choice(len(proposal_distribution),
                                                 p=proposal_distribution)
@@ -917,29 +927,37 @@ def get_assoc_prior_prev(living_target_indices, total_target_count, number_measu
 
     return assoc_prior
 
-def birth_clutter_likelihood(detection_group, params):
+def birth_clutter_likelihood(detection_group, params, likelihood_type):
     """
     Inputs:
     - detection_group: dictionary of associated detections with key='det_name' and
         value=detection where detection is a numpy array of [x,y,width,height]
     - params: type Parameters, we will use posOnly_covariance_blocks  where 
         posOnly_covariance_blocks[(det_name1, det_name2)] = posOnly_cov_block_12
+    - likelihood_type: string, 'clutter' or 'birth'.  Use covariance of measurements with ground
+        truth objects for 'birth' and clutter objects for 'clutter'
 
     Outputs:
     - likelihood: float, the likelihood that this group of detections
         was produced by a clutter or birth object.
     """
+    assert(likelihood_type in ['clutter', 'birth'])
     #number of dimensions in measurement space
-    d = posOnly_covariance_blocks[posOnly_covariance_blocks.keys()[0]].shape[0]
+    d = params.posOnly_covariance_blocks[params.posOnly_covariance_blocks.keys()[0]].shape[0]
     #number of measurements in the group
     n = len(detection_group)
     likelihood = (2*math.pi)**(-.5*(n-1)*d)
+    if len(detection_group) > 1:
+        print "likelihood1 =", likelihood
 
     #calculate the product over all detections of the determinant of the inverse
     #of the detection's measurement noise covariance matrix
     prod_of_determinants = 1.0
     for (det_name, det) in detection_group.iteritems():
-        cur_cov = params.posOnly_covariance_blocks[(det_name, det_name)]
+        if likelihood_type == 'birth':
+            cur_cov = params.posOnly_covariance_blocks[(det_name, det_name)]
+        else:
+            cur_cov = params.clutter_posOnly_covariance_blocks[(det_name, det_name)]
         cur_cov_inv_det = numpy.linalg.det(inv(cur_cov))
         prod_of_determinants *= cur_cov_inv_det
 
@@ -947,18 +965,27 @@ def birth_clutter_likelihood(detection_group, params):
     #noise covariance matrices
     determinant_of_sum = 0.0
     for (det_name, det) in detection_group.iteritems():
-        cur_cov = params.posOnly_covariance_blocks[(det_name, det_name)]
+        if likelihood_type == 'birth':
+            cur_cov = params.posOnly_covariance_blocks[(det_name, det_name)]
+        else:
+            cur_cov = params.clutter_posOnly_covariance_blocks[(det_name, det_name)]
         determinant_of_sum += inv(cur_cov)
     determinant_of_sum = numpy.linalg.det(determinant_of_sum)
 
     likelihood *= math.sqrt(prod_of_determinants/determinant_of_sum)
+    if len(detection_group) > 1:
+        print "likelihood2 =", likelihood
+
 
     #calculate terms in the likelihood's exponent
     A = 0.0
     sum_cInv_pos = 0.0
     sum_cInv = 0.0    
     for (det_name, det) in detection_group.iteritems():
-        cur_cov = params.posOnly_covariance_blocks[(det_name, det_name)]
+        if likelihood_type == 'birth':
+            cur_cov = params.posOnly_covariance_blocks[(det_name, det_name)]
+        else:
+            cur_cov = params.clutter_posOnly_covariance_blocks[(det_name, det_name)]
         det_pos = np.array([[det[0]],
                             [det[1]]])
         cInv_pos = np.dot(inv(cur_cov), det_pos)
@@ -967,6 +994,10 @@ def birth_clutter_likelihood(detection_group, params):
         sum_cInv += inv(cur_cov)        
 
     B = np.dot(np.dot(sum_cInv_pos.T, inv(sum_cInv)), sum_cInv_pos)
+    if len(detection_group) > 1:
+        print "A=", A
+        print "B=", B
+
     likelihood *= math.exp(-.5*(A - B))
 
     return likelihood
@@ -982,9 +1013,25 @@ def get_likelihood(particle, meas_groups, total_target_count,
     assert(len(measurement_associations) == len(meas_groups))
     for meas_index, meas_association in enumerate(measurement_associations):
         if(meas_association == total_target_count): #birth
-            likelihood *= params.p_birth_likelihood  #FIX ME!!
+            if params.SPEC['birth_clutter_likelihood'] == 'const1':
+                likelihood *= params.p_birth_likelihood**len(meas_groups[meas_index])
+            elif params.SPEC['birth_clutter_likelihood'] == 'const2':
+                likelihood *= params.p_birth_likelihood
+            elif params.SPEC['birth_clutter_likelihood'] == 'aprox1':
+                likelihood *= birth_clutter_likelihood(meas_groups[meas_index], params, 'birth')*params.p_birth_likelihood
+            else:
+                print "Invalid params.SPEC['birth_clutter_likelihood']"
+                sys.exit(1);            
         elif(meas_association == -1): #clutter
-            likelihood *= params.p_clutter_likelihood  #FIX ME!!
+            if params.SPEC['birth_clutter_likelihood'] == 'const1':
+                likelihood *= params.p_clutter_likelihood**len(meas_groups[meas_index])
+            elif params.SPEC['birth_clutter_likelihood'] == 'const2':
+                likelihood *= params.p_clutter_likelihood
+            elif params.SPEC['birth_clutter_likelihood'] == 'aprox1':
+                likelihood *= birth_clutter_likelihood(meas_groups[meas_index], params, 'clutter')*params.p_clutter_likelihood
+            else:
+                print "Invalid params.SPEC['birth_clutter_likelihood']"
+                sys.exit(1);               
         else:
             assert(meas_association >= 0 and meas_association < total_target_count), (meas_association, total_target_count)
             likelihood *= memoized_assoc_likelihood(particle, meas_groups[meas_index], meas_association, params)
@@ -1041,7 +1088,7 @@ def memoized_assoc_likelihood(particle, detection_group, target_index, params):
         complete_covariance = np.zeros((2*len(detection_group), 2*len(detection_group)))
         for idx1, det_name1 in enumerate(dets_present):
             for idx2, det_name2 in enumerate(dets_present):
-                complete_covariance[idx1*2:(idx1+1)*2][idx2*2:(idx2+1)*2] = params.posOnly_covariance_blocks[(det_name1, det_name2)] + target_cov
+                complete_covariance[idx1*2:(idx1+1)*2,idx2*2:(idx2+1)*2] = params.posOnly_covariance_blocks[(det_name1, det_name2)] + target_cov
 
 
         if params.USE_PYTHON_GAUSSIAN:        
