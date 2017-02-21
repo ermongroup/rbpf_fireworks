@@ -356,11 +356,16 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
 #    FIXME measurement_associations, proposal_probability
 ############################################################################################################
     #New implementation
-    
-    (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = associate_measurements_sequentially\
-            (particle, meas_groups, \
-             total_target_count, p_target_deaths,\
-             params)
+    assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost'])
+    if params.SPEC['proposal_distr'] == 'sequential':
+        (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
+        associate_measurements_sequentially(particle, meas_groups, total_target_count, \
+        p_target_deaths, params)
+
+    elif params.SPEC['proposal_distr'] == 'min_cost':
+        (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
+        associate_meas_min_cost(particle, meas_groups, total_target_count, \
+        p_target_deaths, params)
 
 
 
@@ -399,6 +404,187 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
     #done debug
 
     return (targets_to_kill, meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, unassociated_target_death_probs)
+
+
+
+def min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D):
+    """
+    Take a list of detections and try to associate them with detection groups from other measurement sources
+    Inputs:
+    - meas_grp_means4D: list of numpy arrays of combined measurment group x,y,width,height
+    - target_pos4D: list of numpy arrays of target positions x,y,width,height
+
+    Outputs:
+    - measurement_assoc: list of length=len(meas_grp_means4D).  measurement_assoc[i] = j means
+        that the ith measurement group is associated with the jth target.  -1 means the ith
+        measurement is not associated with any living target.
+    """
+
+    hm = Munkres()
+    max_cost = 1e9
+
+    # use hungarian method to associate, using boxoverlap 0..1 as cost
+    # build cost matrix
+    cost_matrix = []
+    this_ids = [[],[]]
+
+    for cur_detection in meas_grp_means4D:
+        cost_row = []
+        for cur_target in target_pos4D:
+            c = 1-boxoverlap(cur_detection, cur_target)
+            # gating for boxoverlap
+            if c<=.5:
+                cost_row.append(c)
+            else:
+                cost_row.append(max_cost)
+        cost_matrix.append(cost_row)
+    
+    if len(meas_grp_means4D) is 0:
+        cost_matrix=[[]]
+    # associate
+    association_matrix = hm.compute(cost_matrix)
+
+    measurement_assoc = [-1 for i in range(len(meas_grp_means4D))]
+    for row,col in association_matrix:
+        # apply gating on boxoverlap
+        c = cost_matrix[row][col]
+        if c < max_cost:
+            associated_measGrp = meas_grp_means4D[row]
+            associated_target = target_pos4D[col]
+            measurement_assoc[row] = col
+            assert(c == 1-boxoverlap(associated_measGrp, associated_target))
+
+    return measurement_assoc
+
+
+
+def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_deaths, params):
+
+    """
+    Try sampling associations with each measurement sequentially
+    Input:
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle     
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
+    - total_target_count: the number of living targets on the previous time instace
+    - p_target_deaths: a list of length len(total_target_count) where 
+        p_target_deaths[i] = the probability that target i has died between the last
+        time instance and the current time instance
+    - params: type Parameters, gives prior probabilities and other parameters we are using
+
+    Output:
+    - list_of_measurement_associations: list of associations for each measurement group
+    - proposal_probability: proposal probability of the sampled deaths and associations
+        
+    """
+    proposal_probability = 1.0
+
+    #sample measurement associations
+    birth_count = 0
+    clutter_count = 0
+
+    #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+    #of the position of meas_groups[i]
+    meas_grp_covs = []   
+    meas_grp_means2D = []
+    meas_grp_means4D = []
+    for (index, detection_group) in enumerate(meas_groups):
+        (combined_meas_mean, combined_covariance) = combine_arbitrary_number_measurements_4d(params.posAndSize_inv_covariance_blocks, 
+                            params.meas_noise_mean, detection_group)
+        combined_meas_pos = combined_meas_mean[0:2]
+        meas_grp_means2D.append(combined_meas_pos)
+        meas_grp_means4D.append(combined_meas_mean)
+        meas_grp_covs.append(combined_covariance)
+
+
+    #get list of target bounding boxes  
+    target_pos4D = []
+    for target_index in range(total_target_count):
+        target = particle.targets.living_targets[target_index]            
+        target_location = np.squeeze(np.dot(params.H, target.x)) 
+        target_pos4D.append(np.array([target_location[0], target_location[1], target.width, target.height]))
+
+
+    list_of_measurement_associations = min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D)
+
+    remaining_meas_count = list_of_measurement_associations.count(-1)
+    for (index, detection_group) in enumerate(meas_groups):
+        if list_of_measurement_associations[index] == -1:
+            #create proposal distribution for the current measurement
+            #compute target association proposal probabilities
+            proposal_distribution_list = []
+
+
+            cur_birth_prior = PRIOR_EPSILON
+            for bc, prior in params.birth_count_priors.iteritems():
+                additional_births = max(0.0, min(bc - birth_count, remaining_meas_count))
+                if additional_births <= remaining_meas_count:
+                    cur_birth_prior += prior*additional_births/remaining_meas_count 
+            cur_birth_prior *= params.birth_group_prior(det_names_set)
+            assert(cur_birth_prior*params.p_birth_likelihood**len(detection_group) > 0), (cur_birth_prior,params.p_birth_likelihood,len(detection_group))
+
+
+
+            cur_clutter_prior = PRIOR_EPSILON
+            for cc, prior in params.clutter_grpCountByFrame_priors.iteritems():
+                additional_clutter = max(0.0, min(cc - clutter_count, remaining_meas_count))
+                if additional_clutter <= remaining_meas_count:            
+                    cur_clutter_prior += prior*additional_clutter/remaining_meas_count 
+            cur_clutter_prior *= params.clutter_group_prior(det_names_set)
+            assert(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group) > 0), (cur_clutter_prior, params.p_clutter_likelihood, len(detection_group))
+
+
+    #        cur_birth_prior = cur_clutter_prior
+            if params.SPEC['birth_clutter_likelihood'] == 'const1':
+                proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood**len(detection_group)) #Quick test, make nicer!!
+                proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group)) #Quick test, make nicer!!
+
+            elif params.SPEC['birth_clutter_likelihood'] == 'const2':
+                proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood) #Quick test, make nicer!!
+                proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood) #Quick test, make nicer!!
+
+            elif params.SPEC['birth_clutter_likelihood'] == 'aprox1':
+
+                birth_likelihood = birth_clutter_likelihood(detection_group, params, 'birth')
+                proposal_distribution_list.append(cur_birth_prior*birth_likelihood*params.p_birth_likelihood) 
+
+                clutter_likelihood = birth_clutter_likelihood(detection_group, params, 'clutter')
+                proposal_distribution_list.append(cur_clutter_prior*clutter_likelihood*params.p_clutter_likelihood) #Quick test, make nicer!!
+            else:
+                print "Invalid params.SPEC['birth_clutter_likelihood']"
+                sys.exit(1);
+
+            #normalize the proposal distribution
+            proposal_distribution = np.asarray(proposal_distribution_list)
+            assert(np.sum(proposal_distribution) != 0.0), (index, remaining_meas_count, len(proposal_distribution), proposal_distribution, birth_count, clutter_count, len(measurement_list), total_target_count)
+            proposal_distribution /= float(np.sum(proposal_distribution))
+            proposal_length = 2
+            assert(len(proposal_distribution) == proposal_length), (proposal_length, len(proposal_distribution))
+
+#            if particle.max_importance_weight:
+#                print "proposal_distribution:", proposal_distribution
+
+            sampled_assoc_idx = np.random.choice(len(proposal_distribution),
+                                                    p=proposal_distribution)
+
+
+            if(sampled_assoc_idx == 0): #birth association
+                birth_count += 1
+                list_of_measurement_associations[index] = total_target_count
+            else: #clutter association
+                assert(sampled_assoc_idx == 1)
+                assert(list_of_measurement_associations[index] == -1) #already -1 from min_cost_measGrp_target_assoc
+                clutter_count += 1
+
+            proposal_probability *= proposal_distribution[sampled_assoc_idx]
+
+            remaining_meas_count -= 1
+
+
+    assert(remaining_meas_count == 0)
+    return(list_of_measurement_associations, meas_grp_means4D, meas_grp_covs, proposal_probability)
+
+
 
 def associate_measurements_sequentially(particle, meas_groups, total_target_count, p_target_deaths, params):
 
@@ -544,6 +730,7 @@ def associate_measurements_sequentially(particle, meas_groups, total_target_coun
             proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood) #Quick test, make nicer!!
 
         elif params.SPEC['birth_clutter_likelihood'] == 'aprox1':
+
             birth_likelihood = birth_clutter_likelihood(detection_group, params, 'birth')
             proposal_distribution_list.append(cur_birth_prior*birth_likelihood*params.p_birth_likelihood) 
 

@@ -32,15 +32,15 @@ from collections import defaultdict
 
 from cluster_config import RBPF_HOME_DIRECTORY
 sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
-from learn_params1_local import get_meas_target_set
-from learn_params1_local import get_meas_target_sets_lsvm_and_regionlets
-from learn_params1_local import get_meas_target_sets_regionlets_general_format
-from learn_params1_local import get_meas_target_sets_mscnn_general_format
-from learn_params1_local import get_meas_target_sets_mscnn_and_regionlets
-from learn_params1_local import get_meas_target_sets_2sources_general
-from learn_params1_local import get_meas_target_sets_1sources_general
+from learn_params1 import get_meas_target_set
+from learn_params1 import get_meas_target_sets_lsvm_and_regionlets
+from learn_params1 import get_meas_target_sets_regionlets_general_format
+from learn_params1 import get_meas_target_sets_mscnn_general_format
+from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
+from learn_params1 import get_meas_target_sets_2sources_general
+from learn_params1 import get_meas_target_sets_1sources_general
 
-from learn_params1_local import get_meas_target_sets_general
+from learn_params1 import get_meas_target_sets_general
 
 import cProfile
 import time
@@ -249,6 +249,11 @@ class Target:
         updated_x = self.x + np.dot(K, residual)
     #   updated_self.P = np.dot((np.eye(self.P.shape[0]) - np.dot(K, H)), self.P) #NUMERICALLY UNSTABLE!!!!!!!!
         updated_P = self.P - np.dot(np.dot(K, S), K.T) #not sure if this is numerically stable!!
+        assert(updated_P[0][0] > 0 and
+               updated_P[1][1] > 0 and
+               updated_P[2][2] > 0 and
+               updated_P[3][3] > 0), (self.P, SPEC['R'], SPEC['USE_CONSTANT_R'], meas_noise_cov, K, updated_P)
+        print "kf_update called :)"
         return (updated_x, updated_P)
 
     def update_2meas_simul(self):
@@ -384,6 +389,12 @@ class Target:
                       [0.0, 0.0, 0.0, 1.0]])
         x_predict = np.dot(F, self.x)
         P_predict = np.dot(np.dot(F, self.P), F.T) + SPEC['Q']
+        assert(P_predict[0][0] > 0 and
+               P_predict[1][1] > 0 and
+               P_predict[2][2] > 0 and
+               P_predict[3][3] > 0), (self.P, SPEC['Q'], P_predict[0][0])
+        print "kf_predict called :)"
+
         return (x_predict, P_predict)
 
 
