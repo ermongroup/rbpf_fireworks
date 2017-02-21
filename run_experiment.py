@@ -325,7 +325,7 @@ if __name__ == "__main__":
 #    for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
 #                      ['mscnn', '3dop', 'mono3d'], ['mscnn', '3dop'], ['mscnn']]:
 #    for online_delay in [0, 1, 3]:
-    for birth_clutter_likelihood in ['const1', 'const2', 'aprox1']
+    for birth_clutter_likelihood in ['const1', 'const2', 'aprox1']:
 #        for det_names in [['regionlets'], ['mv3d'], \
 #                          ['mono3d'], ['3dop'], ['mscnn']]:
         for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
@@ -373,7 +373,7 @@ if __name__ == "__main__":
                                         #if true, set the prior probability of birth and clutter equal in
                                         #the proposal distribution, using the clutter prior for both
                                         'set_birth_clutter_prop_equal': False,
-                                        'birth_clutter_likelihood:': birth_clutter_likelihood
+                                        'birth_clutter_likelihood': birth_clutter_likelihood
                                         }
                                 cur_firework = Firework(RunRBPF(), spec=cur_spec)
                 #                cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
