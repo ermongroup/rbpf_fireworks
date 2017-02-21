@@ -1218,7 +1218,9 @@ def get_likelihood(particle, meas_groups, total_target_count,
                 likelihood *= birth_clutter_likelihood(meas_groups[meas_index], params, 'birth')*params.p_birth_likelihood
             else:
                 print "Invalid params.SPEC['birth_clutter_likelihood']"
-                sys.exit(1);            
+                sys.exit(1);       
+            assert(likelihood != 0.0), (likelihood, params.SPEC['birth_clutter_likelihood'], 'birth')
+     
         elif(meas_association == -1): #clutter
             if params.SPEC['birth_clutter_likelihood'] == 'const1':
                 likelihood *= params.p_clutter_likelihood**len(meas_groups[meas_index])
@@ -1229,9 +1231,13 @@ def get_likelihood(particle, meas_groups, total_target_count,
             else:
                 print "Invalid params.SPEC['birth_clutter_likelihood']"
                 sys.exit(1);               
+            assert(likelihood != 0.0), (likelihood, params.SPEC['birth_clutter_likelihood'], 'clutter')
+
         else:
             assert(meas_association >= 0 and meas_association < total_target_count), (meas_association, total_target_count)
             likelihood *= memoized_assoc_likelihood(particle, meas_groups[meas_index], meas_association, params)
+            assert(likelihood != 0.0), (likelihood, params.SPEC['birth_clutter_likelihood'], 'target')
+
 
     assert(likelihood != 0.0), (likelihood)
 
