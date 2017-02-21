@@ -529,20 +529,22 @@ def associate_measurements_sequentially(particle, meas_groups, total_target_coun
 
 
 #        cur_birth_prior = cur_clutter_prior
-        if params.SPEC['birth_clutter_likelihood'] = 'const1':
+        if params.SPEC['birth_clutter_likelihood'] == 'const1':
             proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood**len(detection_group)) #Quick test, make nicer!!
             proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group)) #Quick test, make nicer!!
 
-        else params.SPEC['birth_clutter_likelihood'] = 'const2':
+        elif params.SPEC['birth_clutter_likelihood'] == 'const2':
             proposal_distribution_list.append(cur_birth_prior*params.p_birth_likelihood) #Quick test, make nicer!!
             proposal_distribution_list.append(cur_clutter_prior*params.p_clutter_likelihood) #Quick test, make nicer!!
 
-        else params.SPEC['birth_clutter_likelihood'] = 'aprox1':
+        elif params.SPEC['birth_clutter_likelihood'] == 'aprox1':
             likelihood = birth_clutter_likelihood(detection_group, params)
             proposal_distribution_list.append(cur_birth_prior*likelihood) #Quick test, make nicer!!
             proposal_distribution_list.append(cur_clutter_prior*likelihood) #Quick test, make nicer!!
-
-
+        else:
+            print "Invalid params.SPEC['birth_clutter_likelihood']"
+            sys.exit(1);
+            
         #normalize the proposal distribution
         proposal_distribution = np.asarray(proposal_distribution_list)
         assert(np.sum(proposal_distribution) != 0.0), (index, remaining_meas_count, len(proposal_distribution), proposal_distribution, birth_count, clutter_count, len(measurement_list), total_target_count)
