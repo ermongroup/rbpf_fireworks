@@ -66,7 +66,7 @@ NUM_PARTICLES_TO_TEST = [100]
 
 ###################################### Experiment Organization ######################################
 #DIRECTORY_OF_ALL_RESULTS = './ICML_prep_correctedOnline/propose_k=1_nearest_targets'
-DIRECTORY_OF_ALL_RESULTS = '%sICML_prep' % RBPF_HOME_DIRECTORY
+DIRECTORY_OF_ALL_RESULTS = '%sICML1_prep' % RBPF_HOME_DIRECTORY
 #CUR_EXPERIMENT_BATCH_NAME = 'genData_origRBPF_multMeas_probDet95_clutLambdaPoint1_noise05_noShuffle_beta1'
 #CUR_EXPERIMENT_BATCH_NAME = 'genData_origRBPF_multMeas_fixedRounding_resampleRatio4_scaled_ShuffleMeas_timeScaled_PQdiv100'
 #CUR_EXPERIMENT_BATCH_NAME = 'Rto0_4xQ_multMeas1update_online3frameDelay2'
@@ -323,99 +323,113 @@ if __name__ == "__main__":
 ####                        firework_dependencies[fw] = eval_fireworks
 
 
+    for targ_meas_assoc_metric in ['distance']:
+    #    for proposal_distr in ['min_cost', 'sequential']:
+        for proposal_distr in ['min_cost']:
+    #    for online_delay in [0, 1, 3]:
+            for online_delay in [3, 0]:
+                for birth_clutter_likelihood in ['aprox1']:
+    #            for birth_clutter_likelihood in ['aprox1', 'const1', 'const2']:
+        #        for birth_clutter_likelihood in ['aprox1']:
+            #        for det_names in [['regionlets'], ['mv3d'], \
+            #                          ['mono3d'], ['3dop'], ['mscnn']]:
 
-#    for proposal_distr in ['min_cost', 'sequential']:
-    for proposal_distr in ['min_cost']:
-#    for online_delay in [0, 1, 3]:
-        for online_delay in [3, 0]:
-#            for birth_clutter_likelihood in ['aprox1']:
-            for birth_clutter_likelihood in ['aprox1', 'const1', 'const2']:
-    #        for birth_clutter_likelihood in ['aprox1']:
-        #        for det_names in [['regionlets'], ['mv3d'], \
-        #                          ['mono3d'], ['3dop'], ['mscnn']]:
+                    for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
+                                  ['mscnn', '3dop', 'mono3d'], ['mscnn', '3dop'], ['mscnn']]:
+    #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
+                #    for det_names in [['mscnn', 'regionlets']]:
+        #            for det_names in [['mscnn', 'mono3d']]:
+                #        for scale_prior_by_meas_orderings in ['original', 'corrected_with_score_intervals', 'ignore_meas_orderings']:
+                        for scale_prior_by_meas_orderings in ['ignore_meas_orderings']:
+                #        for scale_prior_by_meas_orderings in ['original']:
+                            for num_particles in NUM_PARTICLES_TO_TEST:
+                #                for (max_1_meas_update_local, update_simul_local) in [(True, False), (False, True), (False, False)]:
+                                for (use_general_num_dets, max_1_meas_update_local, update_simul_local) in [(True, True, False)]:
+                                    description_of_run = get_description_of_run_gen_detections(include_ignored_gt, include_dontcare_in_gt,
+                                                    sort_dets_on_intervals, det_names)
+                                    results_folder_name = '%s/%d_particles' % (description_of_run, num_particles)
+                                    results_folder = '%s/%s/%s_measOrder=%s,max1_meas=%s,update_simul=%s,use_gen_num_det=%s\
+                                        ,bc_like=%s,onine_delay=%d,proposal_distr=%s,targ_meas_assoc_metric=%s' % \
+                                        (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name, scale_prior_by_meas_orderings,
+                                        max_1_meas_update_local, update_simul_local, use_general_num_dets, birth_clutter_likelihood, online_delay,
+                                        proposal_distr,targ_meas_assoc_metric)
+                                    setup_results_folder(results_folder)
+                                    run_rbpf_fireworks = []            
+                                    for run_idx in range(1, NUM_RUNS+1):
+                                        for seq_idx in SEQUENCES_TO_PROCESS:
+                                            cur_spec = {
+                                                    'det_names': det_names,
+                                                    'num_particles': num_particles,
+                                                    'include_ignored_gt': False,
+                                                    'include_dontcare_in_gt': False,
+                                                    'sort_dets_on_intervals': True,
+                                                    'run_idx': run_idx,
+                                                    'seq_idx': seq_idx,
+                                                    'results_folder': results_folder,
+                                                    'CHECK_K_NEAREST_TARGETS': True,                        
+                                                    'K_NEAREST_TARGETS': 1,                        
+                                                    'RUN_ONLINE': RUN_ONLINE,
+                                                    'ONLINE_DELAY': online_delay,
+                                                    'MAX_1_MEAS_UPDATE': max_1_meas_update_local,                    
+                                                    'UPDATE_MULT_MEAS_SIMUL': update_simul_local,
+                                                    'TREAT_MEAS_INDEP': TREAT_MEAS_INDEP,                        
+                                                    'TREAT_MEAS_INDEP_2': TREAT_MEAS_INDEP_2,
+                                                    'USE_CONSTANT_R': USE_CONSTANT_R,
+                                                    'P': P_default.tolist(),
+                                                    'R': R_default.tolist(),
+                                                    'Q': Q_default.tolist(),
+                                                    'scale_prior_by_meas_orderings': scale_prior_by_meas_orderings,
+                                                    'derandomize_with_seed': True,
+                                                    'use_general_num_dets': use_general_num_dets,
+                                                    #if true, set the prior probability of birth and clutter equal in
+                                                    #the proposal distribution, using the clutter prior for both
+                                                    'set_birth_clutter_prop_equal': False,
+                                                    'birth_clutter_likelihood': birth_clutter_likelihood,
+                                                    'proposal_distr': proposal_distr,
+                                                    'use_log_probs': 'True',
+                                                    'normalize_log_importance_weights': True,                                    
+                                                    #the minimum allowed box overlap for each detection source when associating
+                                                    #detections into groups
+                                                    'det_grouping_min_overlap': {'mscnn':.5, 
+                                                                                 '3dop':.5,
+                                                                                 'mono3d':.5,
+                                                                                 'mv3d':.5,
+                                                                                 'regionlets':.5},
+                                                    #'distance' or 'box_overlap', metric used when computing min cost measurment
+                                                    #target association assignment                             
+                                                    'targ_meas_assoc_metric': targ_meas_assoc_metric,
+                                                    #propose target measurement association with these distances as the 
+                                                    #maximum allowed distance when finding minimum cost assignment                                     
+                                                    'target_detection_max_dists': [15, 50, 150]
+                                                    }
+                                            cur_firework = Firework(RunRBPF(), spec=cur_spec)
+                            #                cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
 
-                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
-                              ['mscnn', '3dop', 'mono3d'], ['mscnn', '3dop'], ['mscnn']]:
-#                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
-            #    for det_names in [['mscnn', 'regionlets']]:
-    #            for det_names in [['mscnn', 'mono3d']]:
-            #        for scale_prior_by_meas_orderings in ['original', 'corrected_with_score_intervals', 'ignore_meas_orderings']:
-                    for scale_prior_by_meas_orderings in ['ignore_meas_orderings']:
-            #        for scale_prior_by_meas_orderings in ['original']:
-                        for num_particles in NUM_PARTICLES_TO_TEST:
-            #                for (max_1_meas_update_local, update_simul_local) in [(True, False), (False, True), (False, False)]:
-                            for (use_general_num_dets, max_1_meas_update_local, update_simul_local) in [(True, True, False)]:
-                                description_of_run = get_description_of_run_gen_detections(include_ignored_gt, include_dontcare_in_gt,
-                                                sort_dets_on_intervals, det_names)
-                                results_folder_name = '%s/%d_particles' % (description_of_run, num_particles)
-                                results_folder = '%s/%s/%s_measOrder=%s,max1_meas=%s,update_simul=%s,use_gen_num_det=%s\
-                                    ,bc_like=%s,onine_delay=%d,proposal_distr=%s' % \
-                                    (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name, scale_prior_by_meas_orderings,
-                                    max_1_meas_update_local, update_simul_local, use_general_num_dets, birth_clutter_likelihood, online_delay,
-                                    proposal_distr)
-                                setup_results_folder(results_folder)
-                                run_rbpf_fireworks = []            
-                                for run_idx in range(1, NUM_RUNS+1):
-                                    for seq_idx in SEQUENCES_TO_PROCESS:
-                                        cur_spec = {
-                                                'det_names': det_names,
-                                                'num_particles': num_particles,
-                                                'include_ignored_gt': False,
-                                                'include_dontcare_in_gt': False,
-                                                'sort_dets_on_intervals': True,
-                                                'run_idx': run_idx,
-                                                'seq_idx': seq_idx,
-                                                'results_folder': results_folder,
-                                                'CHECK_K_NEAREST_TARGETS': True,                        
-                                                'K_NEAREST_TARGETS': 1,                        
-                                                'RUN_ONLINE': RUN_ONLINE,
-                                                'ONLINE_DELAY': online_delay,
-                                                'MAX_1_MEAS_UPDATE': max_1_meas_update_local,                    
-                                                'UPDATE_MULT_MEAS_SIMUL': update_simul_local,
-                                                'TREAT_MEAS_INDEP': TREAT_MEAS_INDEP,                        
-                                                'TREAT_MEAS_INDEP_2': TREAT_MEAS_INDEP_2,
-                                                'USE_CONSTANT_R': USE_CONSTANT_R,
-                                                'P': P_default.tolist(),
-                                                'R': R_default.tolist(),
-                                                'Q': Q_default.tolist(),
-                                                'scale_prior_by_meas_orderings': scale_prior_by_meas_orderings,
-                                                'derandomize_with_seed': True,
-                                                'use_general_num_dets': use_general_num_dets,
-                                                #if true, set the prior probability of birth and clutter equal in
-                                                #the proposal distribution, using the clutter prior for both
-                                                'set_birth_clutter_prop_equal': False,
-                                                'birth_clutter_likelihood': birth_clutter_likelihood,
-                                                'proposal_distr': proposal_distr,
-                                                'use_log_probs': 'True',
-                                                'normalize_log_importance_weights': True                                                }
-                                        cur_firework = Firework(RunRBPF(), spec=cur_spec)
-                        #                cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
-
-                                        run_rbpf_fireworks.append(cur_firework)
+                                            run_rbpf_fireworks.append(cur_firework)
 
 
-            #                   seq_idx_to_eval = [i for i in range(21)]
-                                seq_idx_to_eval = SEQUENCES_TO_PROCESS
-                                eval_old_spec = copy.deepcopy(cur_spec)
-                                eval_old_spec['seq_idx_to_eval'] = seq_idx_to_eval 
-                                eval_old_spec['use_corrected_eval'] = False
-                                eval_old_firework = Firework(RunEval(), spec=eval_old_spec)
+                #                   seq_idx_to_eval = [i for i in range(21)]
+                                    seq_idx_to_eval = SEQUENCES_TO_PROCESS
+                                    eval_old_spec = copy.deepcopy(cur_spec)
+                                    eval_old_spec['seq_idx_to_eval'] = seq_idx_to_eval 
+                                    eval_old_spec['use_corrected_eval'] = False
+                                    eval_old_firework = Firework(RunEval(), spec=eval_old_spec)
 
-                                eval_new_spec = copy.deepcopy(cur_spec)
-                                eval_new_spec['seq_idx_to_eval'] = seq_idx_to_eval 
-                                eval_new_spec['use_corrected_eval'] = True
-                                eval_new_firework = Firework(RunEval(), spec=eval_new_spec)
+                                    eval_new_spec = copy.deepcopy(cur_spec)
+                                    eval_new_spec['seq_idx_to_eval'] = seq_idx_to_eval 
+                                    eval_new_spec['use_corrected_eval'] = True
+                                    eval_new_firework = Firework(RunEval(), spec=eval_new_spec)
 
-                                eval_fireworks = [eval_old_firework, eval_new_firework]
-                                all_fireworks.extend(run_rbpf_fireworks)
-                                all_fireworks.extend(eval_fireworks)
-                                for fw in run_rbpf_fireworks:
-                                    firework_dependencies[fw] = eval_fireworks
+                                    eval_fireworks = [eval_old_firework, eval_new_firework]
+                                    all_fireworks.extend(run_rbpf_fireworks)
+                                    all_fireworks.extend(eval_fireworks)
+                                    for fw in run_rbpf_fireworks:
+                                        firework_dependencies[fw] = eval_fireworks
 
-                                storeResultsFW = Firework(StoreResultsInDatabase(), spec=eval_new_spec)
-                                all_fireworks.append(storeResultsFW)
-                                firework_dependencies[eval_old_firework] = storeResultsFW
-                                firework_dependencies[eval_new_firework] = storeResultsFW
+                                    storeResultsFW = Firework(StoreResultsInDatabase(), spec=eval_new_spec)
+                                    all_fireworks.append(storeResultsFW)
+                                    firework_dependencies[eval_old_firework] = storeResultsFW
+                                    firework_dependencies[eval_new_firework] = storeResultsFW
 
 
     # store workflow and launch it

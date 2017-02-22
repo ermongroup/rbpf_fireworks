@@ -1731,6 +1731,7 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, g
 class RunRBPF(FireTaskBase):   
  #   _fw_name = "Run RBPF Task"
     def run_task(self, fw_spec):
+        print "results folder: ", fw_spec['results_folder']
         #debugging
         global max_imprt_weight_count_dict
         max_imprt_weight_count_dict = defaultdict(int)
