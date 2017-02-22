@@ -1209,6 +1209,16 @@ def birth_clutter_likelihood(detection_group, params, likelihood_type):
     - likelihood: float, the likelihood that this group of detections
         was produced by a clutter or birth object.
     """
+
+    #if we only have 1 detection in the group the return value is 1.0 and we can skip the
+    #work.  Also, seemed to be getting a bug calculating below on Atlas:
+    # File "/atlas/u/jkuck/rbpf_fireworks/rbpf_sampling_manyMeasSrcs.py", line 1269, in birth_clutter_likelihood
+    #   likelihood *= math.exp(-.5*(A - B))
+    # OverflowError: math range error
+
+    if len(detection_group) == 1:
+        return 1.0
+
     assert(likelihood_type in ['clutter', 'birth'])
     #number of dimensions in measurement space
     d = params.posOnly_covariance_blocks[params.posOnly_covariance_blocks.keys()[0]].shape[0]
