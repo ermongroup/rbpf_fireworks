@@ -490,7 +490,7 @@ def min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_as
             if params.SPEC['targ_meas_assoc_metric'] == 'box_overlap':
                 assert(c == 1-boxoverlap(associated_measGrp, associated_target))
             else:
-                assert(c == l2_dist(cur_detection, cur_target))
+                assert(abs(c - l2_dist(associated_measGrp, associated_target)) < .000001), (c, l2_dist(cur_detection, cur_target))
 
 
     return measurement_assoc
@@ -516,7 +516,6 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
     - proposal_probability: proposal probability of the sampled deaths and associations
         
     """
-    proposal_probability = 1.0
 
     #sample measurement associations
     birth_count = 0
@@ -547,7 +546,8 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
     complete_association_possibilities = []
     complete_association_probs = []
     for idx, max_assoc_cost in enumerate(params.SPEC['target_detection_max_dists']):
-        list_of_measurement_associations = min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, params.SPEC['target_detection_max_dists'][0])
+        list_of_measurement_associations = min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_assoc_cost)
+        proposal_probability = 1.0
 
         remaining_meas_count = list_of_measurement_associations.count(-1)
         for (index, detection_group) in enumerate(meas_groups):
@@ -629,19 +629,21 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
 
                 remaining_meas_count -= 1
         complete_association_possibilities.append(list_of_measurement_associations)
-        complete_association_probs.append(complete_association_probs)
+        complete_association_probs.append(proposal_probability)
 
-        conditional_proposal_distribution = np.asarray(complete_association_probs)
-        assert(np.sum(conditional_proposal_distribution) != 0.0)
-        conditional_proposal_distribution /= float(np.sum(conditional_proposal_distribution))
+    conditional_proposal_distribution = np.asarray(complete_association_probs)
+    assert(np.sum(conditional_proposal_distribution) != 0.0)
+    print conditional_proposal_distribution
+    conditional_proposal_distribution /= float(np.sum(conditional_proposal_distribution))
 
-        sampled_idx = np.random.choice(len(conditional_proposal_distribution),
-                                                p=conditional_proposal_distribution)
+    sampled_idx = np.random.choice(len(conditional_proposal_distribution),
+                                            p=conditional_proposal_distribution)
 
 
-        final_measurement_associations = complete_association_possibilities[sampled_idx]
-        joint_proposal_probability = complete_association_probs[sampled_idx]*conditional_proposal_distribution[sampled_idx]
+    final_measurement_associations = complete_association_possibilities[sampled_idx]
+    joint_proposal_probability = complete_association_probs[sampled_idx]*conditional_proposal_distribution[sampled_idx]
 
+    print 'returnHI'
     assert(remaining_meas_count == 0)
     return(final_measurement_associations, meas_grp_means4D, meas_grp_covs, joint_proposal_probability)
 
