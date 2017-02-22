@@ -362,7 +362,7 @@ def modify_parameter(spec, direction):
 
     spec['mod_direction'] = direction
 
-    (param_name, det_name, idx) = get_param(spec['param_idx'])
+    (param_name, det_name, idx) = get_param(spec['param_idx'], spec)
     mod_percent = spec["alpha"][spec['param_idx']]/100.0
 
     if param_name == 'det_grouping_min_overlap':
@@ -481,7 +481,7 @@ class Iterate(FireTaskBase):
     #coordinate descent on the next parameter.
 
     def run_task(self, fw_spec):
-        (param_name, det_name, idx) = get_param(fw_spec['param_idx'])
+        (param_name, det_name, idx) = get_param(fw_spec['param_idx'], fw_spec)
         fw_spec['orig_param_val'] = fw_spec[param_name]
         fw_spec['coord_ascent_iter'] += 1
 
@@ -543,7 +543,7 @@ class ChooseNextIter(FireTaskBase):
         objective_with_dec = fw_spec["%s_eval_metrics_with_dec" % EVAL_SCRIPT][OBJECTIVE_METRIC]
         orig_objective = fw_spec["%s_eval_metrics" % EVAL_SCRIPT][OBJECTIVE_METRIC]
 
-        (param_name, row_idx, col_idx) = get_param(fw_spec['param_idx'])
+        (param_name, row_idx, col_idx) = get_param(fw_spec['param_idx'], fw_spec)
 
         if orig_objective>=objective_with_inc and orig_objective>=objective_with_dec:
             fw_spec[param_name] = fw_spec['orig_param_val']#update parameter
@@ -635,7 +635,7 @@ def get_param(param_idx, spec):
     """
     if param_idx < len(spec['det_names']):
         param_name = 'det_grouping_min_overlap'
-        det_name = spec['det_name'][param_idx] 
+        det_name = spec['det_names'][param_idx] 
         idx = -1
 
     else:
@@ -711,9 +711,13 @@ if __name__ == "__main__":
             'alpha': ALPHA_INIT,
             'coord_ascent_iter': 0,
             'derandomize_with_seed': False,
-            'use_general_num_dets': False,
-            'scale_prior_by_meas_orderings': 'corrected_with_score_intervals',
+            'use_general_num_dets': True,
+            'scale_prior_by_meas_orderings': 'ignore_meas_orderings',
             'set_birth_clutter_prop_equal': False,
+            'birth_clutter_likelihood': 'aprox1',
+            'proposal_distr': 'min_cost',
+            'use_log_probs': 'True',
+            'normalize_log_importance_weights': True,
             #the minimum allowed box overlap for each detection source when associating
             #detections into groups
             'det_grouping_min_overlap': {'mscnn':.5, 

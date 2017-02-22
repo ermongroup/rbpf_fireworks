@@ -32,15 +32,15 @@ from collections import defaultdict
 
 from cluster_config import RBPF_HOME_DIRECTORY
 sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
-from learn_params1_local import get_meas_target_set
-from learn_params1_local import get_meas_target_sets_lsvm_and_regionlets
-from learn_params1_local import get_meas_target_sets_regionlets_general_format
-from learn_params1_local import get_meas_target_sets_mscnn_general_format
-from learn_params1_local import get_meas_target_sets_mscnn_and_regionlets
-from learn_params1_local import get_meas_target_sets_2sources_general
-from learn_params1_local import get_meas_target_sets_1sources_general
+from learn_params1 import get_meas_target_set
+from learn_params1 import get_meas_target_sets_lsvm_and_regionlets
+from learn_params1 import get_meas_target_sets_regionlets_general_format
+from learn_params1 import get_meas_target_sets_mscnn_general_format
+from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
+from learn_params1 import get_meas_target_sets_2sources_general
+from learn_params1 import get_meas_target_sets_1sources_general
 
-from learn_params1_local import get_meas_target_sets_general
+from learn_params1 import get_meas_target_sets_general
 
 import cProfile
 import time
@@ -1744,6 +1744,9 @@ class RunRBPF(FireTaskBase):
         global SPEC
         SPEC = fw_spec
 
+        print "SPEC:"
+        print SPEC
+        
         SPEC['P'] = np.array(SPEC['P'])
         SPEC['R'] = np.array(SPEC['R'])
         SPEC['Q'] = np.array(SPEC['Q'])

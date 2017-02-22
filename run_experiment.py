@@ -323,9 +323,12 @@ if __name__ == "__main__":
 ####                        firework_dependencies[fw] = eval_fireworks
 
 
-    for proposal_distr in ['min_cost', 'sequential']:
+
+#    for proposal_distr in ['min_cost', 'sequential']:
+    for proposal_distr in ['min_cost']:
 #    for online_delay in [0, 1, 3]:
-        for online_delay in [3,0]:
+        for online_delay in [3, 0]:
+#            for birth_clutter_likelihood in ['aprox1']:
             for birth_clutter_likelihood in ['aprox1', 'const1', 'const2']:
     #        for birth_clutter_likelihood in ['aprox1']:
         #        for det_names in [['regionlets'], ['mv3d'], \
@@ -333,7 +336,7 @@ if __name__ == "__main__":
 
                 for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
                               ['mscnn', '3dop', 'mono3d'], ['mscnn', '3dop'], ['mscnn']]:
-        #        for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
+#                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
             #    for det_names in [['mscnn', 'regionlets']]:
     #            for det_names in [['mscnn', 'mono3d']]:
             #        for scale_prior_by_meas_orderings in ['original', 'corrected_with_score_intervals', 'ignore_meas_orderings']:
@@ -382,8 +385,9 @@ if __name__ == "__main__":
                                                 #the proposal distribution, using the clutter prior for both
                                                 'set_birth_clutter_prop_equal': False,
                                                 'birth_clutter_likelihood': birth_clutter_likelihood,
-                                                'proposal_distr': proposal_distr
-                                                }
+                                                'proposal_distr': proposal_distr,
+                                                'use_log_probs': 'True',
+                                                'normalize_log_importance_weights': True                                                }
                                         cur_firework = Firework(RunRBPF(), spec=cur_spec)
                         #                cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
 
@@ -425,3 +429,4 @@ if __name__ == "__main__":
 
 
 
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
