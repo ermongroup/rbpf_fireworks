@@ -1744,6 +1744,9 @@ class RunRBPF(FireTaskBase):
         global SPEC
         SPEC = fw_spec
 
+        print "SPEC:"
+        print SPEC
+        
         SPEC['P'] = np.array(SPEC['P'])
         SPEC['R'] = np.array(SPEC['R'])
         SPEC['Q'] = np.array(SPEC['Q'])
