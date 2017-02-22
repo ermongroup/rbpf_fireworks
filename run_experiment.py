@@ -255,7 +255,7 @@ if __name__ == "__main__":
     # set up the LaunchPad and reset it
     launchpad = LaunchPad(host=MONGODB_HOST, port=MONGODB_PORT, name=MONGODB_NAME, username=MONGODB_USERNAME, password=MONGODB_PASSWORD,
                      logdir=None, strm_lvl='INFO', user_indices=None, wf_user_indices=None, ssl_ca_file=None)
-    launchpad.reset('', require_password=False)
+#    launchpad.reset('', require_password=False)
 
     det1_name = 'mscnn'
     det2_name = 'regionlets'
@@ -334,8 +334,11 @@ if __name__ == "__main__":
             #        for det_names in [['regionlets'], ['mv3d'], \
             #                          ['mono3d'], ['3dop'], ['mscnn']]:
 
-                    for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
-                                  ['mscnn', '3dop', 'mono3d'], ['mscnn', '3dop'], ['mscnn']]:
+#                    for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
+#                                  ['mscnn', '3dop', 'mono3d'], ['mscnn', '3dop'], ['mscnn']]:
+                    for det_names in [['3dop'], ['mono3d'], ['mv3d'], ['regionlets']]:
+
+
     #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
                 #    for det_names in [['mscnn', 'regionlets']]:
         #            for det_names in [['mscnn', 'mono3d']]:
@@ -379,7 +382,7 @@ if __name__ == "__main__":
                                                     'R': R_default.tolist(),
                                                     'Q': Q_default.tolist(),
                                                     'scale_prior_by_meas_orderings': scale_prior_by_meas_orderings,
-                                                    'derandomize_with_seed': True,
+                                                    'derandomize_with_seed': False,
                                                     'use_general_num_dets': use_general_num_dets,
                                                     #if true, set the prior probability of birth and clutter equal in
                                                     #the proposal distribution, using the clutter prior for both
