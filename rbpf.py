@@ -1083,8 +1083,14 @@ class Particle:
             sample_and_reweight(self, measurement_lists,  widths, heights, SPEC['det_names'], \
                 cur_time, measurement_scores, params)
             if SPEC['normalize_log_importance_weights'] == True:
-                #update particle's importance weight to be the log of updated importance weight                           
-                self.importance_weight = imprt_re_weight + math.log(self.importance_weight)
+                if self.importance_weight > 0.0:
+                    self.importance_weight = imprt_re_weight + math.log(self.importance_weight)
+                else:#use very small log probability
+                    self.importance_weight =imprt_re_weight - 500
+
+
+
+
             else:
                 self.importance_weight *= imprt_re_weight #update particle's importance weight            
             assert(len(meas_grp_associations) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
