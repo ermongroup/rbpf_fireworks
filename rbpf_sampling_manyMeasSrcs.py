@@ -6,6 +6,8 @@ import numpy.linalg
 import random
 from sets import ImmutableSet
 from munkres import Munkres
+from collections import defaultdict
+
 
 import math
 
@@ -282,6 +284,12 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
         p_target_deaths.append(target.death_prob)
         assert(p_target_deaths[len(p_target_deaths) - 1] >= 0 and p_target_deaths[len(p_target_deaths) - 1] <= 1)
 
+    # a list containing the number of measurements detected by each source
+    # used in prior calculation to count the number of ordered vectors given
+    # an unordered association set
+    meas_counts_by_source = [] 
+    for meas_list in measurement_lists:
+        meas_counts_by_source.append(len(meas_list))
 
     meas_groups = []
     for det_idx, det_name in enumerate(det_names):
@@ -307,7 +315,7 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
     if params.SPEC['use_log_probs'] in ['False', 'Compare']:
         likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
                                        meas_grp_associations, params, log=False)
-        assoc_prior = get_assoc_prior(particle.targets.living_count, meas_groups, meas_grp_associations, params, log=False)
+        assoc_prior = get_assoc_prior(particle.targets.living_count, meas_groups, meas_grp_associations, params, meas_counts_by_source, log=False)
         death_prior = calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices, log=False)
         exact_probability = likelihood * assoc_prior * death_prior
 
@@ -320,7 +328,7 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
     if params.SPEC['use_log_probs'] in ['True', 'Compare']:        
         log_likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
                                        meas_grp_associations, params, log=True)
-        log_assoc_prior = get_assoc_prior(particle.targets.living_count, meas_groups, meas_grp_associations, params, log=True)
+        log_assoc_prior = get_assoc_prior(particle.targets.living_count, meas_groups, meas_grp_associations, params, meas_counts_by_source, log=True)
         log_death_prior = calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices, log=True)
         log_exact_probability = log_likelihood + log_assoc_prior + log_death_prior
 
@@ -925,6 +933,24 @@ def calc_death_prior(living_target_indices, p_target_deaths, unassociated_target
 def nCr(n,r):
     return math.factorial(n) / math.factorial(r) / math.factorial(n-r)
 
+
+def count_association_orderings(meas_counts_by_source, birth_count_by_group, clutter_count_by_group):
+    num_orderings = -1
+    for cur_source_meas_count in meas_counts_by_source:
+        if num_orderings == -1:
+            num_orderings = math.factorial(cur_source_meas_count)
+        else:
+            num_orderings *= math.factorial(cur_source_meas_count)
+    for (grp, cur_grp_birth_count) in birth_count_by_group.iteritems():
+        orderings_fact = math.factorial(cur_grp_birth_count)
+        assert(num_orderings % orderings_fact == 0)
+        num_orderings /= orderings_fact
+    for (grp, cur_grp_clutter_count) in clutter_count_by_group.iteritems():
+        orderings_fact = math.factorial(cur_grp_clutter_count)
+        assert(num_orderings % orderings_fact == 0)
+        num_orderings /= orderings_fact
+
+
 def count_meas_orderings(M, T, b, c):
     """
     We define target observation priors in terms of whether each target was observed and it
@@ -1032,12 +1058,13 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, d
 
 
 
-def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, params, log):
+def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, params, meas_counts_by_source, log):
     """
     Inputs:
     - log: Bool, True return log probability, False return actual probability
     - living_target_count: number of living counts, measurement associations that correspond to association
         with a target will be in the range [0, living_target_count)
+    - meas_counts_by_source: a list containing the number of measurements detected by each source
     """
     #get list of detection names present in our detection group
 
@@ -1056,6 +1083,9 @@ def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, par
 
 
     if log: #return log prior
+        birth_count_by_group = defaultdict(int) #key = measurement source group, value = count of births detected by this group of sources
+        clutter_count_by_group = defaultdict(int) #key = measurement source group, value = count of clutter detected by this group of sources
+
         log_prior = unobserved_target_count*math.log(params.target_groupEmission_priors[ImmutableSet([])])
         for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
             #get the names of detection sources in this group
@@ -1066,11 +1096,13 @@ def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, par
       
             if meas_grp_assoc>=0 and meas_grp_assoc < living_target_count: #target association
                 log_prior += math.log(params.target_groupEmission_priors[det_names_set])
-            elif meas_grp_assoc == -1:
+            elif meas_grp_assoc == -1: #clutter
                 log_prior += math.log(params.clutter_group_prior(det_names_set))
-            else:
+                clutter_count_by_group[det_names_set] += 1
+            else: #birth
                 assert(meas_grp_assoc == living_target_count), (meas_grp_assoc, living_target_count)
                 log_prior += math.log(params.birth_group_prior(det_names_set))
+                birth_count_by_group[det_names_set] += 1
 
         birth_count = meas_grp_associations.count(living_target_count)
         log_prior += math.log(params.birth_groupCount_prior(birth_count))
@@ -1078,9 +1110,16 @@ def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, par
         clutter_count = meas_grp_associations.count(-1)
         log_prior += math.log(params.clutter_groupCount_prior(clutter_count))
 
+        if params.SPEC['scale_prior_by_meas_orderings'] == 'count_multi_src_orderings':
+            number_association_orderings = count_association_orderings(meas_counts_by_source, birth_count_by_group, clutter_count_by_group)        
+            log_prior -= math.log(number_association_orderings)
+
         return log_prior
 
     else: #return actual prior
+        birth_count_by_group = defaultdict(int) #key = measurement source group, value = count of births detected by this group of sources
+        clutter_count_by_group = defaultdict(int) #key = measurement source group, value = count of clutter detected by this group of sources
+
         prior = params.target_groupEmission_priors[ImmutableSet([])]**unobserved_target_count
         for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
             #get the names of detection sources in this group
@@ -1091,17 +1130,23 @@ def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, par
       
             if meas_grp_assoc>=0 and meas_grp_assoc < living_target_count: #target association
                 prior *= params.target_groupEmission_priors[det_names_set]
-            elif meas_grp_assoc == -1:
+            elif meas_grp_assoc == -1:#clutter
                 prior *= params.clutter_group_prior(det_names_set)
-            else:
+                clutter_count_by_group[det_names_set] += 1
+            else: #birth
                 assert(meas_grp_assoc == living_target_count), (meas_grp_assoc, living_target_count)
                 prior *= params.birth_group_prior(det_names_set)
+                birth_count_by_group[det_names_set] += 1                
 
         birth_count = meas_grp_associations.count(living_target_count)
         prior *= params.birth_groupCount_prior(birth_count)
 
         clutter_count = meas_grp_associations.count(-1)
         prior *= params.clutter_groupCount_prior(clutter_count)
+
+        if params.SPEC['scale_prior_by_meas_orderings'] == 'count_multi_src_orderings':
+            number_association_orderings = count_association_orderings(meas_counts_by_source, birth_count_by_group, clutter_count_by_group)        
+            prior /= number_association_orderings
 
         return prior
 

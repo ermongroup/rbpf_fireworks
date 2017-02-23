@@ -349,7 +349,7 @@ if __name__ == "__main__":
                 #    for det_names in [['mscnn', 'regionlets']]:
         #            for det_names in [['mscnn', 'mono3d']]:
                 #        for scale_prior_by_meas_orderings in ['original', 'corrected_with_score_intervals', 'ignore_meas_orderings']:
-                        for scale_prior_by_meas_orderings in ['ignore_meas_orderings']:
+                        for scale_prior_by_meas_orderings in ['count_multi_src_orderings']:
                 #        for scale_prior_by_meas_orderings in ['original']:
                             for num_particles in NUM_PARTICLES_TO_TEST:
                 #                for (max_1_meas_update_local, update_simul_local) in [(True, False), (False, True), (False, False)]:
