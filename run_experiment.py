@@ -46,11 +46,17 @@ from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
 #from fireworks.core.firework import FWAction, Firework, FiretaskBase
 #from fireworks.user_objects.firetasks.script_task import PyTask
 from cluster_config import RBPF_HOME_DIRECTORY, MONGODB_USERNAME, MONGODB_PASSWORD
-from experiment_config import MONGODB_HOST, MONGODB_PORT, MONGODB_NAME
+#from experiment_config import MONGODB_HOST, MONGODB_PORT, MONGODB_NAME
 from rbpf import RunRBPF
 sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
 from jdk_helper_evaluate_results import RunEval
 from create_launchpad import create_launchpad
+
+###################################### Experiment Database ######################################
+MONGODB_HOST = 'ds153609.mlab.com'
+MONGODB_PORT = 53609
+MONGODB_NAME = 'atlas_mult_meas'
+
 
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
@@ -250,7 +256,7 @@ class StoreResultsInDatabase(FireTaskBase):
 
 if __name__ == "__main__":
     # write new launchpad file, not positive if this is necessary
-    create_launchpad()
+    # create_launchpad()
 
     # set up the LaunchPad and reset it
     launchpad = LaunchPad(host=MONGODB_HOST, port=MONGODB_PORT, name=MONGODB_NAME, username=MONGODB_USERNAME, password=MONGODB_PASSWORD,

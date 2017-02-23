@@ -2034,6 +2034,22 @@ def get_meas_target_set(training_sequences, score_intervals, det_method="lsvm", 
         of its score interval's birth probability list and replacing zero elements with .0000001/(number of
         zero elements in the score interval's birth probability list)
     """
+    if USE_PICKLED_DATA:
+        if not os.path.exists(PICKELD_DATA_DIRECTORY):
+            os.makedirs(PICKELD_DATA_DIRECTORY)
+
+        data_filename = PICKELD_DATA_DIRECTORY + "/meas_targ_set_scores_%s_det_method_%s_obj_class_%s_include_ignored_gt_%s_include_dontcare_gt_%s_include_ignored_det_%s.pickle" % \
+                                                 (str(score_intervals), det_method, obj_class, include_ignored_gt, include_dontcare_in_gt, include_ignored_detections)
+        lock_filename = data_filename + "_lock"
+
+        if os.path.isfile(data_filename) and (not os.path.isfile(lock_filename)): 
+            f = open(data_filename, 'r')
+            (measurementTargetSetsBySequence, target_emission_probs, clutter_probabilities, birth_probabilities, meas_noise_covs) = pickle.load(f)
+            f.close()
+            return (measurementTargetSetsBySequence, target_emission_probs, clutter_probabilities, birth_probabilities, meas_noise_covs)
+
+
+
     mail = mailpy.Mail("")
 
     (gt_objects, det_objects) = evaluate(score_intervals[0], det_method,mail, obj_class="car", include_ignored_gt=include_ignored_gt,\
@@ -2109,11 +2125,20 @@ def get_meas_target_set(training_sequences, score_intervals, det_method="lsvm", 
             print "Measurement noise mean:"
             print meas_noise_cov_and_mean[i][1]
 
+    if USE_PICKLED_DATA and (not os.path.isfile(lock_filename)):
+        f_lock = open(lock_filename, 'w')
+        f_lock.write("locked\n")
+        f_lock.close()
+
+        f = open(data_filename, 'w')
+        pickle.dump((measurementTargetSetsBySequence, target_emission_probs, clutter_probabilities, birth_probabilities, meas_noise_covs), f)
+        f.close()  
+
+        os.remove(lock_filename)
+
     return (measurementTargetSetsBySequence, target_emission_probs, clutter_probabilities, birth_probabilities, meas_noise_covs)
 
-#    f = open("KITTI_measurements_%s_%s_min_score_%s.pickle" % (self.cls, self.det_method, MIN_SCORE), 'w')
-#    pickle.dump(self.measurementTargetSetsBySequence, f)
-#    f.close()  
+
 
 
 def doctor_birth_probabilities(birth_probabilities):

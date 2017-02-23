@@ -60,13 +60,13 @@ from jdk_helper_evaluate_results import RunEval
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
 #TRAINING_SEQUENCES = [i for i in range(21)]
-###################TRAINING_SEQUENCES = [i for i in range(9)]
-###################VALIDATION_SEQUENCES = [i for i in range(9,21)]
+TRAINING_SEQUENCES = [i for i in range(9)]
+VALIDATION_SEQUENCES = [i for i in range(9,21)]
 #TRAINING_SEQUENCES = [0]
 #TRAINING_SEQUENCES = [11]
 #TRAINING_SEQUENCES = [12,13,17]
-TRAINING_SEQUENCES = [13]
-VALIDATION_SEQUENCES = [13]
+#TRAINING_SEQUENCES = [13]
+#VALIDATION_SEQUENCES = [13]
 NUM_PARTICLES = 100
 
 
@@ -547,19 +547,19 @@ class ChooseNextIter(FireTaskBase):
 
         if orig_objective>=objective_with_inc and orig_objective>=objective_with_dec:
             fw_spec[param_name] = fw_spec['orig_param_val']#update parameter
-            fw_spec["alpha"] *= alpha_dec#update parameter's alpha
+            fw_spec["alpha"][fw_spec['param_idx']] *= alpha_dec#update parameter's alpha
             best_obj = fw_spec["%s_eval_metrics" % EVAL_SCRIPT][OBJECTIVE_METRIC]
             change_for_best_obj = 'const'
         elif objective_with_dec>=objective_with_inc and objective_with_dec>orig_objective:
             fw_spec[param_name] = fw_spec['dec_param_val']#update parameter
-            fw_spec["alpha"] *= alpha_inc#update parameter's alpha
+            fw_spec["alpha"][fw_spec['param_idx']] *= alpha_inc#update parameter's alpha
             fw_spec["%s_eval_metrics" % EVAL_SCRIPT] = fw_spec["%s_eval_metrics_with_dec" % EVAL_SCRIPT]#update baseline metrics for next iteration
             best_obj = fw_spec["%s_eval_metrics_with_dec" % EVAL_SCRIPT][OBJECTIVE_METRIC]
             change_for_best_obj = 'dec'
 
         elif objective_with_inc>objective_with_dec and objective_with_inc>orig_objective:
             fw_spec[param_name] = fw_spec['inc_param_val']#update parameter         
-            fw_spec["alpha"] *= alpha_inc#update parameter's alpha
+            fw_spec["alpha"][fw_spec['param_idx']] *= alpha_inc#update parameter's alpha
             fw_spec["%s_eval_metrics" % EVAL_SCRIPT] = fw_spec["%s_eval_metrics_with_inc" % EVAL_SCRIPT]#update baseline metrics for next iteration            
             best_obj = fw_spec["%s_eval_metrics_with_inc" % EVAL_SCRIPT][OBJECTIVE_METRIC]
             change_for_best_obj = 'inc'
@@ -569,7 +569,7 @@ class ChooseNextIter(FireTaskBase):
             print (objective_with_inc, objective_with_dec, orig_objective)
             sys.exit(1);               
 
-        fw_spec['param_idx'] = inc_parameter(fw_spec['param_idx'])
+        fw_spec['param_idx'] = inc_parameter(fw_spec['param_idx'], fw_spec)
 
         if fw_spec['param_idx'] == 0:
             val_spec = copy.deepcopy(fw_spec)
@@ -580,10 +580,15 @@ class ChooseNextIter(FireTaskBase):
             val_eval = Firework(RunEval(), spec = val_spec)
             storeResultsFW = Firework(StoreResultsInDatabase(), spec=val_spec)
 
-        next_iter_firework = Firework(Iterate(), fw_spec)
+            next_iter_firework = Firework(Iterate(), fw_spec)
 
-        workflow = Workflow([val_spec, val_eval, storeResultsFW, next_iter_firework], 
-                            {val_spec: [val_eval], val_eval: [storeResultsFW]})
+            workflow = Workflow([val_spec, val_eval, storeResultsFW, next_iter_firework], 
+                                {val_spec: [val_eval], val_eval: [storeResultsFW]})
+
+        else:
+            next_iter_firework = Firework(Iterate(), fw_spec)
+
+            workflow = Workflow([next_iter_firework])
 
         return FWAction(stored_data = {'best_obj': best_obj,
                                        'change_for_best_obj': change_for_best_obj,
@@ -645,7 +650,7 @@ def get_param(param_idx, spec):
 
     return (param_name, det_name, idx)
 
-def inc_parameter(param_idx):
+def inc_parameter(param_idx, spec):
     """
     Inputs:
     - param_idx: The current parameter index
@@ -684,9 +689,8 @@ if __name__ == "__main__":
                     sort_dets_on_intervals, det1_name, det2_name)
     results_folder_name = '%s/%d_particles' % (description_of_run, NUM_PARTICLES)
     results_folder = '%s/%s/%s' % (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name)
-    spec = {'det1_name': 'mscnn',
-            'det2_name': 'regionlets',
-            'det_names': ['mscnn', 'regionlets'],
+    spec = {
+            'det_names': ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'],
             'num_particles': NUM_PARTICLES,
             'include_ignored_gt': False,
             'include_dontcare_in_gt': False,
@@ -710,7 +714,7 @@ if __name__ == "__main__":
             'param_idx': 0, #index of the parameter to adjust next in coordinate descent
             'alpha': ALPHA_INIT,
             'coord_ascent_iter': 0,
-            'derandomize_with_seed': False,
+            'derandomize_with_seed': True,
             'use_general_num_dets': True,
             'scale_prior_by_meas_orderings': 'ignore_meas_orderings',
             'set_birth_clutter_prop_equal': False,
@@ -731,6 +735,49 @@ if __name__ == "__main__":
             #propose target measurement association with these distances as the 
             #maximum allowed distance when finding minimum cost assignment                                     
             'target_detection_max_dists': [15, 50, 150]
+
+
+#            'det_names': ['mscnn', 'regionlets'],
+#            'num_particles': 100,
+#            'include_ignored_gt': False,
+#            'include_dontcare_in_gt': False,
+#            'sort_dets_on_intervals': True,
+#            'results_folder': results_folder,
+#            'CHECK_K_NEAREST_TARGETS': True,                        
+#            'K_NEAREST_TARGETS': 1,                        
+#            'RUN_ONLINE': True,
+#            'ONLINE_DELAY': online_delay,
+#            'MAX_1_MEAS_UPDATE': max_1_meas_update_local,                    
+#            'UPDATE_MULT_MEAS_SIMUL': update_simul_local,
+#            'TREAT_MEAS_INDEP': TREAT_MEAS_INDEP,                        
+#            'TREAT_MEAS_INDEP_2': TREAT_MEAS_INDEP_2,
+#            'USE_CONSTANT_R': USE_CONSTANT_R,
+#            'P': P_default.tolist(),
+#            'R': R_default.tolist(),
+#            'Q': Q_default.tolist(),
+#            'scale_prior_by_meas_orderings': scale_prior_by_meas_orderings,
+#            'derandomize_with_seed': True,
+#            'use_general_num_dets': use_general_num_dets,
+#            #if true, set the prior probability of birth and clutter equal in
+#            #the proposal distribution, using the clutter prior for both
+#            'set_birth_clutter_prop_equal': False,
+#            'birth_clutter_likelihood': birth_clutter_likelihood,
+#            'proposal_distr': proposal_distr,
+#            'use_log_probs': 'True',
+#            'normalize_log_importance_weights': True,
+#            #the minimum allowed box overlap for each detection source when associating
+#            #detections into groups
+#            'det_grouping_min_overlap': {'mscnn':.5, 
+#                                         '3dop':.5,
+#                                         'mono3d':.5,
+#                                         'mv3d':.5,
+#                                         'regionlets':.5},
+#            #'distance' or 'box_overlap', metric used when computing min cost measurment
+#            #target association assignment                             
+#            'targ_meas_assoc_metric': 'distance',
+#            #propose target measurement association with these distances as the 
+#            #maximum allowed distance when finding minimum cost assignment                                     
+#            'target_detection_max_dists': [15, 50, 150]   
             }
             
 
