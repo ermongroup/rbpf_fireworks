@@ -81,7 +81,8 @@ class Parameters:
 
     def birth_groupCount_prior(self, group_count):
         if group_count in self.birth_count_priors:
-            return self.birth_count_priors[group_count]
+            return self.birth_count_priors[group_count]\
+                *self.SPEC['coord_ascent_params']['birth_model_prior_const'][0]**group_count
         else:
             return PRIOR_EPSILON
     def birth_group_prior(self, det_group):
@@ -96,7 +97,8 @@ class Parameters:
 
     def clutter_groupCount_prior(self, group_count):
         if group_count in self.clutter_grpCountByFrame_priors:
-            return self.clutter_grpCountByFrame_priors[group_count]
+            return self.clutter_grpCountByFrame_priors[group_count]\
+                *self.SPEC['coord_ascent_params']['clutter_model_prior_const'][0]**group_count
         else:
             return PRIOR_EPSILON
 
@@ -201,7 +203,8 @@ def group_detections(meas_groups, det_name, detection_locations, det_widths, det
                 if c < min_cost:
                     min_cost = c
             # gating for boxoverlap
-            if min_cost<=params.SPEC['det_grouping_min_overlap'][det_name]:
+            #if min_cost<=params.SPEC['coord_ascent_params'][det_name]:
+            if min_cost<=params.SPEC['coord_ascent_params']['det_grouping_min_overlap_%s' % det_name][0]:
                 cost_row.append(min_cost)
             else:
                 cost_row.append(max_cost)
@@ -545,7 +548,9 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
 
     complete_association_possibilities = []
     complete_association_probs = []
-    for idx, max_assoc_cost in enumerate(params.SPEC['target_detection_max_dists']):
+#    for idx, max_assoc_cost in enumerate(params.SPEC['target_detection_max_dists']):
+    for idx in range(3):
+        max_assoc_cost = params.SPEC['coord_ascent_params']['target_detection_max_dists_%d'%idx][0]
         list_of_measurement_associations = min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_assoc_cost)
         proposal_probability = 1.0
 
@@ -570,6 +575,7 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
                     if additional_births <= remaining_meas_count:
                         cur_birth_prior += prior*additional_births/remaining_meas_count 
                 cur_birth_prior *= params.birth_group_prior(det_names_set)
+                cur_birth_prior *= params.SPEC['coord_ascent_params']['birth_proposal_prior_const'][0]
                 assert(cur_birth_prior*params.p_birth_likelihood**len(detection_group) > 0), (cur_birth_prior,params.p_birth_likelihood,len(detection_group))
 
 
@@ -580,6 +586,7 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
                     if additional_clutter <= remaining_meas_count:            
                         cur_clutter_prior += prior*additional_clutter/remaining_meas_count 
                 cur_clutter_prior *= params.clutter_group_prior(det_names_set)
+                cur_clutter_prior *= params.SPEC['coord_ascent_params']['clutter_proposal_prior_const'][0]
                 assert(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group) > 0), (cur_clutter_prior, params.p_clutter_likelihood, len(detection_group))
 
 
@@ -633,7 +640,7 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
 
     conditional_proposal_distribution = np.asarray(complete_association_probs)
     assert(np.sum(conditional_proposal_distribution) != 0.0)
-    print conditional_proposal_distribution
+#    print conditional_proposal_distribution
     conditional_proposal_distribution /= float(np.sum(conditional_proposal_distribution))
 
     sampled_idx = np.random.choice(len(conditional_proposal_distribution),
@@ -643,7 +650,7 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
     final_measurement_associations = complete_association_possibilities[sampled_idx]
     joint_proposal_probability = complete_association_probs[sampled_idx]*conditional_proposal_distribution[sampled_idx]
 
-    print 'returnHI'
+#    print 'returnHI'
     assert(remaining_meas_count == 0)
     return(final_measurement_associations, meas_grp_means4D, meas_grp_covs, joint_proposal_probability)
 
@@ -1255,8 +1262,8 @@ def birth_clutter_likelihood(detection_group, params, likelihood_type):
     #number of measurements in the group
     n = len(detection_group)
     likelihood = (2*math.pi)**(-.5*(n-1)*d)
-    if len(detection_group) > 1:
-        print "likelihood1 =", likelihood
+#    if len(detection_group) > 1:
+#        print "likelihood1 =", likelihood
 
     #calculate the product over all detections of the determinant of the inverse
     #of the detection's measurement noise covariance matrix
@@ -1281,8 +1288,8 @@ def birth_clutter_likelihood(detection_group, params, likelihood_type):
     determinant_of_sum = numpy.linalg.det(determinant_of_sum)
 
     likelihood *= math.sqrt(prod_of_determinants/determinant_of_sum)
-    if len(detection_group) > 1:
-        print "likelihood2 =", likelihood
+#    if len(detection_group) > 1:
+#        print "likelihood2 =", likelihood
 
 
     #calculate terms in the likelihood's exponent
@@ -1302,13 +1309,13 @@ def birth_clutter_likelihood(detection_group, params, likelihood_type):
         sum_cInv += inv(cur_cov)        
 
     B = np.dot(np.dot(sum_cInv_pos.T, inv(sum_cInv)), sum_cInv_pos)
-    if len(detection_group) > 1:
-        print "A=", A
-        print "B=", B
+#    if len(detection_group) > 1:
+#        print "A=", A
+#        print "B=", B
 
     likelihood *= math.exp(-.5*(A - B))
 
-    print "likelihood3:", likelihood
+#    print "likelihood3:", likelihood
     return likelihood
 
 def get_likelihood(particle, meas_groups, total_target_count,
@@ -1387,8 +1394,11 @@ def get_likelihood(particle, meas_groups, total_target_count,
                 assert(meas_association >= 0 and meas_association < total_target_count), (meas_association, total_target_count)
                 cur_likelihood = memoized_assoc_likelihood(particle, meas_groups[meas_index], meas_association, params)
 
-            assert(cur_likelihood > 0.0), (cur_likelihood, log_likelihood, params.SPEC['birth_clutter_likelihood'], 'birth')
-            log_likelihood += math.log(cur_likelihood)
+#            assert(cur_likelihood > 0.0), (cur_likelihood, log_likelihood, params.SPEC['birth_clutter_likelihood'], 'birth')
+            if cur_likelihood > 0.0:
+                log_likelihood += math.log(cur_likelihood)
+            else:#use very small log probability
+                log_likelihood -= 500
 
         return log_likelihood
 
@@ -1457,13 +1467,13 @@ def memoized_assoc_likelihood(particle, detection_group, target_index, params):
             a = -.5*np.dot(np.dot(offset, S_inv), offset)
             assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
 
-            if assoc_likelihood == 0.0:
-                print "about to crash, assoc_likelihood = 0"
-                print "the target at position ", state_mean_meas_space
-                print "With width: ", target.width, " and height:", target.height
-                print "was associated with this measurement group:"
-                print detection_group
-            assert(assoc_likelihood != 0.0), (a, offset, S_inv)
+#            if assoc_likelihood == 0.0:
+#                print "about to crash, assoc_likelihood = 0"
+#                print "the target at position ", state_mean_meas_space
+#                print "With width: ", target.width, " and height:", target.height
+#                print "was associated with this measurement group:"
+#                print detection_group
+#            assert(assoc_likelihood != 0.0), (a, offset, S_inv)
 
 #        distribution = multivariate_normal(mean=target_loc_repeated, cov=complete_covariance)
 #        assoc_likelihood_compare = distribution.pdf(all_det_loc)
