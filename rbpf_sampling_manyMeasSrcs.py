@@ -949,6 +949,7 @@ def count_association_orderings(meas_counts_by_source, birth_count_by_group, clu
         orderings_fact = math.factorial(cur_grp_clutter_count)
         assert(num_orderings % orderings_fact == 0)
         num_orderings /= orderings_fact
+    return num_orderings
 
 
 def count_meas_orderings(M, T, b, c):
