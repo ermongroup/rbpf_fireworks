@@ -93,11 +93,10 @@ EVAL_SCRIPT = 'NEW'
 OBJECTIVE_METRIC = 'MOTA'
 #The percent by which to initially increase and decrease every parameter during coordinate descent
 alpha_init = 50.0
-#If changing a parameter improves the objective, increase the parameter's alpha value by a factor of alpha_inc
-alpha_inc = 1.5
-#If changing a parameter does not improve the objective, decrease the parameter's alpha value by multiplying it
-#by alpha_dec
-alpha_dec = .66
+
+alpha_change = 1.5
+
+alpha_change2= 1.2
 Q_ALPHA_INIT = np.array([[ alpha_init,  alpha_init,  alpha_init,   alpha_init],
                            [ alpha_init,  alpha_init,  alpha_init,   alpha_init],
                            [ alpha_init,  alpha_init,  alpha_init,   alpha_init],
@@ -349,6 +348,10 @@ def corr2cov(corr, std):
     return cov
 
 
+def sigmoid(x):
+  return 1 / (1 + math.exp(-x))
+
+
 def modify_parameter(spec, direction):
     """
     Inputs:
@@ -366,25 +369,46 @@ def modify_parameter(spec, direction):
         raise ValueError('Unknown direction given to modify_parameter: %s' % direction)
 
     spec['mod_direction'] = direction
+    key = spec["coord_ascent_params"].keys()[spec['param_idx']]
 
+    #parameter must stay in range (0, 1)
+    if key in ['det_grouping_min_overlap_mscnn', 'det_grouping_min_overlap_3dop', 
+        'det_grouping_min_overlap_mono3d', 'det_grouping_min_overlap_mv3d', 
+        'det_grouping_min_overlap_regionlets']:
 
-    idx_key = spec["coord_ascent_params"].keys()[spec['param_idx']]
-    mod_fraction = spec["coord_ascent_params"][idx_key][1]/100.0
+        if direction == 'inc':
+            spec["coord_ascent_params"][key][0] = sigmoid(spec["coord_ascent_params"][key][1] +\
+                                                  spec["coord_ascent_params"][key][2])
+        else:
+            assert(direction == 'dec')
+            spec["coord_ascent_params"][key][0] = sigmoid(spec["coord_ascent_params"][key][1] -\
+                                                  spec["coord_ascent_params"][key][2])
 
-    if direction == 'inc':
-        spec["coord_ascent_params"][idx_key][0] += spec["coord_ascent_params"][idx_key][0]*mod_fraction
-    else:
-        assert(direction == 'dec')
-        spec["coord_ascent_params"][idx_key][0] -= spec["coord_ascent_params"][idx_key][0]*mod_fraction
-                
+    else:#parameter must stay in range [0, infinity)
+        mod_ratio = spec["coord_ascent_params"][key][1]
+
+        if direction == 'inc':
+            spec["coord_ascent_params"][key][0] *= mod_ratio
+        else:
+            assert(direction == 'dec')
+            spec["coord_ascent_params"][key][0] /= mod_ratio
+                    
 def mod_alpha(spec, direction):
-    idx_key = spec["coord_ascent_params"].keys()[spec['param_idx']]
-
-    if direction == 'inc':
-        spec["coord_ascent_params"][idx_key][1] *= alpha_inc
+    key = spec["coord_ascent_params"].keys()[spec['param_idx']]
+    if key in ['det_grouping_min_overlap_mscnn', 'det_grouping_min_overlap_3dop', 
+        'det_grouping_min_overlap_mono3d', 'det_grouping_min_overlap_mv3d', 
+        'det_grouping_min_overlap_regionlets']:
+        if direction == 'inc':
+            spec["coord_ascent_params"][key][2] *= alpha_change2
+        else:
+            assert(direction == 'dec')
+            spec["coord_ascent_params"][key][2] /= alpha_change2
     else:
-        assert(direction == 'dec')
-        spec["coord_ascent_params"][idx_key][1] *= alpha_dec
+        if direction == 'inc':
+            spec["coord_ascent_params"][key][1] *= alpha_change
+        else:
+            assert(direction == 'dec')
+            spec["coord_ascent_params"][key][1] /= alpha_change
 
 
 #    #construct correlation matrix
@@ -550,7 +574,6 @@ class ChooseNextIter(FireTaskBase):
         if orig_objective>=objective_with_inc and orig_objective>=objective_with_dec:
             fw_spec['coord_ascent_params'] = fw_spec['orig_param_val']#update parameter
             mod_alpha(fw_spec, 'dec')
-            fw_spec["alpha"][fw_spec['param_idx']] *= alpha_dec#update parameter's alpha
             best_obj = fw_spec["%s_eval_metrics" % EVAL_SCRIPT][OBJECTIVE_METRIC]
             change_for_best_obj = 'const'
         elif objective_with_dec>=objective_with_inc and objective_with_dec>orig_objective:
@@ -721,18 +744,18 @@ if __name__ == "__main__":
             #maximum allowed distance when finding minimum cost assignment                                     
 #            'target_detection_max_dists': [15, 50, 150],
             'coord_ascent_params':{ #first entry in each list is the parameter value, second is the parameter's alpha value
-                                    'birth_proposal_prior_const': [1.0, alpha_init],
-                                    'clutter_proposal_prior_const': [1.0, alpha_init],
-                                    'birth_model_prior_const': [1.0, alpha_init],
-                                    'clutter_model_prior_const': [1.0, alpha_init],
-                                    'det_grouping_min_overlap_mscnn': [.5, alpha_init],
-                                    'det_grouping_min_overlap_3dop': [.5, alpha_init],
-                                    'det_grouping_min_overlap_mono3d': [.5, alpha_init],
-                                    'det_grouping_min_overlap_mv3d': [.5, alpha_init],
-                                    'det_grouping_min_overlap_regionlets': [.5, alpha_init],
-                                    'target_detection_max_dists_0': [15, alpha_init],
-                                    'target_detection_max_dists_1': [50, alpha_init],
-                                    'target_detection_max_dists_2': [150, alpha_init]
+                                    'birth_proposal_prior_const': [1.0, 2.0],
+                                    'clutter_proposal_prior_const': [1.0, 2.0],
+                                    'birth_model_prior_const': [1.0, 2.0],
+                                    'clutter_model_prior_const': [1.0, 2.0],
+                                    'det_grouping_min_overlap_mscnn': [.5, 0, 1],
+                                    'det_grouping_min_overlap_3dop': [.5, 0, 1],
+                                    'det_grouping_min_overlap_mono3d': [.5, 0, 1],
+                                    'det_grouping_min_overlap_mv3d': [.5, 0, 1],
+                                    'det_grouping_min_overlap_regionlets': [.5, 0, 1],
+                                    'target_detection_max_dists_0': [15, 1.4],
+                                    'target_detection_max_dists_1': [50, 1.4],
+                                    'target_detection_max_dists_2': [150, 1.4]
                                   } 
             }
             
