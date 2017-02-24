@@ -52,23 +52,16 @@ sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
 from jdk_helper_evaluate_results import RunEval
 from create_launchpad import create_launchpad
 
-<<<<<<< HEAD
-######################################## Experiment Database ######################################
-##MONGODB_HOST = 'ds153609.mlab.com'
-##MONGODB_PORT = 53609
-##MONGODB_NAME = 'atlas_mult_meas'
-=======
 ####################################### Experiment Database ######################################
 #MONGODB_HOST = 'ds153609.mlab.com'
 #MONGODB_PORT = 53609
 #MONGODB_NAME = 'atlas_mult_meas'
->>>>>>> aa4d5f321f3022934abb17aa74fa9cb1923fdc49
 
 
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-SEQUENCES_TO_PROCESS = [i for i in range(21)]
+SEQUENCES_TO_PROCESS = [i for i in range(29)]
 #SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [11]
 #SEQUENCES_TO_PROCESS = [13,14,15]
@@ -263,12 +256,12 @@ class StoreResultsInDatabase(FireTaskBase):
 
 if __name__ == "__main__":
     # write new launchpad file, not positive if this is necessary
-    # create_launchpad()
+    create_launchpad()
 
     # set up the LaunchPad and reset it
     launchpad = LaunchPad(host=MONGODB_HOST, port=MONGODB_PORT, name=MONGODB_NAME, username=MONGODB_USERNAME, password=MONGODB_PASSWORD,
                      logdir=None, strm_lvl='INFO', user_indices=None, wf_user_indices=None, ssl_ca_file=None)
-#    launchpad.reset('', require_password=False)
+    launchpad.reset('', require_password=False)
 
     det1_name = 'mscnn'
     det2_name = 'regionlets'
@@ -416,7 +409,7 @@ if __name__ == "__main__":
                                                         'targ_meas_assoc_metric': targ_meas_assoc_metric,
                                                         #propose target measurement association with these distances as the 
                                                         #maximum allowed distance when finding minimum cost assignment                                     
-                                                        'target_detection_max_dists': [15, 50, 150]
+                                                        'target_detection_max_dists': [15, 50, 150],
                                                         'coord_ascent_params':{ #first entry in each list is the parameter value, second is the parameter's alpha value
                                                             'birth_proposal_prior_const': [1.0, 2.0],
                                                             'clutter_proposal_prior_const': [1.0, 2.0],
