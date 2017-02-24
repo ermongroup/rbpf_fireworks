@@ -944,11 +944,11 @@ def count_association_orderings(meas_counts_by_source, birth_count_by_group, clu
     for (grp, cur_grp_birth_count) in birth_count_by_group.iteritems():
         orderings_fact = math.factorial(cur_grp_birth_count)
         assert(num_orderings % orderings_fact == 0)
-        num_orderings /= orderings_fact
+        num_orderings //= orderings_fact #use integer division
     for (grp, cur_grp_clutter_count) in clutter_count_by_group.iteritems():
         orderings_fact = math.factorial(cur_grp_clutter_count)
         assert(num_orderings % orderings_fact == 0)
-        num_orderings /= orderings_fact
+        num_orderings //= orderings_fact #use integer division
     return num_orderings
 
 

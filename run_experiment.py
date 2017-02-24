@@ -457,6 +457,7 @@ if __name__ == "__main__":
                                         firework_dependencies[eval_new_firework] = storeResultsFW
 
 
+
     # store workflow and launch it
     workflow = Workflow(all_fireworks, firework_dependencies)
     launchpad.add_wf(workflow)
