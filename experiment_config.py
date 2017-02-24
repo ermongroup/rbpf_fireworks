@@ -25,3 +25,4 @@
 MONGODB_HOST = 'ds161159.mlab.com'
 MONGODB_PORT = 61159
 MONGODB_NAME = 'test_results'
+

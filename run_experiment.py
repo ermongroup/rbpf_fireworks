@@ -349,7 +349,7 @@ if __name__ == "__main__":
                 #    for det_names in [['mscnn', 'regionlets']]:
         #            for det_names in [['mscnn', 'mono3d']]:
                 #        for scale_prior_by_meas_orderings in ['original', 'corrected_with_score_intervals', 'ignore_meas_orderings']:
-                        for scale_prior_by_meas_orderings in ['ignore_meas_orderings']:
+                        for scale_prior_by_meas_orderings in ['count_multi_src_orderings']:
                 #        for scale_prior_by_meas_orderings in ['original']:
                             for num_particles in NUM_PARTICLES_TO_TEST:
                 #                for (max_1_meas_update_local, update_simul_local) in [(True, False), (False, True), (False, False)]:
@@ -410,6 +410,20 @@ if __name__ == "__main__":
                                                     #propose target measurement association with these distances as the 
                                                     #maximum allowed distance when finding minimum cost assignment                                     
                                                     'target_detection_max_dists': [15, 50, 150]
+                                                    'coord_ascent_params':{ #first entry in each list is the parameter value, second is the parameter's alpha value
+                                                        'birth_proposal_prior_const': [1.0, 2.0],
+                                                        'clutter_proposal_prior_const': [1.0, 2.0],
+                                                        'birth_model_prior_const': [1.0, 2.0],
+                                                        'clutter_model_prior_const': [1.0, 2.0],
+                                                        'det_grouping_min_overlap_mscnn': [.5, 0, 1],
+                                                        'det_grouping_min_overlap_3dop': [.5, 0, 1],
+                                                        'det_grouping_min_overlap_mono3d': [.5, 0, 1],
+                                                        'det_grouping_min_overlap_mv3d': [.5, 0, 1],
+                                                        'det_grouping_min_overlap_regionlets': [.5, 0, 1],
+                                                        'target_detection_max_dists_0': [15, 1.4],
+                                                        'target_detection_max_dists_1': [50, 1.4],
+                                                        'target_detection_max_dists_2': [150, 1.4]
+                                                        } 
                                                     }
                                             cur_firework = Firework(RunRBPF(), spec=cur_spec)
                             #                cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
