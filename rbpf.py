@@ -42,6 +42,8 @@ from learn_params1 import get_meas_target_sets_1sources_general
 
 from learn_params1 import get_meas_target_sets_general
 
+from get_test_targetSets import get_meas_target_sets_test
+
 import cProfile
 import time
 import os
@@ -105,7 +107,7 @@ DEBUG = False
 #if True, save the current max importance weight, whether this is the particles first time as
 #the max importance weight particle, and the number of living targets along with every
 #line of the results file
-SAVE_EXTRA_INFO = True
+SAVE_EXTRA_INFO = False
 
 #(if False bug, using R_default instead of S, check SPEC['USE_CONSTANT_R']
 #I'm pretty sure this is actually FIXED, but check out some time)
@@ -1852,7 +1854,12 @@ class RunRBPF(FireTaskBase):
               scaler = pickle.load(handle)
         #########################
 
-        filename_mapping = DATA_PATH + "/evaluate_tracking.seqmap"
+        if SPEC['train_test'] == 'train':
+            filename_mapping = DATA_PATH + "/evaluate_tracking.seqmap"
+        else:
+            assert (SPEC['train_test'] == 'test')
+            filename_mapping = DATA_PATH + "/evaluate_tracking.seqmap.test"
+
         n_frames         = []
         sequence_name    = []
         with open(filename_mapping, "r") as fh:
@@ -1903,8 +1910,13 @@ class RunRBPF(FireTaskBase):
                 'mono3d' : [.2],
                 'mv3d' : [.2]}
 
-            #train on all training sequences, except the current sequence we are testing on
-            training_sequences = [i for i in [i for i in range(21)] if i != seq_idx]
+            if SPEC['train_test'] == 'train':
+                #train on all training sequences, except the current sequence we are testing on
+                training_sequences = [i for i in [i for i in range(21)] if i != seq_idx]
+            else:
+                assert(SPEC['train_test'] == 'test')
+                #train on all training sequences
+                training_sequences = [i for i in range(21)]
 
             SCORE_INTERVALS = []
             for det_name in det_names:
@@ -1964,6 +1976,10 @@ class RunRBPF(FireTaskBase):
                          USE_PYTHON_GAUSSIAN, SPEC['USE_CONSTANT_R'], SCORE_INTERVALS,\
                          p_birth_likelihood, p_clutter_likelihood, SPEC['CHECK_K_NEAREST_TARGETS'],
                          SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'], SPEC)
+
+            if SPEC['train_test'] == 'test':
+                measurementTargetSetsBySequence = get_meas_target_sets_test(SCORE_INTERVALS_DET_USED, det_names, \
+                                                                            obj_class = "car")
 
             assert(len(n_frames) == len(measurementTargetSetsBySequence))
 
