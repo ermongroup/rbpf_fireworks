@@ -608,8 +608,8 @@ class ChooseNextIter(FireTaskBase):
 
             next_iter_firework = Firework(Iterate(), fw_spec)
 
-            workflow = Workflow([val_spec, val_eval, storeResultsFW, next_iter_firework], 
-                                {val_spec: [val_eval], val_eval: [storeResultsFW]})
+            workflow = Workflow([val_batch, val_eval, storeResultsFW, next_iter_firework], 
+                                {val_batch: [val_eval], val_eval: [storeResultsFW]})
 
         else:
             next_iter_firework = Firework(Iterate(), fw_spec)
