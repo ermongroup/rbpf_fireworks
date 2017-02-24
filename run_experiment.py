@@ -409,7 +409,7 @@ if __name__ == "__main__":
                                                     'targ_meas_assoc_metric': targ_meas_assoc_metric,
                                                     #propose target measurement association with these distances as the 
                                                     #maximum allowed distance when finding minimum cost assignment                                     
-                                                    'target_detection_max_dists': [15, 50, 150]
+                                                    'target_detection_max_dists': [15, 50, 150],
                                                     'coord_ascent_params':{ #first entry in each list is the parameter value, second is the parameter's alpha value
                                                         'birth_proposal_prior_const': [1.0, 2.0],
                                                         'clutter_proposal_prior_const': [1.0, 2.0],
@@ -423,7 +423,7 @@ if __name__ == "__main__":
                                                         'target_detection_max_dists_0': [15, 1.4],
                                                         'target_detection_max_dists_1': [50, 1.4],
                                                         'target_detection_max_dists_2': [150, 1.4]
-                                                        } 
+                                                        }
                                                     }
                                             cur_firework = Firework(RunRBPF(), spec=cur_spec)
                             #                cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
