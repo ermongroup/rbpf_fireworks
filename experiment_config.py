@@ -22,7 +22,10 @@
 #MONGODB_PORT = 33358
 #MONGODB_NAME = 'icml_prep'
 
-MONGODB_HOST = 'ds161159.mlab.com'
-MONGODB_PORT = 61159
-MONGODB_NAME = 'test_results'
+#MONGODB_HOST = 'ds161159.mlab.com'
+#MONGODB_PORT = 61159
+#MONGODB_NAME = 'test_results'
 
+MONGODB_HOST = 'ds111940.mlab.com'
+MONGODB_PORT = 11940
+MONGODB_NAME = 'post_icml'

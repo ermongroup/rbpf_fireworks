@@ -173,11 +173,15 @@ def sample_and_reweight(particle, measurement_lists, \
 
     living_target_indices = []
     unassociated_target_indices = []
-    for i in range(particle.targets.living_count):
-        if(not i in targets_to_kill):
-            living_target_indices.append(i)
-        if(not i in meas_grp_associations):
-            unassociated_target_indices.append(i)
+    for target_idx in range(particle.targets.living_count):
+        if(not target_idx in targets_to_kill):
+            living_target_indices.append(target_idx)
+        target_associated = False
+        for meas_src_associations in measurement_associations:
+            if target_idx in meas_src_associations:
+                target_associated = True
+        if not target_associated:
+            unassociated_target_indices.append(target_idx)
             
     exact_probability = 1.0
     for meas_source_index in range(len(measurement_lists)):
