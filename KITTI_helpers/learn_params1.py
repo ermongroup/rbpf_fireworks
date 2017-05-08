@@ -3354,7 +3354,7 @@ class MultiDetections_many:
 #WHEN WORKING delete get_meas_target_sets above
 def get_meas_target_sets_general(training_sequences, score_intervals, detection_names, \
     obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True, include_ignored_gt = False, \
-    include_dontcare_in_gt = False, include_ignored_detections = True):
+    include_dontcare_in_gt = False, include_ignored_detections = True, return_bb_size_info = False):
     """
     Input:
     - score_intervals: dictionary, where score_intervals['det_name'] contains score intervals for the
@@ -3364,6 +3364,9 @@ def get_meas_target_sets_general(training_sequences, score_intervals, detection_
 
     - doctor_clutter_probs: if True, add extend clutter probability list with 20 values of .0000001/20
         and subtract .0000001 from element 0
+
+    - return_bb_size_info: Boolean, if true return mean and variance of bounding box sizes for valid and clutter
+        detections, for the purpose of generating data similar to KITTI
 
     Outputs:
     - posAndSize_inv_covariance_blocks: dictionary containing the inverse of the measurement noise covariance matrix, between
@@ -3389,6 +3392,9 @@ def get_meas_target_sets_general(training_sequences, score_intervals, detection_
 
     - posOnly_covariance_blocks: Same format as posAndSize_inv_covariance_blocks, but posOnly_covariance_blocks[('meas_namei','meas_namej')]
     contains the covariance (NOT inverse) between the two sources and only the covariance of the position (not size)
+
+
+    -bounding_box_size_var: variance in bounding box size among all ground_truth or clutter objects, used for data generation
 
     """
 
@@ -3462,11 +3468,14 @@ def get_meas_target_sets_general(training_sequences, score_intervals, detection_
 
 ##############################################################################
 
-    (posAndSize_inv_covariance_blocks, posOnly_covariance_blocks, meas_noise_mean_posAndSize) = calc_gaussian_paramaters('ground_truth',\
-        all_detections.gt_objects, detection_names)
+    (posAndSize_inv_covariance_blocks, posOnly_covariance_blocks, meas_noise_mean_posAndSize, gt_bounding_box_mean_size,
+        gt_bb_size_var)\
+        = calc_gaussian_paramaters('ground_truth', all_detections.gt_objects, detection_names)
 
-    (clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize) = calc_gaussian_paramaters('clutter',\
-        all_detections.gt_objects, detection_names, posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, all_detections.clutter_detections)
+    (clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize, clutter_bounding_box_mean_size,
+        clutter_bb_size_var)\
+        = calc_gaussian_paramaters('clutter',all_detections.gt_objects, detection_names, posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize,\
+        all_detections.clutter_detections)
 
     print "Ground truth detection covariance:"
     for det_name in detection_names:
@@ -3485,8 +3494,15 @@ def get_meas_target_sets_general(training_sequences, score_intervals, detection_
 
     #BIRTH AND CLUTTER PROBS ARE NOT DOCTORED, NEED TO DO LATER, e.g. replace any missing dictionary entry with epsilon when called
 
+    if return_bb_size_info:
+        return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, 
+            birth_count_priors, death_probs_near_border, death_probs_not_near_border, 
+            posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks,
+            clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize, 
+            gt_bounding_box_mean_size, clutter_bounding_box_mean_size, gt_bb_size_var, clutter_bb_size_var)
 
-    return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, 
+    else:
+        return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, 
             birth_count_priors, death_probs_near_border, death_probs_not_near_border, 
             posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks,
             clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize)
@@ -3507,6 +3523,7 @@ def calc_gaussian_paramaters(group_type, gt_objects, detection_names, blocked_co
     - clutter_detections: should be MultiDetections_many.clutter_detections, only supply when group_type == 'clutter'
     Outputs:
 
+    -bounding_box_size_var: variance in bounding box size among all ground_truth or clutter objects, used for data generation
     """
     assert(group_type in ['ground_truth', 'clutter'])
     if group_type == 'ground_truth':
@@ -3521,6 +3538,12 @@ def calc_gaussian_paramaters(group_type, gt_objects, detection_names, blocked_co
     for det_name in detection_names:
         detection_errors[det_name] = {}
 
+    #compute a list of numpy arrays, where each numpy array stores the 
+    #[width, height] of a ground truth object, or estimated 'underlying'
+    #clutter object
+    bounding_box_sizes = []
+
+    assert(len(gt_objects) == 21)
     for seq_idx in range(21):
         for frame_idx in range(len(gt_objects[seq_idx])):
             if group_type == 'ground_truth':
@@ -3534,6 +3557,7 @@ def calc_gaussian_paramaters(group_type, gt_objects, detection_names, blocked_co
                                                        det.height - gt_obj.height])                        
                         detection_errors[det_name][obj_id] = cur_meas_loc_error
                         detection_ids[det_name].append(obj_id)
+                        bounding_box_sizes.append(np.array([gt_obj.width, gt_obj.height]))
             else: 
                 for clutter_grp in clutter_detections[seq_idx][frame_idx]:
                     obj_id += 1
@@ -3547,8 +3571,10 @@ def calc_gaussian_paramaters(group_type, gt_objects, detection_names, blocked_co
                                                        det.height - clutter_loc[3]])                        
                         detection_errors[det_name][obj_id] = cur_meas_loc_error
                         detection_ids[det_name].append(obj_id)
+                        bounding_box_sizes.append(np.array([clutter_loc[2], clutter_loc[3]]))
 
-
+    bounding_box_mean_size = np.mean(np.asarray(bounding_box_sizes).T,1)
+    bounding_box_size_var = np.cov(np.asarray(bounding_box_sizes).T) 
     def calc_cov_4DetAttributes(det_name1, det_name2, detection_errors, detection_ids):
         joint_meas_errors = []
         for _id in detection_ids[det_name1]:
@@ -3606,7 +3632,7 @@ def calc_gaussian_paramaters(group_type, gt_objects, detection_names, blocked_co
             posAndSize_inv_covariance_blocks[(det_name1, det_name2)] = posAndSize_full_cov_inv[4*idx1:4*(idx1+1), 4*idx2:4*(idx2+1)]
 
 
-    return (posAndSize_inv_covariance_blocks, posOnly_covariance_blocks, meas_noise_mean_posAndSize)
+    return (posAndSize_inv_covariance_blocks, posOnly_covariance_blocks, meas_noise_mean_posAndSize, bounding_box_mean_size, bounding_box_size_var)
 
 def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, detection_group):
     """
