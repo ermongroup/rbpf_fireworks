@@ -426,6 +426,7 @@ if __name__ == "__main__":
                                                             },
                                                         'train_test': train_test                                                                          
 
+                                                        'gt_path': None #None for KITTI data, file path (string) for synthetic data
                                                         }
                                                 cur_firework = Firework(RunRBPF(), spec=cur_spec)
                                 #                cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
