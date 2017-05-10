@@ -847,9 +847,6 @@ def get_meas_target_set(score_intervals, det_method="lsvm", obj_class="car"):
     return (measurementTargetSetsBySequence)
 
 
-#Moved to returning dictionaries indexed by measurement type rather than lists
-#need to change wherever this is being used
-#WHEN WORKING delete get_meas_target_sets above
 def get_meas_target_sets_test(score_intervals, detection_names, \
     obj_class = "car"):
 

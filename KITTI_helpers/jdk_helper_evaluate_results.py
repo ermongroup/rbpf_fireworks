@@ -1009,7 +1009,7 @@ def print_multi_run_metrics(packed_metrics, number_of_runs):
      
         print "="*80
 
-def eval_results(all_run_results, seq_idx_to_eval, gt_path=None, use_corrected_eval=True, info_by_run=None):
+def eval_results(all_run_results, seq_idx_to_eval, SPEC=None, gt_path=None, use_corrected_eval=True, info_by_run=None):
     """
     Inputs:
     - seq_idx_to_eval: a list of sequence indices to evaluate
@@ -1046,9 +1046,8 @@ def eval_results(all_run_results, seq_idx_to_eval, gt_path=None, use_corrected_e
                 if (not os.path.isfile(cur_run_complete_filename)):
                     all_sequences_completed = False
             if all_sequences_completed:
-                if synthetic_data:
+                if SPEC['train_test'] == 'generated_data':
                     cur_run_metrics = evaluate(cur_run_results + "/", seq_idx_to_eval, gt_path=gt_path, corrected_version=use_corrected_eval) # + operator used for string concatenation!
-
                 else:
                     cur_run_metrics = evaluate(cur_run_results + "/", seq_idx_to_eval, corrected_version=use_corrected_eval) # + operator used for string concatenation!
                 print cur_run_metrics
@@ -1153,7 +1152,7 @@ class RunEval(FireTaskBase):
             sys.stdout = open(results_folder + '/NEW_evaluation_metrics.txt', 'w')
         else:
             sys.stdout = open(results_folder + '/OLD_evaluation_metrics.txt', 'w')
-        (number_of_runs, metric_medians) = eval_results(results_folder + "/results_by_run", seq_idx_to_eval=seq_idx_to_eval, 
+        (number_of_runs, metric_medians) = eval_results(results_folder + "/results_by_run", SPEC=fw_spec, seq_idx_to_eval=seq_idx_to_eval, 
             gt_path=fw_spec['gt_path'], use_corrected_eval=use_corrected_eval) # + operateor used for string concatenation!
         sys.stdout.close()
         sys.stdout = stdout

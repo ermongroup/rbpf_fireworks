@@ -41,12 +41,16 @@ from learn_params1 import get_meas_target_sets_2sources_general
 from learn_params1 import get_meas_target_sets_1sources_general
 
 from learn_params1 import get_meas_target_sets_general
+#from learn_params1_local import get_meas_target_sets_general
 
 from get_test_targetSets import get_meas_target_sets_test
-
+from generate_data import KITTI_detection_file_to_TargetSet
 import cProfile
 import time
 import os
+sys.path.insert(0, "%sgeneral_tracking" % RBPF_HOME_DIRECTORY)
+from global_params import DEFAULT_TIME_STEP
+
 #from run_experiment import DIRECTORY_OF_ALL_RESULTS
 #from run_experiment import CUR_EXPERIMENT_BATCH_NAME
 #from run_experiment import SEQUENCES_TO_PROCESS
@@ -113,8 +117,6 @@ SAVE_EXTRA_INFO = False
 #I'm pretty sure this is actually FIXED, but check out some time)
 
 USE_PYTHON_GAUSSIAN = False 
-#default time between succesive measurement time instances (in seconds)
-default_time_step = .1 
 
 #For testing why score interval for R are slow
 CACHED_LIKELIHOODS = 0
@@ -615,8 +617,8 @@ class Target:
             if(self.offscreen == True):
                 cur_death_prob = 1.0
             else:
-                frames_since_last_assoc = int(round((cur_time - self.last_measurement_association)/default_time_step))
-                assert(abs(float(frames_since_last_assoc) - (cur_time - self.last_measurement_association)/default_time_step) < .00000001)
+                frames_since_last_assoc = int(round((cur_time - self.last_measurement_association)/DEFAULT_TIME_STEP))
+                assert(abs(float(frames_since_last_assoc) - (cur_time - self.last_measurement_association)/DEFAULT_TIME_STEP) < .00000001)
                 if(self.near_border()):
                     if frames_since_last_assoc < len(BORDER_DEATH_PROBABILITIES):
                         cur_death_prob = BORDER_DEATH_PROBABILITIES[frames_since_last_assoc]
@@ -637,6 +639,7 @@ class Measurement:
     #a collection of measurements at a single time instance
     def __init__(self, time = -1):
         #self.val is a list of numpy arrays of measurement x, y locations
+        #each numpy array has shape (2,)
         self.val = []
         #list of widths of each bounding box
         self.widths = []
@@ -652,6 +655,7 @@ class TargetSet:
     """
 
     def __init__(self):
+        #list of type Target containing targets currently alive
         self.living_targets = []
         self.all_targets = [] #alive and dead targets
 
@@ -769,7 +773,7 @@ class TargetSet:
 
         if SPEC['ONLINE_DELAY'] == 0:
             for target in self.living_targets:
-                assert(target.all_time_stamps[-1] == round(frame_idx*default_time_step, 2))
+                assert(target.all_time_stamps[-1] == round(frame_idx*DEFAULT_TIME_STEP, 2)), (target.all_time_stamps[-1], round(frame_idx*DEFAULT_TIME_STEP, 2))
                 x_pos = target.all_states[-1][0][0][0]
                 y_pos = target.all_states[-1][0][2][0]
                 width = target.all_states[-1][1]
@@ -794,7 +798,7 @@ class TargetSet:
             print delayed_liv_targets
             assert(delayed_frame_idx == frame_idx - SPEC['ONLINE_DELAY']), (delayed_frame_idx, frame_idx, SPEC['ONLINE_DELAY'])
             for target in delayed_liv_targets:
-                assert(target.all_time_stamps[-1] == round((frame_idx - SPEC['ONLINE_DELAY'])*default_time_step, 2)), (target.all_time_stamps[-1], frame_idx, SPEC['ONLINE_DELAY'], round((frame_idx - SPEC['ONLINE_DELAY'])*default_time_step, 2))
+                assert(target.all_time_stamps[-1] == round((frame_idx - SPEC['ONLINE_DELAY'])*DEFAULT_TIME_STEP, 2)), (target.all_time_stamps[-1], frame_idx, SPEC['ONLINE_DELAY'], round((frame_idx - SPEC['ONLINE_DELAY'])*DEFAULT_TIME_STEP, 2))
                 x_pos = target.all_states[-1][0][0][0]
                 y_pos = target.all_states[-1][0][2][0]
                 width = target.all_states[-1][1]
@@ -825,7 +829,7 @@ class TargetSet:
                     q_idx+=1
                     assert(delayed_frame_idx == cur_frame_idx), (delayed_frame_idx, cur_frame_idx, SPEC['ONLINE_DELAY'])
                     for target in delayed_liv_targets:
-                        assert(target.all_time_stamps[-1] == round((cur_frame_idx)*default_time_step, 2))
+                        assert(target.all_time_stamps[-1] == round((cur_frame_idx)*DEFAULT_TIME_STEP, 2))
                         x_pos = target.all_states[-1][0][0][0]
                         y_pos = target.all_states[-1][0][2][0]
                         width = target.all_states[-1][1]
@@ -848,7 +852,7 @@ class TargetSet:
 
                 print "&&&&&&&&&"
                 for target in self.living_targets:
-                    assert(target.all_time_stamps[-1] == round(frame_idx*default_time_step, 2))
+                    assert(target.all_time_stamps[-1] == round(frame_idx*DEFAULT_TIME_STEP, 2))
                     x_pos = target.all_states[-1][0][0][0]
                     y_pos = target.all_states[-1][0][2][0]
                     width = target.all_states[-1][1]
@@ -880,7 +884,7 @@ class TargetSet:
             every_target = self.collect_ancestral_targets()
             f = open(results_filename, "w")
             for frame_idx in range(num_frames):
-                timestamp = round(frame_idx*default_time_step, 2)
+                timestamp = round(frame_idx*DEFAULT_TIME_STEP, 2)
 
                 for target in every_target:
                     if timestamp in target.all_time_stamps:
@@ -904,7 +908,7 @@ class TargetSet:
         else:
             f = open(results_filename, "w")
             for frame_idx in range(num_frames):
-                timestamp = round(frame_idx*default_time_step, 2)
+                timestamp = round(frame_idx*DEFAULT_TIME_STEP, 2)
                 for target in self.all_targets:
                     if timestamp in target.all_time_stamps:
                         x_pos = target.all_states[target.all_time_stamps.index(timestamp)][0][0][0]
@@ -1314,7 +1318,8 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 #Run Kalman filter prediction for all living targets
                 for target in particle.targets.living_targets:
                     dt = time_stamp - prev_time_stamp
-                    assert(abs(dt - default_time_step) < .00000001), (dt, default_time_step, time_stamp, prev_time_stamp)
+                    if params.SPEC['train_test'] != 'generated_data': #we might not generate data for a particular time step
+                        assert(abs(dt - DEFAULT_TIME_STEP) < .00000001), (dt, DEFAULT_TIME_STEP, time_stamp, prev_time_stamp)
                     target.predict(dt, time_stamp)
                 #update particle death probabilities AFTER predict so that targets that moved
                 #off screen this time instance will be killed
@@ -1407,7 +1412,10 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
             if time_instance_index >= SPEC['ONLINE_DELAY']:
                 extra_info = {'importance_weight': max_imprt_weight,
                           'first_time_as_max_imprt_part': prv_max_weight_particle != cur_max_weight_particle}
-                cur_max_weight_target_set.write_online_results(online_results_filename, time_instance_index, number_time_instances,
+                frm_idx = int(round(time_stamp/DEFAULT_TIME_STEP))
+                print "time_stamp =", time_stamp
+                print "frm_idx =", frm_idx
+                cur_max_weight_target_set.write_online_results(online_results_filename, frm_idx, number_time_instances,
                                             extra_info)
 
             if time_instance_index >= SPEC['ONLINE_DELAY']:
@@ -1856,21 +1864,25 @@ class RunRBPF(FireTaskBase):
 
         if SPEC['train_test'] == 'train':
             filename_mapping = DATA_PATH + "/evaluate_tracking.seqmap"
-        else:
-            assert (SPEC['train_test'] == 'test')
+        elif SPEC['train_test'] == 'test':
             filename_mapping = DATA_PATH + "/evaluate_tracking.seqmap.test"
 
-        n_frames         = []
-        sequence_name    = []
-        with open(filename_mapping, "r") as fh:
-            for i,l in enumerate(fh):
-                fields = l.split(" ")
-                sequence_name.append("%04d" % int(fields[0]))
-                n_frames.append(int(fields[3]) - int(fields[2]))
-        fh.close() 
-        print n_frames
-        print sequence_name     
-        assert(len(n_frames) == len(sequence_name))
+        if SPEC['train_test'] == 'generated_data':
+            n_frames = SPEC['data_generation_spec']['num_time_steps']
+            sequence_name = "%04d" % int(seq_idx)
+        else:
+            n_frames         = []
+            sequence_names    = []
+            with open(filename_mapping, "r") as fh:
+                for i,l in enumerate(fh):
+                    fields = l.split(" ")
+                    sequence_names.append("%04d" % int(fields[0]))
+                    n_frames.append(int(fields[3]) - int(fields[2]))
+            fh.close() 
+            sequence_name = sequence_names[seq_idx]
+            print n_frames
+            print sequence_names   
+            assert(len(n_frames) == len(sequence_names))
 
         print 'begin run'
     #debug
@@ -1913,13 +1925,17 @@ class RunRBPF(FireTaskBase):
             if SPEC['train_test'] == 'train':
                 #train on all training sequences, except the current sequence we are testing on
                 training_sequences = [i for i in [i for i in range(21)] if i != seq_idx]
-            else:
-                assert(SPEC['train_test'] == 'test')
+            elif SPEC['train_test'] == 'test':
                 #train on all training sequences
                 training_sequences = [i for i in range(21)]
+            else:
+                assert(SPEC['train_test'] == 'generated_data')
+                training_sequences = [i for i in range(21)]
+    
 
             SCORE_INTERVALS = []
             for det_name in det_names:
+                print det_name
                 SCORE_INTERVALS.append(score_interval_dict_all_det[det_name])
 
             if use_general_num_dets:
@@ -1981,14 +1997,21 @@ class RunRBPF(FireTaskBase):
                 measurementTargetSetsBySequence = get_meas_target_sets_test(SCORE_INTERVALS_DET_USED, det_names, \
                                                                             obj_class = "car")
 
-            assert(len(n_frames) == len(measurementTargetSetsBySequence))
+            sequenceMeasurementTargetSet = measurementTargetSetsBySequence[seq_idx]
+
+            if SPEC['train_test'] == 'generated_data':
+                filename = "%smeasurements/%04d.txt" % (SPEC['data_generation_spec']['data_file_path'], seq_idx)
+                time_per_time_step = SPEC['data_generation_spec']['time_per_time_step']
+                sequenceMeasurementTargetSet = [KITTI_detection_file_to_TargetSet(filename, time_per_time_step)]
+            else:
+                assert(len(n_frames) == len(measurementTargetSetsBySequence))
 
             t0 = time.time()
             info_by_run = [] #list of info from each run
             cur_run_info = None
-            results_filename = '%s/results_by_run/run_%d/%s.txt' % (results_folder, run_idx, sequence_name[seq_idx])
-            plot_filename = '%s/results_by_run/run_%d/%s_plot.png' % (results_folder, run_idx, sequence_name[seq_idx])
-            measurements_filename = '%s/results_by_run/run_%d/%s_measurements_plot.png' % (results_folder, run_idx, sequence_name[seq_idx])
+            results_filename = '%s/results_by_run/run_%d/%s.txt' % (results_folder, run_idx, sequence_name)
+            plot_filename = '%s/results_by_run/run_%d/%s_plot.png' % (results_folder, run_idx, sequence_name)
+            measurements_filename = '%s/results_by_run/run_%d/%s_measurements_plot.png' % (results_folder, run_idx, sequence_name)
 
 
             print "Processing sequence: ", seq_idx
@@ -2001,12 +2024,12 @@ class RunRBPF(FireTaskBase):
                     (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset([meas_target_set], results_filename, params)
             else:       
                 if PROFILE:
-                    cProfile.runctx('run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)',
+                    cProfile.runctx('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)',
                         {'measurementTargetSetsBySequence': measurementTargetSetsBySequence, 'seq_idx': seq_idx,
                         'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset}, {})
-#                    cProfile.run('run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)')
+#                    cProfile.run('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)')
                 else:
-                    (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset(measurementTargetSetsBySequence[seq_idx], results_filename, params)
+                    (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)
             print "done processing sequence: ", seq_idx
             
             tB = time.time()

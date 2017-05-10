@@ -1,3 +1,4 @@
+import os
 from collections import defaultdict
 from collections import deque
 from global_params import *
@@ -347,6 +348,13 @@ class TargetSet:
 
         x_locations_all_targets = defaultdict(list)
         y_locations_all_targets = defaultdict(list)
+
+        if not os.path.exists(os.path.dirname(results_filename)):
+            try:
+                os.makedirs(os.path.dirname(results_filename))
+            except OSError as exc: # Guard against race condition
+                if exc.errno != errno.EEXIST:
+                    raise
 
         f = open(results_filename, "w")
         for measurement in self.measurements:
