@@ -884,8 +884,8 @@ def associate_measurements_sequentially(particle, meas_groups, total_target_coun
         else:
             assert(len(proposal_distribution) == total_target_count+2), len(proposal_distribution)
 
-        if particle.max_importance_weight:
-            print "proposal_distribution:", proposal_distribution
+#        if particle.max_importance_weight:
+#            print "proposal_distribution:", proposal_distribution
 
         sampled_assoc_idx = np.random.choice(len(proposal_distribution),
                                                 p=proposal_distribution)

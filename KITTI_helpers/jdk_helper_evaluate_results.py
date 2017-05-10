@@ -122,7 +122,7 @@ class trackingEvaluation(object):
              missed         - number of missed targets (FN)
     """
 
-    def __init__(self, det_path, seq_idx_to_eval, corrected_version = True, gt_path= DATA_PATH + "/training_ground_truth", min_overlap=0.5, max_truncation = 0.15, cls="car"):
+    def __init__(self, det_path, seq_idx_to_eval, corrected_version = True, gt_path = None, min_overlap=0.5, max_truncation = 0.15, cls="car"):
         # get number of sequences and
         # get number of frames per sequence from test mapping
         # (created while extracting the benchmark)
@@ -146,7 +146,11 @@ class trackingEvaluation(object):
 
         # data and parameter
         self.corrected_version = corrected_version
-        self.gt_path           = os.path.join(gt_path, "label_02")
+        if gt_path == None: #using KITTI training data
+            self.gt_path       = os.path.join(DATA_PATH + "/training_ground_truth", "label_02")
+        else:
+            self.gt_path       = gt_path
+
 #        self.t_sha             = t_sha
         self.t_path            = det_path #file path of folder containing detection files (0000.txt, 0001.txt, etc.)
         self.seq_idx_to_eval   = seq_idx_to_eval
@@ -929,12 +933,12 @@ class trackingEvaluation(object):
         self.printSep()
         dump.close()
 
-def evaluate(det_path, seq_idx_to_eval, corrected_version = True, class_to_eval = "car"):
+def evaluate(det_path, seq_idx_to_eval, gt_path = None, corrected_version = True, class_to_eval = "car"):
     # start evaluation and instanciated eval object
 #    mail.msg("Processing Result for KITTI Tracking Benchmark")
     print "Evaluating class ", class_to_eval
 
-    e = trackingEvaluation(det_path, seq_idx_to_eval,corrected_version=corrected_version,cls=class_to_eval)
+    e = trackingEvaluation(det_path, seq_idx_to_eval,corrected_version=corrected_version, gt_path=gt_path, cls=class_to_eval)
     # load tracker data and check provided classes
     if not e.loadTracker():
         print "loadTracker failed for class: ", class_to_eval
@@ -1005,7 +1009,7 @@ def print_multi_run_metrics(packed_metrics, number_of_runs):
      
         print "="*80
 
-def eval_results(all_run_results, seq_idx_to_eval, use_corrected_eval=True, info_by_run=None):
+def eval_results(all_run_results, seq_idx_to_eval, SPEC=None, gt_path=None, use_corrected_eval=True, info_by_run=None):
     """
     Inputs:
     - seq_idx_to_eval: a list of sequence indices to evaluate
@@ -1014,6 +1018,8 @@ def eval_results(all_run_results, seq_idx_to_eval, use_corrected_eval=True, info
     - info_by_run: a list of length equal to the number of runs, where each element is a list containing
         info from that run (all should be the same length and have the same type of info) if available.
         If not available, this will be None
+    - gt_path: string, if true we are evaulating synthetic data that we generated, this is where the ground truth
+        is stored.  If false we are evaluating KITTI data, this is None.
 
     Output:
     - number_of_runs: the number of runs evaluated over
@@ -1040,7 +1046,10 @@ def eval_results(all_run_results, seq_idx_to_eval, use_corrected_eval=True, info
                 if (not os.path.isfile(cur_run_complete_filename)):
                     all_sequences_completed = False
             if all_sequences_completed:
-                cur_run_metrics = evaluate(cur_run_results + "/", seq_idx_to_eval, corrected_version=use_corrected_eval) # + operator used for string concatenation!
+                if SPEC['train_test'] == 'generated_data':
+                    cur_run_metrics = evaluate(cur_run_results + "/", seq_idx_to_eval, gt_path=gt_path, corrected_version=use_corrected_eval) # + operator used for string concatenation!
+                else:
+                    cur_run_metrics = evaluate(cur_run_results + "/", seq_idx_to_eval, corrected_version=use_corrected_eval) # + operator used for string concatenation!
                 print cur_run_metrics
                 print 'hi'
                 orig_metrics_len = len(cur_run_metrics)
@@ -1097,7 +1106,7 @@ def find_and_eval_results(directory_to_search, seq_idx_to_eval=[i for i in range
     """
     Inputs:
     - seq_idx_to_eval: a list of sequence indices to evaluate
-    - directory_to_search: string, director name to begin search from (e.g. '/Users/jkuck/rotation3/pykalman')
+    - directory_to_search: string, directory name to begin search from (e.g. '/Users/jkuck/rotation3/pykalman')
     """
 
     for filename in os.listdir(directory_to_search):
@@ -1137,19 +1146,16 @@ class RunEval(FireTaskBase):
         use_corrected_eval = fw_spec['use_corrected_eval']
         seq_idx_to_eval = fw_spec['seq_idx_to_eval']
 
-        if use_corrected_eval:
-            stdout = sys.stdout
-            sys.stdout = open(results_folder + '/NEW_evaluation_metrics.txt', 'w')
-            (number_of_runs, metric_medians) = eval_results(results_folder + "/results_by_run", seq_idx_to_eval=seq_idx_to_eval, use_corrected_eval=use_corrected_eval) # + operateor used for string concatenation!
-            sys.stdout.close()
-            sys.stdout = stdout
 
+        stdout = sys.stdout
+        if use_corrected_eval:
+            sys.stdout = open(results_folder + '/NEW_evaluation_metrics.txt', 'w')
         else:
-            stdout = sys.stdout
             sys.stdout = open(results_folder + '/OLD_evaluation_metrics.txt', 'w')
-            (number_of_runs, metric_medians) = eval_results(results_folder + "/results_by_run", seq_idx_to_eval=seq_idx_to_eval, use_corrected_eval=use_corrected_eval) # + operateor used for string concatenation!
-            sys.stdout.close()
-            sys.stdout = stdout
+        (number_of_runs, metric_medians) = eval_results(results_folder + "/results_by_run", SPEC=fw_spec, seq_idx_to_eval=seq_idx_to_eval, 
+            gt_path=fw_spec['gt_path'], use_corrected_eval=use_corrected_eval) # + operateor used for string concatenation!
+        sys.stdout.close()
+        sys.stdout = stdout
 
         if 'mod_direction' in fw_spec and fw_spec['mod_direction'] != 'orig':
             mod_dir = fw_spec['mod_direction']
@@ -1181,19 +1187,16 @@ class CoordAscentEval(FireTaskBase):
 #        run_spec = fw_spec['run_spec'] #rbpf was run with this spec on this past iteration
 #        past_MOTA = fw_spec['past_MOTA'] #MOTA from the last iteration
 
-        if use_corrected_eval:
-            stdout = sys.stdout
-            sys.stdout = open(results_folder + '/NEW_evaluation_metrics.txt', 'w')
-            (number_of_runs, metric_medians) = eval_results(results_folder + "/results_by_run", seq_idx_to_eval=seq_idx_to_eval, use_corrected_eval=use_corrected_eval) # + operateor used for string concatenation!
-            sys.stdout.close()
-            sys.stdout = stdout
 
+        stdout = sys.stdout
+        if use_corrected_eval:
+            sys.stdout = open(results_folder + '/NEW_evaluation_metrics.txt', 'w')
         else:
-            stdout = sys.stdout
             sys.stdout = open(results_folder + '/OLD_evaluation_metrics.txt', 'w')
-            (number_of_runs, metric_medians) = eval_results(results_folder + "/results_by_run", seq_idx_to_eval=seq_idx_to_eval, use_corrected_eval=use_corrected_eval) # + operateor used for string concatenation!
-            sys.stdout.close()
-            sys.stdout = stdout
+        (number_of_runs, metric_medians) = eval_results(results_folder + "/results_by_run", seq_idx_to_eval=seq_idx_to_eval, 
+            gt_path=fw_spec['gt_path'], use_corrected_eval=use_corrected_eval) # + operateor used for string concatenation!
+        sys.stdout.close()
+        sys.stdout = stdout
 
         return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {delta_name: metric_medians[objective]}}])
 

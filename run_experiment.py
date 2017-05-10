@@ -435,6 +435,7 @@ if __name__ == "__main__":
                                                                 'target_detection_max_dists_2': [150, 1.4]
                                                                 },
                                                             'train_test': train_test,
+                                                            'gt_path': None #None for KITTI data, file path (string) for synthetic data
 
                                                             #training_counts model means we count the number of frames we observe i births (or clutters)
                                                             #and divide by the total number of frames to get the probability of i births.
@@ -469,6 +470,7 @@ if __name__ == "__main__":
                                     all_fireworks.append(storeResultsFW)
                                     firework_dependencies[eval_old_firework] = storeResultsFW
                                     firework_dependencies[eval_new_firework] = storeResultsFW
+
 
 
     # store workflow and launch it
