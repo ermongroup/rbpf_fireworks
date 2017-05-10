@@ -1,5 +1,6 @@
 from __future__ import division
 from scipy.stats import multivariate_normal
+from scipy.stats import poisson
 import numpy as np
 from numpy.linalg import inv
 import numpy.linalg
@@ -69,6 +70,21 @@ class Parameters:
         self.scale_prior_by_meas_orderings = scale_prior_by_meas_orderings
 
         self.SPEC = SPEC
+
+        #training_counts model means we count the number of frames we observe i births (or clutters)
+        #and divide by the total number of frames to get the probability of i births.
+        #poisson means we fit (MLE) this data to a poisson distribution
+        assert(SPEC['birth_clutter_model'] in ['training_counts', 'poisson'])
+        self.birth_clutter_model = SPEC['birth_clutter_model']
+        if SPEC['birth_clutter_model'] == 'poisson':
+            #Calculate maximum likelihood estimates of Poisson parameter for clutter and birth counts
+            self.clutter_lambda = 0 #The expected number of clutter objects in a frame, also MLE of lambda for Poisson distribution
+            for clutter_count, probability in self.clutter_grpCountByFrame_priors.iteritems():
+                self.clutter_lambda += clutter_count*probability
+            self.birth_lambda = 0 #The expected number of birth objects in a frame, also MLE of lambda for Poisson distribution
+            for birth_count, probability in self.birth_count_priors.iteritems():
+                self.birth_lambda += birth_count*probability
+
         print "posOnly_covariance_blocks"
         print posOnly_covariance_blocks
         #sleep(5)
@@ -82,27 +98,38 @@ class Parameters:
         #print "posAndSize_inv_covariance_blocks: ", self.posAndSize_inv_covariance_blocks
 
     def birth_groupCount_prior(self, group_count):
-        if group_count in self.birth_count_priors:
-            return self.birth_count_priors[group_count]\
-                *self.SPEC['coord_ascent_params']['birth_model_prior_const'][0]**group_count
+        if self.birth_clutter_model == "training_counts":
+            if group_count in self.birth_count_priors:
+                return self.birth_count_priors[group_count]\
+                    *self.SPEC['coord_ascent_params']['birth_model_prior_const'][0]**group_count
+            else:
+                return PRIOR_EPSILON
         else:
-            return PRIOR_EPSILON
+            assert(self.birth_clutter_model == 'poisson')
+            return poisson.pmf(mu = self.birth_lambda, k = group_count)
     def birth_group_prior(self, det_group):
+        #The prior probability that a birth object will be observed by this specific detection group (det_group).
+        #Birth objects are always observed and we assume target group emission priors are the same for birth
+        #objects and general valid objects, so this is the probability that a target emits this det_group divided
+        #by the probability that a target emits any detection group.
         if det_group in self.target_groupEmission_priors:
-            #probability of any target emitting this detection group, given that the target emits some detection
             returnVal = self.target_groupEmission_priors[det_group]/(1.0 - self.target_groupEmission_priors[ImmutableSet([])]) 
             assert (returnVal>0), (self.target_groupEmission_priors, det_group, self.target_groupEmission_priors[det_group], self.target_groupEmission_priors[ImmutableSet([])])
-            return self.target_groupEmission_priors[det_group]/(1.0 - self.target_groupEmission_priors[ImmutableSet([])]) 
+            return returnVal
         else:
             return PRIOR_EPSILON
 
 
     def clutter_groupCount_prior(self, group_count):
-        if group_count in self.clutter_grpCountByFrame_priors:
-            return self.clutter_grpCountByFrame_priors[group_count]\
-                *self.SPEC['coord_ascent_params']['clutter_model_prior_const'][0]**group_count
+        if self.birth_clutter_model == "training_counts":        
+            if group_count in self.clutter_grpCountByFrame_priors:
+                return self.clutter_grpCountByFrame_priors[group_count]\
+                    *self.SPEC['coord_ascent_params']['clutter_model_prior_const'][0]**group_count
+            else:
+                return PRIOR_EPSILON
         else:
-            return PRIOR_EPSILON
+            assert(self.birth_clutter_model == 'poisson')
+            return poisson.pmf(mu = self.clutter_lambda, k = group_count)
 
     def clutter_group_prior(self, det_group):
         if det_group in self.clutter_group_priors:
@@ -578,10 +605,17 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
 
 
                 cur_birth_prior = PRIOR_EPSILON
-                for bc, prior in params.birth_count_priors.iteritems():
-                    additional_births = max(0.0, min(bc - birth_count, remaining_meas_count))
-                    if additional_births <= remaining_meas_count:
-                        cur_birth_prior += prior*additional_births/remaining_meas_count 
+                if params.birth_clutter_model == 'training_counts':
+                    for bc, prior in params.birth_count_priors.iteritems():
+                        additional_births = max(0.0, min(bc - birth_count, remaining_meas_count))
+                        if additional_births <= remaining_meas_count:
+                            cur_birth_prior += prior*additional_births/remaining_meas_count 
+                else:
+                    assert(params.birth_clutter_model == 'poisson')
+                    for additional_births in range(1,remaining_meas_count+1):
+                        prior = params.birth_groupCount_prior(additional_births + birth_count)
+                        cur_birth_prior += prior*additional_births/remaining_meas_count  
+
                 cur_birth_prior *= params.birth_group_prior(det_names_set)
                 cur_birth_prior *= params.SPEC['coord_ascent_params']['birth_proposal_prior_const'][0]
                 assert(cur_birth_prior*params.p_birth_likelihood**len(detection_group) > 0), (cur_birth_prior,params.p_birth_likelihood,len(detection_group))
@@ -589,10 +623,17 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
 
 
                 cur_clutter_prior = PRIOR_EPSILON
-                for cc, prior in params.clutter_grpCountByFrame_priors.iteritems():
-                    additional_clutter = max(0.0, min(cc - clutter_count, remaining_meas_count))
-                    if additional_clutter <= remaining_meas_count:            
-                        cur_clutter_prior += prior*additional_clutter/remaining_meas_count 
+                if params.birth_clutter_model == 'training_counts':                
+                    for cc, prior in params.clutter_grpCountByFrame_priors.iteritems():
+                        additional_clutter = max(0.0, min(cc - clutter_count, remaining_meas_count))
+                        if additional_clutter <= remaining_meas_count:            
+                            cur_clutter_prior += prior*additional_clutter/remaining_meas_count 
+                else:
+                    assert(params.birth_clutter_model == 'poisson')
+                    for additional_clutter in range(1,remaining_meas_count+1):
+                        prior = params.clutter_groupCount_prior(additional_clutter + clutter_count)
+                        cur_clutter_prior += prior*additional_clutter/remaining_meas_count  
+
                 cur_clutter_prior *= params.clutter_group_prior(det_names_set)
                 cur_clutter_prior *= params.SPEC['coord_ascent_params']['clutter_proposal_prior_const'][0]
                 assert(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group) > 0), (cur_clutter_prior, params.p_clutter_likelihood, len(detection_group))
@@ -778,20 +819,34 @@ def associate_measurements_sequentially(particle, meas_groups, total_target_coun
 
 
         cur_birth_prior = PRIOR_EPSILON
-        for bc, prior in params.birth_count_priors.iteritems():
-            additional_births = max(0.0, min(bc - birth_count, remaining_meas_count))
-            if additional_births <= remaining_meas_count:
-                cur_birth_prior += prior*additional_births/remaining_meas_count 
+        if params.birth_clutter_model == 'training_counts':
+            for bc, prior in params.birth_count_priors.iteritems():
+                additional_births = max(0.0, min(bc - birth_count, remaining_meas_count))
+                if additional_births <= remaining_meas_count:
+                    cur_birth_prior += prior*additional_births/remaining_meas_count 
+        else:
+            assert(params.birth_clutter_model == 'poisson')
+            for additional_births in range(1,remaining_meas_count+1):
+                prior = params.birth_groupCount_prior(additional_births + birth_count)
+                cur_birth_prior += prior*additional_births/remaining_meas_count  
+
         cur_birth_prior *= params.birth_group_prior(det_names_set)
         assert(cur_birth_prior*params.p_birth_likelihood**len(detection_group) > 0), (cur_birth_prior,params.p_birth_likelihood,len(detection_group))
 
 
 
         cur_clutter_prior = PRIOR_EPSILON
-        for cc, prior in params.clutter_grpCountByFrame_priors.iteritems():
-            additional_clutter = max(0.0, min(cc - clutter_count, remaining_meas_count))
-            if additional_clutter <= remaining_meas_count:            
-                cur_clutter_prior += prior*additional_clutter/remaining_meas_count 
+        if params.birth_clutter_model == 'training_counts':                
+            for cc, prior in params.clutter_grpCountByFrame_priors.iteritems():
+                additional_clutter = max(0.0, min(cc - clutter_count, remaining_meas_count))
+                if additional_clutter <= remaining_meas_count:            
+                    cur_clutter_prior += prior*additional_clutter/remaining_meas_count 
+        else:
+            assert(params.birth_clutter_model == 'poisson')
+            for additional_clutter in range(1,remaining_meas_count+1):
+                prior = params.clutter_groupCount_prior(additional_clutter + clutter_count)
+                cur_clutter_prior += prior*additional_clutter/remaining_meas_count  
+
         cur_clutter_prior *= params.clutter_group_prior(det_names_set)
         assert(cur_clutter_prior*params.p_clutter_likelihood**len(detection_group) > 0), (cur_clutter_prior, params.p_clutter_likelihood, len(detection_group))
 
