@@ -29,6 +29,7 @@ import errno
 from munkres import Munkres
 from collections import deque
 from collections import defaultdict
+from sets import ImmutableSet
 
 from cluster_config import RBPF_HOME_DIRECTORY
 sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
@@ -1284,28 +1285,57 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
     iter = 0 # for plotting only occasionally
     number_resamplings = 0
 
-    number_time_instances = len(target_sets[0].measurements)
-    for target_set in target_sets:
-        assert(len(target_set.measurements) == number_time_instances)
-
+    if params.SPEC['train_test'] == 'generated_data':
+        #we might not have generated a measurement on every time instance
+        number_time_instances = params.SPEC['data_generation_spec']['num_time_steps']
+    else:
+        number_time_instances = len(target_sets[0].measurements)
+        for target_set in target_sets:
+            assert(len(target_set.measurements) == number_time_instances)
 
     #the particle with the maximum importance weight on the previous time instance 
     prv_max_weight_particle = None
 
-    for time_instance_index in range(number_time_instances):
-        time_stamp = target_sets[0].measurements[time_instance_index].time
-        for target_set in target_sets:
-            assert(target_set.measurements[time_instance_index].time == time_stamp)
 
+    min_meas_idx = 0
+    for time_instance_index in range(number_time_instances):
         measurement_lists = []
         widths = []
         heights = []
         measurement_scores = []
-        for target_set in target_sets:
-            measurement_lists.append(target_set.measurements[time_instance_index].val)
-            widths.append(target_set.measurements[time_instance_index].widths)
-            heights.append(target_set.measurements[time_instance_index].heights)
-            measurement_scores.append(target_set.measurements[time_instance_index].scores)
+
+        if params.SPEC['train_test'] == 'generated_data':
+            time_stamp = time_instance_index*DEFAULT_TIME_STEP
+            measurement_index = -1
+            for m_idx in range(min_meas_idx, len(target_sets[0].measurements)):
+                if time_stamp == target_sets[0].measurements[m_idx].time:
+                    measurement_index = m_idx
+                    min_meas_idx = m_idx + 1
+                if time_stamp < target_sets[0].measurements[m_idx].time:
+                    break
+            if measurement_index != -1: #we generated measurements for this time_stamp
+                for target_set in target_sets:            
+                    measurement_lists.append(target_set.measurements[measurement_index].val)
+                    widths.append(target_set.measurements[measurement_index].widths)
+                    heights.append(target_set.measurements[measurement_index].heights)
+                    measurement_scores.append(target_set.measurements[measurement_index].scores)
+            else: #append empty lists
+                for target_set in target_sets:
+                    measurement_lists.append([])
+                    widths.append([])
+                    heights.append([])
+                    measurement_scores.append([])
+
+        else:
+            time_stamp = target_sets[0].measurements[time_instance_index].time
+            for target_set in target_sets:
+                assert(target_set.measurements[time_instance_index].time == time_stamp)
+
+            for target_set in target_sets:
+                measurement_lists.append(target_set.measurements[time_instance_index].val)
+                widths.append(target_set.measurements[time_instance_index].widths)
+                heights.append(target_set.measurements[time_instance_index].heights)
+                measurement_scores.append(target_set.measurements[time_instance_index].scores)
 
         print "time_stamp = ", time_stamp, "living target count in first particle = ",\
         particle_set[0].targets.living_count
@@ -2003,6 +2033,32 @@ class RunRBPF(FireTaskBase):
                 filename = "%smeasurements/%04d.txt" % (SPEC['data_generation_spec']['data_file_path'], seq_idx)
                 time_per_time_step = SPEC['data_generation_spec']['time_per_time_step']
                 sequenceMeasurementTargetSet = [KITTI_detection_file_to_TargetSet(filename, time_per_time_step)]
+                if SPEC['data_generation_spec']['data_gen_params']:
+                    #use the same parameters that the data was generated from:
+                    params.clutter_lambda = SPEC['data_generation_spec']['data_gen_params']['lamda_c']
+                    params.birth_lambda = SPEC['data_generation_spec']['data_gen_params']['lamda_b']
+                    #assume we only have 1 measurement source
+                    num_group_types = 0
+                    for key, value in params.target_groupEmission_priors.iteritems():
+                        num_group_types+=1
+                        if key == ImmutableSet([]):
+                            params.target_groupEmission_priors[key] = 1.0 - SPEC['data_generation_spec']['data_gen_params']['p_emission']
+                        else:
+                            params.target_groupEmission_priors[key] = SPEC['data_generation_spec']['data_gen_params']['p_emission']
+                    assert(num_group_types == 2)
+
+                    SPEC['Q'] = SPEC['data_generation_spec']['data_gen_params']['process_noise']
+                    assert(SPEC['USE_CONSTANT_R'])
+                    SPEC['R'] = SPEC['data_generation_spec']['data_gen_params']['meas_noise_target_state']
+
+                    BORDER_DEATH_PROBABILITIES = SPEC['data_generation_spec']['data_gen_params']['BORDER_DEATH_PROBABILITIES']
+                    NOT_BORDER_DEATH_PROBABILITIES= SPEC['data_generation_spec']['data_gen_params']['NOT_BORDER_DEATH_PROBABILITIES']
+
+                    SPEC['P'][0][0] = SPEC['data_generation_spec']['data_gen_params']['meas_noise_target_state'][0][0]
+                    SPEC['P'][1][1] = SPEC['data_generation_spec']['init_vel_cov'][0][0]
+                    SPEC['P'][2][2] = SPEC['data_generation_spec']['data_gen_params']['meas_noise_target_state'][1][1]
+                    SPEC['P'][3][3] = SPEC['data_generation_spec']['init_vel_cov'][1][1]
+
             else:
                 assert(len(n_frames) == len(measurementTargetSetsBySequence))
 

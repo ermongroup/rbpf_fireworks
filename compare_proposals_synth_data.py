@@ -40,9 +40,9 @@ from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 
 #local:
-from fireworks.core.rocket_launcher import rapidfire
+#from fireworks.core.rocket_launcher import rapidfire
 #remote:
-#from fireworks.queue.queue_launcher import rapidfire
+from fireworks.queue.queue_launcher import rapidfire
 
 from fireworks.user_objects.queue_adapters.common_adapter import CommonAdapter
 from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
@@ -67,7 +67,7 @@ from generate_data import GenData
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
 NUM_SEQUENCES_TO_GENERATE = 2
-NUM_TIME_STEPS = 100 #time steps per sequence
+NUM_TIME_STEPS = 30 #time steps per sequence
 NUM_PARTICLES_TO_TEST = [100]
 
 
@@ -100,75 +100,29 @@ TREAT_MEAS_INDEP_2 = False
 USE_CONSTANT_R = True
 
 ###################################### Kalman Filter Parameters ######################################
-USE_LEARNED_KF_PARAMS = True
 
-TIME_SCALED = False #For testing with generated data
-SCALED = False #For testing with generated data
-#from rbpf_ORIGINAL_sampling import SCALED #For testing with generated data
-
-if USE_LEARNED_KF_PARAMS:
-    P_default = np.array([[40.64558317, 0,           0, 0],
-                          [0,          10,           0, 0],
-                          [0,           0, 5.56278505, 0],
-                          [0,           0,           0, 3]])
+P_default = np.array([[40.64558317, 0,           0, 0],
+                      [0,          10,           0, 0],
+                      [0,           0, 5.56278505, 0],
+                      [0,           0,           0, 3]])
 #    R_default = np.array([[ 0.0,   0.0],
 #                          [ 0.0,   0.0]])
-    R_default = np.array([[ 0.01,   0.0],
-                          [ 0.0,   0.01]])    
-    
-    
-    #learned from all GT
-    Q_DEFAULT = np.array([[  60.33442497,  102.95992102,   -5.50458177,   -0.22813535],
-                          [ 102.95992102,  179.84877761,  -13.37640528,   -9.70601621],
-                          [  -5.50458177,  -13.37640528,    4.56034398,    9.48945108],
-                          [  -0.22813535,   -9.70601621,    9.48945108,   22.32984314]])
-    
-    Q_DEFAULT = 4*Q_DEFAULT
-#####################replicate ORIG
-else:
-    if SCALED:
-        P_default = np.array([[(NOISE_SD*300)**2,      0,           0,  0],
-                              [0,          10*300**2,           0,  0],
-                              [0,           0,      (NOISE_SD*90)**2,  0],
-                              [0,           0,           0, 10*90**2]])
+#    R_default = np.array([[ 0.01,   0.0],
+#                          [ 0.0,   0.01]])    
 
-        R_default = np.array([[ (NOISE_SD*300)**2,             0.0],
-                              [          0.0,   (NOISE_SD*90)**2]])
-        Q_DEFAULT = np.array([[     (300**2)*0.00003333,    (300**2)*0.0050,         0,         0],
-                              [         (300**2)*0.0050,       (300**2)*1.0,         0,         0],
-                              [              0,         0,(90**2)*0.00003333,    (90**2)*0.0050],
-                              [              0,         0,    (90**2)*0.0050,    (90**2)*1.0000]])
-        Q_DEFAULT = Q_DEFAULT*10**(-3)
-        if TIME_SCALED:
-            Q_DEFAULT = np.array([[     (300**2)*0.00003333,    (300**2)*0.0005,         0,         0],
-                                  [         (300**2)*0.0005,       (300**2)*.01,         0,         0],
-                                  [              0,         0,(90**2)*0.00003333,    (90**2)*0.0005],
-                                  [              0,         0,    (90**2)*0.0005,    (90**2)*.01]])    
+R_DEFAULT = np.array([[40,0],[0,5]])
+#learned from all GT
+Q_DEFAULT = np.array([[  60.33442497,  102.95992102,   -5.50458177,   -0.22813535],
+                      [ 102.95992102,  179.84877761,  -13.37640528,   -9.70601621],
+                      [  -5.50458177,  -13.37640528,    4.56034398,    9.48945108],
+                      [  -0.22813535,   -9.70601621,    9.48945108,   22.32984314]])
 
+Q_DEFAULT = 4*Q_DEFAULT
 
-    else:
-        P_default = np.array([[(NOISE_SD)**2,    0,           0,  0],
-                              [0,          10,           0,  0],
-                              [0,           0,   (NOISE_SD)**2,  0],
-                              [0,           0,           0, 10]])
+INIT_VEL_COV = np.array([[10, 0],
+                         [0, 10]])
 
-        R_default = np.array([[ (NOISE_SD)**2,             0.0],
-                              [      0.0,   (NOISE_SD)**2]])
-        Q_DEFAULT = np.array([[     0.00003333,    0.0050,         0,         0],
-                              [         0.0050,       1.0,         0,         0],
-                              [              0,         0,0.00003333,    0.0050],
-                              [              0,         0,    0.0050,    1.0000]])
-        Q_DEFAULT = Q_DEFAULT*10**(-3)
-
-        if TIME_SCALED:
-            Q_DEFAULT = np.array([[     0.00003333,    0.0005,         0,         0],
-                                  [         0.0005,       .01,         0,         0],
-                                  [              0,         0,0.00003333,    0.0005],
-                                  [              0,         0,    0.0005,    .01]])  
-#####################end replicate ORIG
-
-
-
+BB_SIZE = np.array([60, 60])
 
 def get_description_of_run_gen_detections(include_ignored_gt, include_dontcare_in_gt, sort_dets_on_intervals,
                            det_names):
@@ -250,7 +204,7 @@ class StoreResultsInDatabase(FireTaskBase):
 
 if __name__ == "__main__":
     # write new launchpad file, not positive if this is necessary
-    # create_launchpad()
+    create_launchpad()
 
     # set up the LaunchPad and reset it
     launchpad = LaunchPad(host=MONGODB_HOST, port=MONGODB_PORT, name=MONGODB_NAME, username=MONGODB_USERNAME, password=MONGODB_PASSWORD,
@@ -270,54 +224,69 @@ if __name__ == "__main__":
     targ_meas_assoc_metric = 'distance'
     online_delay = 0
     birth_clutter_likelihood = 'aprox1'
+    birth_clutter_model = 'poisson'# 'poisson' or 'training_counts'
     scale_prior_by_meas_orderings = 'count_multi_src_orderings'
     use_general_num_dets = True
     max_1_meas_update_local = True
     update_simul_local = False
-    
-    
-
-    for proposal_distr in ['min_cost']:
-#    for proposal_distr in ['min_cost', 'sequential']:
+    run_idx = 1 #just 1 run, see run_experiment.py for how to perform multiple runs
+    for (gen_idx, (cur_Q, cur_R, cur_init_V, init_bb_size)) in enumerate(\
+        [(Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE*4),
+#         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE),
+#         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE*4),
+         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE)]):
+        data_folder = "%s/%sgen_idx=%d" % (GENERATED_DATA_DIR, CUR_GEN_NAME, gen_idx)
+        data_generation_spec = \
+            {#if True calculate data generation parameters on KITTI training data with measurements of type
+            #fw_spec['det_names'], otherwise use data generation parameters we provide in 'data_gen_params'
+            'use_KITTI_data_gen_params' : False,
+            'det_names' : ['regionlets'], #used if 'use_KITTI_data_gen_params' is True
+            'SCORE_INTERVALS' : {'regionlets': [2]}, #used if 'use_KITTI_data_gen_params' is True
+            'training_sequences' : [i for i in range(21)], #used if 'use_KITTI_data_gen_params' is True
+            #supply data generation parameters if 'use_KITTI_data_gen_params' is False, otherwise set to None
+#                        'data_gen_params' : None,
+            'data_gen_params' : 
+                {'lamda_c': 1,
+                'lamda_b': .03,
+                'p_emission': 0.9,
+                'process_noise': cur_Q,
+                'meas_noise_target_state': cur_R,
+                'avg_bb_birth': init_bb_size,
+                'var_bb_birth': np.array([[0,0],[0,0]]),
+                'avg_bb_clutter': init_bb_size,
+                'var_bb_clutter': np.array([[0,0],[0,0]]),
+                'BORDER_DEATH_PROBABILITIES': [-99, 0.9426605504587156, 0.6785714285714286, 0.4444444444444444],
+                'NOT_BORDER_DEATH_PROBABILITIES': [-99, 0.04229195088676671, 0.02284263959390863, 0.03787878787878788]},
+            #always supply these parameters, whether 'use_KITTI_data_gen_params' is True or False
+            'data_file_path': data_folder,
+            'num_seq_to_generate': NUM_SEQUENCES_TO_GENERATE, #how many sequences with these params do we generate?
+            'num_time_steps': NUM_TIME_STEPS, #time steps per sequence
+            'time_per_time_step': DEFAULT_TIME_STEP,
+            'init_vel_cov': cur_init_V,
+            #Sample speed from Gaussian, then set velocity sign to point towards center of image
+            'init_vel_to_center': True,
+            #Number of targets to begin with on the first time step
+            'init_target_count': 5,
+            #save the parameter idx for referencing
+            'data_gen_idx': gen_idx}
+        data_gen_firework = Firework(GenData(), spec = data_generation_spec)
+        all_fireworks.append(data_gen_firework)
+    #    for proposal_distr in ['sequential', 'min_cost', 'optimal']:
+    #    for proposal_distr in ['min_cost', 'sequential']:
         for num_particles in NUM_PARTICLES_TO_TEST:
-            data_folder = "%s/%s" % (GENERATED_DATA_DIR, CUR_GEN_NAME)
-            results_folder_name = '%d_particles' % (num_particles)
-            results_folder = '%s/%s_proposal_distr=%s' % \
-                (data_folder, results_folder_name, proposal_distr)
-            setup_results_folder(results_folder)
-            run_rbpf_fireworks = []  
-            data_generation_spec = \
-                {#if True calculate data generation parameters on KITTI training data with measurements of type
-                #fw_spec['det_names'], otherwise use data generation parameters we provide in 'data_gen_params'
-                'use_KITTI_data_gen_params' : True,
-                'det_names' : ['regionlets'], #used if 'use_KITTI_data_gen_params' is True
-                'SCORE_INTERVALS' : {'regionlets': [2]}, #used if 'use_KITTI_data_gen_params' is True
-                'training_sequences' : [i for i in range(21)], #used if 'use_KITTI_data_gen_params' is True
-                #supply data generation parameters if 'use_KITTI_data_gen_params' is False, otherwise set to None
-                'data_gen_params' : None,
-####                'data_gen_params' : 
-####                    {'lamda_c': 1,
-####                    'lamda_b': .1,
-####                    'p_emission': 1.0,
-####                    'process_noise': Q_DEFAULT,
-####                    'meas_noise_target_state': np.array([[40,0],[0,5]]),
-####                    'avg_bb_birth': np.array([60, 60]),
-####                    'var_bb_birth': np.array([[0,0],[0,0]]),
-####                    'avg_bb_clutter': np.array([60, 60]),
-####                    'var_bb_clutter': np.array([[0,0],[0,0]]),
-####                    'BORDER_DEATH_PROBABILITIES': [-99, 0.9426605504587156, 0.6785714285714286, 0.4444444444444444],
-####                    'NOT_BORDER_DEATH_PROBABILITIES': [-99, 0.04229195088676671, 0.02284263959390863, 0.03787878787878788]},
-                #always supply these parameters, whether 'use_KITTI_data_gen_params' is True or False
-                'data_file_path': data_folder,
-                'num_seq_to_generate': NUM_SEQUENCES_TO_GENERATE, #how many sequences with these params do we generate?
-                'num_time_steps': NUM_TIME_STEPS, #time steps per sequence
-                'time_per_time_step': DEFAULT_TIME_STEP,
-                'init_vel_cov': np.array([[10, 0],
-                                          [0, 10]])}   
-            data_gen_firework = Firework(GenData(), spec = data_generation_spec)
-            all_fireworks.append(data_gen_firework)
+            store_results_spec = copy.deepcopy(data_generation_spec)
+            store_results_spec['num_particles'] = num_particles 
+            storeResultsFW = Firework(StoreResultsInDatabase(), spec=store_results_spec)
+            all_fireworks.append(storeResultsFW)
 
-            for run_idx in range(1, NUM_RUNS+1):
+            for proposal_distr in ['min_cost', 'optimal', 'sequential']:
+                results_folder_name = '%d_particles' % (num_particles)
+                results_folder = '%s/%s_proposal_distr=%s' % \
+                    (data_folder, results_folder_name, proposal_distr)
+                setup_results_folder(results_folder)
+                run_rbpf_fireworks = []  
+
+
                 for seq_idx in range(NUM_SEQUENCES_TO_GENERATE):
                     cur_spec = \
                         {'num_particles': num_particles,
@@ -338,7 +307,7 @@ if __name__ == "__main__":
                         'TREAT_MEAS_INDEP_2': TREAT_MEAS_INDEP_2,
                         'USE_CONSTANT_R': USE_CONSTANT_R,
                         'P': P_default.tolist(),
-                        'R': R_default.tolist(),
+                        'R': R_DEFAULT.tolist(),
                         'Q': Q_DEFAULT.tolist(),
                         'scale_prior_by_meas_orderings': scale_prior_by_meas_orderings,
                         'derandomize_with_seed': False,
@@ -380,7 +349,8 @@ if __name__ == "__main__":
                         'train_test': train_test,  #should be 'train', 'test', or 'generated_data'                                                                        
 #                        'gt_path': None #None for KITTI data, file path (string) for synthetic data
                         'gt_path': "%sground_truth" % data_folder, #None for KITTI data, file path (string) for synthetic data
-                        'data_generation_spec': data_generation_spec}
+                        'data_generation_spec': data_generation_spec,
+                        'birth_clutter_model':birth_clutter_model}
 
                     cur_firework = Firework(RunRBPF(), spec=cur_spec)
     #                cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
@@ -394,38 +364,32 @@ if __name__ == "__main__":
                 eval_old_spec['use_corrected_eval'] = False
                 eval_old_firework = Firework(RunEval(), spec=eval_old_spec)
 
-                eval_new_spec = copy.deepcopy(cur_spec)
-                eval_new_spec['seq_idx_to_eval'] = seq_idx_to_eval 
-                eval_new_spec['use_corrected_eval'] = True
-                eval_new_firework = Firework(RunEval(), spec=eval_new_spec)
-
-                eval_fireworks = [eval_old_firework, eval_new_firework]
+                eval_fireworks = [eval_old_firework]
                 all_fireworks.extend(run_rbpf_fireworks)
                 all_fireworks.extend(eval_fireworks)
                 
-                firework_dependencies[data_gen_firework] = run_rbpf_fireworks
+                if data_gen_firework in firework_dependencies:
+                    firework_dependencies[data_gen_firework].extend(run_rbpf_fireworks)
+                else:
+                    firework_dependencies[data_gen_firework] = run_rbpf_fireworks
+
                 for fw in run_rbpf_fireworks: 
                     firework_dependencies[fw] = eval_fireworks
 
-                storeResultsFW = Firework(StoreResultsInDatabase(), spec=eval_new_spec)
-                all_fireworks.append(storeResultsFW)
                 firework_dependencies[eval_old_firework] = storeResultsFW
-                firework_dependencies[eval_new_firework] = storeResultsFW
-
-
 
     # store workflow and launch it
     workflow = Workflow(all_fireworks, firework_dependencies)
     #local
-    launchpad.add_wf(workflow)
-    rapidfire(launchpad, FWorker())
-    #remote
 #    launchpad.add_wf(workflow)
-#    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
-#    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
-#                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
-#                  fill_mode=False)
-#
-#
-#
+#    rapidfire(launchpad, FWorker())
+    #remote
+    launchpad.add_wf(workflow)
+    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
+    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
+                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
+                  fill_mode=False)
+
+
+
 

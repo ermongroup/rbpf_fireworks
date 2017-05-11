@@ -8,7 +8,8 @@ import random
 from sets import ImmutableSet
 from munkres import Munkres
 from collections import defaultdict
-
+from itertools import combinations
+from itertools import permutations
 
 import math
 
@@ -324,7 +325,7 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
 
     (targets_to_kill, meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, 
         unassociated_target_death_probs) =  sample_grouped_meas_assoc_and_death(particle, 
-        meas_groups, particle.targets.living_count, p_target_deaths, cur_time, measurement_scores, params)
+        meas_groups, particle.targets.living_count, p_target_deaths, cur_time, measurement_scores, params, meas_counts_by_source)
 
 
 
@@ -384,7 +385,7 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
     return (meas_grp_associations, meas_grp_means, meas_grp_covs, targets_to_kill, imprt_re_weight)
 
 def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_count, 
-                           p_target_deaths, cur_time, measurement_scores, params):
+    p_target_deaths, cur_time, measurement_scores, params, meas_counts_by_source=None):
     """
     Try sampling associations with each measurement sequentially
     Input:
@@ -406,7 +407,7 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
     - meas_grp_means: list, each element is the combined measurment mean (np array)
     - meas_grp_covs: list, each element is the combined measurment covariance (np array)
     - proposal_probability: proposal probability of the sampled deaths and associations
-        
+    - meas_counts_by_source: just used by associate_meas_optimal, probably not
     """
 #    assert(len(measurement_lists) == len(measurement_scores))
 #    measurement_associations = []
@@ -424,7 +425,7 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
 #    FIXME measurement_associations, proposal_probability
 ############################################################################################################
     #New implementation
-    assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost'])
+    assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost', 'optimal'])
     if params.SPEC['proposal_distr'] == 'sequential':
         (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
         associate_measurements_sequentially(particle, meas_groups, total_target_count, \
@@ -435,8 +436,11 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
         associate_meas_min_cost(particle, meas_groups, total_target_count, \
         p_target_deaths, params)
 
-
-
+    else: 
+        assert(params.SPEC['proposal_distr'] == 'optimal')
+        (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
+        associate_meas_optimal(particle, meas_groups, total_target_count, \
+        p_target_deaths, params, meas_counts_by_source)
 
 
 ############################################################################################################
@@ -533,6 +537,106 @@ def min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_as
 
     return measurement_assoc
 
+def associate_meas_optimal(particle, meas_groups, total_target_count, p_target_deaths, params, meas_counts_by_source):
+    '''
+    Sample measurement associations from the optimal proposal distribution p(c_k | e_{1-k-1}, c_{1:k-1}, y_{1:k}).
+    Generally computationally intractable.
+    Inputs:
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle     
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
+    - total_target_count: the number of living targets on the previous time instace
+    - p_target_deaths: a list of length len(total_target_count) where 
+        p_target_deaths[i] = the probability that target i has died between the last
+        time instance and the current time instance
+    - params: type Parameters, gives prior probabilities and other parameters we are using
+
+    '''
+    #list of all possible measurement associations.  each entry is a list of length (#measurment groups)
+    #where each entry is -1 (clutter association), total_target_target(birth association), or 
+    #[0, total_target_count-1] (association with the indicated target)
+    all_possible_measurement_associations = []
+
+    #list of proposal probabilities for each association in all_possible_measurement_associations
+    #proposal_probabilities[i] will be the proposal probability for association all_possible_measurement_associations[i]
+    proposal_probabilities = []
+
+    #target association count; we can association between and all targets with a measurement
+    for t_a_c in range(total_target_count + 1): 
+        #birth count; we can have between 0 and measurement_count - t_a_c births
+        for b_c in range(len(meas_groups)-t_a_c+1): 
+            #clutter count; the remaining measurements must all be clutter
+            c_c = len(meas_groups) - t_a_c - b_c
+            #create a list [0,1,2,...,#measurements - 1]
+            measurement_indices = range(len(meas_groups))
+            #enumerate all possible groups of measurements that can be associated
+            #with targets.  There will be (#measurements choose t_a_c) of these
+            for t_a_meas_indices in combinations(measurement_indices, t_a_c):
+                #create a list of measurement indices that are NOT associated with a target
+                remaining_meas_indices = [idx for idx in measurement_indices if not idx in t_a_meas_indices]
+                assert(len(remaining_meas_indices)+len(t_a_meas_indices) == len(measurement_indices))
+                #enumerate all possible groups of measurements that can be associated
+                #with births.  There will be ((#measurements - t_a_c) choose b_c) of these
+                for b_meas_indices in combinations(remaining_meas_indices, b_c):
+                    #create a list of remaining measurement indices that must be associated with clutter
+                    c_meas_indices = [idx for idx in remaining_meas_indices if not idx in b_meas_indices]
+                    assert(len(c_meas_indices)+len(b_meas_indices) == len(remaining_meas_indices))
+                    #now enumerate every permutation of target indices that can be associated
+                    #with the combination of measurement indices in t_a_meas_indices
+                    for t_a_target_indices in permutations(range(total_target_count), t_a_c):
+                        #now create the current measurement association
+                        cur_meas_association = [-99 for i in range(len(measurement_indices))]
+                        #iterate over MEASUREMENTs that are associated with SOME target
+                        #idx: the current measurement's index in the tuple of only those measurements
+                        #that are associated with targets.
+                        #t_a_meas_idx: the current measurement's index in the list of all measurements
+                        for (idx, t_a_meas_idx) in enumerate(t_a_meas_indices):
+                            cur_associated_target_idx = t_a_target_indices[idx]
+                            cur_meas_association[t_a_meas_idx] = cur_associated_target_idx
+                        #set birth measurement associations
+                        for b_meas_idx in b_meas_indices:
+                            cur_meas_association[b_meas_idx] = total_target_count
+                        #set clutter measurement associations           
+                        for c_meas_idx in c_meas_indices:
+                            cur_meas_association[c_meas_idx] = -1
+                        #check we assigned each measurement an association
+                        for association in cur_meas_association:
+                            assert(association != -99)
+                            assert(association >= -1 and association <= total_target_count)
+                        assert(not cur_meas_association in all_possible_measurement_associations)
+                        all_possible_measurement_associations.append(cur_meas_association)    
+
+                        cur_likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
+                                                       cur_meas_association, params, log=False)
+                        cur_assoc_prior = get_assoc_prior(particle.targets.living_count, meas_groups, cur_meas_association, params, meas_counts_by_source, log=False)
+                        cur_proposal_probability = cur_likelihood * cur_assoc_prior 
+                        proposal_probabilities.append(cur_proposal_probability)
+ 
+    #normalize proposal probabilities and sample association
+    proposal_distribution = np.asarray(proposal_probabilities)
+    assert(np.sum(proposal_distribution) != 0.0)
+    proposal_distribution /= float(np.sum(proposal_distribution))
+    sampled_assoc_idx = np.random.choice(len(proposal_distribution),
+                                            p=proposal_distribution)
+
+############ THIS DOESN"T REALLY BELONG HERE, BUT FOLLOWING RETURN VALUES FOR OTHER PROPOSAL DISTRIBUTIONS ############
+    #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+    #of the position of meas_groups[i]
+    meas_grp_covs = []   
+    meas_grp_means2D = []
+    meas_grp_means4D = []
+    for (index, detection_group) in enumerate(meas_groups):
+        (combined_meas_mean, combined_covariance) = combine_arbitrary_number_measurements_4d(params.posAndSize_inv_covariance_blocks, 
+                            params.meas_noise_mean, detection_group)
+        combined_meas_pos = combined_meas_mean[0:2]
+        meas_grp_means2D.append(combined_meas_pos)
+        meas_grp_means4D.append(combined_meas_mean)
+        meas_grp_covs.append(combined_covariance)
+############ END THIS DOESN"T REALLY BELONG HERE, BUT FOLLOWING RETURN VALUES FOR OTHER PROPOSAL DISTRIBUTIONS ############
+
+
+    return(all_possible_measurement_associations[sampled_assoc_idx], meas_grp_means4D,
+        meas_grp_covs, proposal_distribution[sampled_assoc_idx])
 
 
 def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_deaths, params):

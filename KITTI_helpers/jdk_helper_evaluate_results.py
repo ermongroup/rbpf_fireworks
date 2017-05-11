@@ -944,10 +944,13 @@ def evaluate(det_path, seq_idx_to_eval, gt_path = None, corrected_version = True
         print "loadTracker failed for class: ", class_to_eval
         print "det_path: ", det_path
         return False
+        assert(False)
     # load groundtruth data for this class
     if not e.loadGroundtruth():
         print "Ground truth not found."
         return False
+        assert(False)
+        
     # sanity checks
     if len(e.groundtruth) is not len(e.tracker):
         return False
@@ -955,6 +958,7 @@ def evaluate(det_path, seq_idx_to_eval, gt_path = None, corrected_version = True
         print("Error evaluating results")
         print "Did not evaluate 3party metrics!"
         return False
+        assert(False)
 
     print("Thank you for participating in our benchmark!")
     return e.get_results_as_array()
@@ -1165,9 +1169,9 @@ class RunEval(FireTaskBase):
                 return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics_with_%s"%mod_dir: metric_medians}}])
         else:
             if use_corrected_eval:
-                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics": metric_medians}}])
+                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics%s"%fw_spec['proposal_distr']: metric_medians}}])
             else:
-                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics": metric_medians}}])
+                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics%s"%fw_spec['proposal_distr']: metric_medians}}])
 
 
 @explicit_serialize

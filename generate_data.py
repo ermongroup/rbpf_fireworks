@@ -204,9 +204,12 @@ def gen_data_1source(params):
             measurementSet.living_targets = [t for t in measurementSet.living_targets if t.alive]
 
         #sample the number of births
-        birth_count = np.random.poisson(params['lamda_b'])
+        if time_step == 0:
+            birth_count = params['init_target_count']
+        else:
+            birth_count = np.random.poisson(params['lamda_b'])
         #sample the number of clutter objects
-        clutter_count = np.random.poisson(params['lamda_b'])
+        clutter_count = np.random.poisson(params['lamda_c'])
         #create birth and clutter measurements
         for b in range(birth_count):
             bb_size = np.random.multivariate_normal(params['avg_bb_birth'], params['var_bb_birth'])
@@ -215,6 +218,9 @@ def gen_data_1source(params):
             new_target = TargetState(cur_time, next_t_id, BoundingBox(x_pos, y_pos, abs(bb_size[0]), abs(bb_size[1]), cur_time))
             next_t_id += 1
             target_velocity = np.random.multivariate_normal([0,0], params['init_vel_cov'])
+            if params['init_vel_to_center']: #point velocity towards image center
+                target_velocity[0] = abs(target_velocity[0])*np.sign((X_MAX + X_MIN)/2.0 - x_pos)
+                target_velocity[1] = abs(target_velocity[1])*np.sign((Y_MAX + Y_MIN)/2.0 - y_pos)
             new_target.x[(1,0)] = target_velocity[0]
             new_target.x[(3,0)] = target_velocity[1]
             measurementSet.living_targets.append(new_target)
@@ -370,13 +376,18 @@ class GenData(FireTaskBase):
                 'var_bb_clutter': clutter_bb_size_var,
                 'BORDER_DEATH_PROBABILITIES': BORDER_DEATH_PROBABILITIES,
                 'NOT_BORDER_DEATH_PROBABILITIES': NOT_BORDER_DEATH_PROBABILITIES,
-                'init_vel_cov': fw_spec['init_vel_cov']}
+                'init_vel_cov': fw_spec['init_vel_cov'],
+                'init_target_count' : fw_spec['init_target_count'],
+                'init_vel_to_center' : fw_spec['init_vel_to_center']}
 
         else: #use the provided data generation parameters
             data_gen_params = fw_spec['data_gen_params']
             data_gen_params['num_time_steps'] = fw_spec['num_time_steps']
             data_gen_params['time_per_time_step'] = fw_spec['time_per_time_step']
             data_gen_params['init_vel_cov'] = fw_spec['init_vel_cov']
+            data_gen_params['init_target_count'] = fw_spec['init_target_count']
+            data_gen_params['init_vel_to_center'] = fw_spec['init_vel_to_center']
+
 
         for gen_seq_idx in range(fw_spec['num_seq_to_generate']):
             (measurementSet, groundTruthSet) = gen_data_1source(data_gen_params)
