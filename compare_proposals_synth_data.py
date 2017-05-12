@@ -66,9 +66,9 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-NUM_SEQUENCES_TO_GENERATE = 2
-NUM_TIME_STEPS = 30 #time steps per sequence
-NUM_PARTICLES_TO_TEST = [100]
+NUM_SEQUENCES_TO_GENERATE = 5
+NUM_TIME_STEPS = 20 #time steps per sequence
+NUM_PARTICLES_TO_TEST = [20, 50, 125]
 
 
 ###################################### Experiment Organization ######################################
@@ -231,10 +231,22 @@ if __name__ == "__main__":
     update_simul_local = False
     run_idx = 1 #just 1 run, see run_experiment.py for how to perform multiple runs
     for (gen_idx, (cur_Q, cur_R, cur_init_V, init_bb_size)) in enumerate(\
-        [(Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE*4),
-#         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE),
-#         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE*4),
-         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE)]):
+        [(Q_DEFAULT*8, R_DEFAULT*8, INIT_VEL_COV*10, BB_SIZE*2),
+         (Q_DEFAULT*8, R_DEFAULT*8, INIT_VEL_COV*10, BB_SIZE/2),
+         (Q_DEFAULT*8, R_DEFAULT*8, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT*8, R_DEFAULT*8, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT*8, R_DEFAULT, INIT_VEL_COV*10, BB_SIZE*2),
+         (Q_DEFAULT*8, R_DEFAULT, INIT_VEL_COV*10, BB_SIZE/2),
+         (Q_DEFAULT*8, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT*8, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT, R_DEFAULT*8, INIT_VEL_COV*10, BB_SIZE*2),
+         (Q_DEFAULT, R_DEFAULT*8, INIT_VEL_COV*10, BB_SIZE/2),
+         (Q_DEFAULT, R_DEFAULT*8, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT, R_DEFAULT*8, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*10, BB_SIZE*2),
+         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*10, BB_SIZE/2),
+         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2)]):
         data_folder = "%s/%sgen_idx=%d" % (GENERATED_DATA_DIR, CUR_GEN_NAME, gen_idx)
         data_generation_spec = \
             {#if True calculate data generation parameters on KITTI training data with measurements of type
@@ -266,7 +278,9 @@ if __name__ == "__main__":
             #Sample speed from Gaussian, then set velocity sign to point towards center of image
             'init_vel_to_center': True,
             #Number of targets to begin with on the first time step
-            'init_target_count': 5,
+            'init_target_count': 3,
+            #Don't allow more targets than this at one time
+            'max_target_count': 5,
             #save the parameter idx for referencing
             'data_gen_idx': gen_idx}
         data_gen_firework = Firework(GenData(), spec = data_generation_spec)
@@ -279,7 +293,7 @@ if __name__ == "__main__":
             storeResultsFW = Firework(StoreResultsInDatabase(), spec=store_results_spec)
             all_fireworks.append(storeResultsFW)
 
-            for proposal_distr in ['min_cost', 'optimal', 'sequential']:
+            for proposal_distr in ['optimal', 'min_cost', 'sequential']:
                 results_folder_name = '%d_particles' % (num_particles)
                 results_folder = '%s/%s_proposal_distr=%s' % \
                     (data_folder, results_folder_name, proposal_distr)

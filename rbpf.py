@@ -956,6 +956,14 @@ class Particle:
         #Targets tracked by this particle
         self.targets = TargetSet()
 
+        #all_measurement_associations[i] will be a list of measurement associations on time step i.
+        #all_dead_targets[i] will be a list of all targets killed on time step i.
+        #these two lists uniquely identifies the state of this particle and are used for determining whether
+        #two separate particles represent the same state
+        #NOTE, only implemented when SPEC['use_general_num_dets'] == True
+        self.all_measurement_associations = []
+        self.all_dead_targets = []
+
         self.importance_weight = 1.0/N_PARTICLES
         self.likelihood_DOUBLE_CHECK_ME = -1
         #cache for memoizing association likelihood computation
@@ -1089,15 +1097,13 @@ class Particle:
             (meas_grp_associations, meas_grp_means, meas_grp_covs, dead_target_indices, imprt_re_weight) = \
             sample_and_reweight(self, measurement_lists,  widths, heights, SPEC['det_names'], \
                 cur_time, measurement_scores, params)
+            self.all_measurement_associations.append(meas_grp_associations)
+            self.all_dead_targets.append(dead_target_indices)
             if SPEC['normalize_log_importance_weights'] == True:
                 if self.importance_weight > 0.0:
                     self.importance_weight = imprt_re_weight + math.log(self.importance_weight)
                 else:#use very small log probability
                     self.importance_weight =imprt_re_weight - 500
-
-
-
-
             else:
                 self.importance_weight *= imprt_re_weight #update particle's importance weight            
             assert(len(meas_grp_associations) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
@@ -1256,6 +1262,46 @@ def get_eff_num_particles(particle_set):
     assert(abs(weight_sum - 1.0) < .000001), (weight_sum, n_eff)
     return 1.0/n_eff
 
+def particles_match(particleA, particleB):
+    '''
+    Inputs:
+    - particleA: type Particle
+    - particleB: type Particle
+
+    Outputs:
+    - match: type Boolean, whether particleA and particleB have the same current state
+        (the same number of living targets in the same locations).  We assume matching
+        targets should be in the same locations in each particle's target list.  Also
+        check importance weights are the same (they should be).
+    '''
+    match = True
+    #check the number of targets is the same
+    if len(particleA.targets.living_targets) != len(particleB.targets.living_targets):
+        match = False
+        return match
+
+    #check all targets have the same state, position mean and covariance, width, and height
+    for idx in range(len(particleA.targets.living_targets)):
+        targetA = particleA.targets.living_targets[idx]
+        targetB = particleB.targets.living_targets[idx]
+        if targetA.x != targetB.x:
+            match = False
+            return match            
+        if targetA.P != targetB.P:
+            match = False
+            return match            
+        if targetA.width != targetB.width:
+            match = False
+            return match            
+        if targetA.height != targetB.height:
+            match = False
+            return match            
+
+    #check both particles have the same importance weight
+    if particleA.importance_weight != particleB.importance_weight:
+        match = False
+
+    return match
 
 
 def run_rbpf_on_targetset(target_sets, online_results_filename, params):
@@ -1284,6 +1330,9 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
 
     iter = 0 # for plotting only occasionally
     number_resamplings = 0
+
+    #debugging, checking how serious a bug was
+    incorrect_max_weight_particle_count = 0
 
     if params.SPEC['train_test'] == 'generated_data':
         #we might not have generated a measurement on every time instance
@@ -1348,8 +1397,8 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 #Run Kalman filter prediction for all living targets
                 for target in particle.targets.living_targets:
                     dt = time_stamp - prev_time_stamp
-                    if params.SPEC['train_test'] != 'generated_data': #we might not generate data for a particular time step
-                        assert(abs(dt - DEFAULT_TIME_STEP) < .00000001), (dt, DEFAULT_TIME_STEP, time_stamp, prev_time_stamp)
+                    ###############if params.SPEC['train_test'] != 'generated_data': #we might not generate data for a particular time step
+                    assert(abs(dt - DEFAULT_TIME_STEP) < .00000001), (dt, DEFAULT_TIME_STEP, time_stamp, prev_time_stamp)
                     target.predict(dt, time_stamp)
                 #update particle death probabilities AFTER predict so that targets that moved
                 #off screen this time instance will be killed
@@ -1409,8 +1458,44 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                             cur_max_weight_particle = particle
                     print "max weight particle id = ", cur_max_weight_particle.id_
 
+                #What we REALLY want to do is split the particles into groups, where the particles in each group
+                #all represent the same state.  Then we sum the importance weights of particles in each group
+                #and our MAP estimate of the state of the world is given by the state of the group with the largest
+                #sum of importance weights.
+                #All measurement associations and target deaths uniquely identify a particle.  particle_group_probs
+                #is a dictionary where each entry represents a particle group.  Keys represent the state of all particles
+                #in the group and values the sum of importance weights of particles in the group
+                particle_group_probs = {}
+                #particle_groups is a dictionary with the same keys as particle_group_probs.  Values are one of the
+                #actual particles belonging to the group (all are the same, so it doesn't matter which one)
+                particle_groups = {}
+                for particle in particle_set:
+                    #assocs are associations on the ith time step, see all_measurement_associations for more info
+                    all_cur_assoc = ImmutableSet([ImmutableSet(assocs) for assocs in particle.all_measurement_associations])
+                    all_cur_deaths = ImmutableSet([ImmutableSet(dead_indices) for dead_indices in particle.all_dead_targets])
+                    particle_key = ImmutableSet((all_cur_assoc, all_cur_deaths))
+                    if particle_key in particle_group_probs:
+                        particle_group_probs[particle_key] += particle.importance_weight
+                        assert(particles_match(particle_groups[particle_key], particle))
+                    else:
+                        particle_group_probs[particle_key] = particle.importance_weight
+                        particle_groups[particle_key] = particle
 
-            if prv_max_weight_particle != None and prv_max_weight_particle != cur_max_weight_particle:
+                MAP_particle_key = None
+                MAP_particle_prob = -1
+                for key, prob in particle_group_probs.iteritems():
+                    if prob > MAP_particle_prob:
+                        MAP_particle_prob = prob
+                        MAP_particle_key = key
+                assert(MAP_particle_key)
+                MAP_particle = particle_groups[MAP_particle_key]
+                if not particles_match(MAP_particle, cur_max_weight_particle):
+                    incorrect_max_weight_particle_count += 1
+
+                #Really, this is the MAP particle group, would be better to change names after checking severity of problem
+                cur_max_weight_particle = MAP_particle
+
+            if prv_max_weight_particle != None and not particles_match(prv_max_weight_particle, cur_max_weight_particle):
                 if SPEC['ONLINE_DELAY'] == 0:
                     (target_associations, duplicate_ids) = match_target_ids(cur_max_weight_target_set.living_targets,\
                                                            prv_max_weight_particle.targets.living_targets)
@@ -1494,6 +1579,10 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
             max_weight_target_set = particle.targets
 
     run_info = [number_resamplings]
+
+    print "Using the max_weight importance weight we would have made mistakes on", incorrect_max_weight_particle_count,\
+        "out of", number_time_instances, "time instances"
+
     return (max_weight_target_set, run_info, number_resamplings)
 
 
