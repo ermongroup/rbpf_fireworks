@@ -1,6 +1,6 @@
 import numpy as np
 from fireworks.utilities.fw_utilities import explicit_serialize
-from fireworks.core.firework import FireTaskBase
+from fireworks.core.firework import FWAction, FireTaskBase
 #from fireworks.core.firework import FiretaskBase
 from filterpy.kalman import KalmanFilter
 from filterpy.common import Q_discrete_white_noise
@@ -1597,7 +1597,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
     print "Using the max_weight importance weight we would have made mistakes on", incorrect_max_weight_particle_count,\
         "out of", number_time_instances, "time instances"
 
-    return (max_weight_target_set, run_info, number_resamplings)
+    return (max_weight_target_set, run_info, number_resamplings, incorrect_max_weight_particle_count)
 
 
 def test_read_write_data_KITTI(target_set):
@@ -2180,7 +2180,8 @@ class RunRBPF(FireTaskBase):
                 if PROFILE: 
                     cProfile.run('run_rbpf_on_targetset([meas_target_set], results_filename, params)')
                 else:
-                    (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset([meas_target_set], results_filename, params)
+                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes) = \
+                    run_rbpf_on_targetset([meas_target_set], results_filename, params)
             else:       
                 if PROFILE:
                     cProfile.runctx('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)',
@@ -2188,7 +2189,8 @@ class RunRBPF(FireTaskBase):
                         'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset}, {})
 #                    cProfile.run('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)')
                 else:
-                    (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)
+                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes) = \
+                    run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)
             print "done processing sequence: ", seq_idx
             
             tB = time.time()
@@ -2235,5 +2237,8 @@ class RunRBPF(FireTaskBase):
             print max_imprt_weight_count_dict
 
         print 'end run'
+
+        return FWAction(mod_spec=[{'_inc': {"mistakes_by_max_weight_particle": max_weight_mistakes}}])
+
 
 

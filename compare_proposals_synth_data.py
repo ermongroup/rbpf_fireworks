@@ -1,9 +1,9 @@
 #Note, on Atlas before this script:
-# $ PACKAGE_DIR=/atlas/u/jkuck/software
-# $ export PATH=$PACKAGE_DIR/anaconda2/bin:$PATH
-# $ export LD_LIBRARY_PATH=$PACKAGE_DIR/anaconda2/local:$LD_LIBRARY_PATH
-# $ source activate anaconda_venv
-# $ cd /atlas/u/jkuck/rbpf_fireworks/
+# $ PACKAGE_DIR=/atlas/u/jkuck/softwar6
+# $ export PATH=$PACKAGE_DIR/anaconda2/bin:$PAT6
+# $ export LD_LIBRARY_PATH=$PACKAGE_DIR/anaconda2/local:$LD_LIBRARY_PAT6
+# $ source activate anaconda_ven6
+# $ cd /atlas/u/jkuck/rbpf_fireworks6
 #
 # To install anaconda packages run, e.g.:
 # $ conda install -c matsci fireworks=1.3.9
@@ -40,9 +40,9 @@ from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 
 #local:
-from fireworks.core.rocket_launcher import rapidfire
+#from fireworks.core.rocket_launcher import rapidfire
 #remote:
-#from fireworks.queue.queue_launcher import rapidfire
+from fireworks.queue.queue_launcher import rapidfire
 
 from fireworks.user_objects.queue_adapters.common_adapter import CommonAdapter
 from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
@@ -231,20 +231,20 @@ if __name__ == "__main__":
     update_simul_local = False
     run_idx = 1 #just 1 run, see run_experiment.py for how to perform multiple runs
     for (gen_idx, (cur_Q, cur_R, cur_init_V, init_bb_size)) in enumerate(\
-        [(Q_DEFAULT*8, R_DEFAULT*8, INIT_VEL_COV*10, BB_SIZE*2),
-         (Q_DEFAULT*8, R_DEFAULT*8, INIT_VEL_COV*10, BB_SIZE/2),
-         (Q_DEFAULT*8, R_DEFAULT*8, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT*8, R_DEFAULT*8, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT*8, R_DEFAULT, INIT_VEL_COV*10, BB_SIZE*2),
-         (Q_DEFAULT*8, R_DEFAULT, INIT_VEL_COV*10, BB_SIZE/2),
-         (Q_DEFAULT*8, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT*8, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT, R_DEFAULT*8, INIT_VEL_COV*10, BB_SIZE*2),
-         (Q_DEFAULT, R_DEFAULT*8, INIT_VEL_COV*10, BB_SIZE/2),
-         (Q_DEFAULT, R_DEFAULT*8, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT, R_DEFAULT*8, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*10, BB_SIZE*2),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*10, BB_SIZE/2),
+        [(Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*2),
+         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE/2),
+         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*2),
+         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE/2),
+         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*2),
+         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE/2),
+         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*2),
+         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*2),
+         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE/2),
          (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2),
          (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2)]):
         data_folder = "%s/%sgen_idx=%d" % (GENERATED_DATA_DIR, CUR_GEN_NAME, gen_idx)
@@ -395,14 +395,14 @@ if __name__ == "__main__":
     # store workflow and launch it
     workflow = Workflow(all_fireworks, firework_dependencies)
     #local
-    launchpad.add_wf(workflow)
-    rapidfire(launchpad, FWorker())
-    #remote
 #    launchpad.add_wf(workflow)
-#    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
-#    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
-#                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
-#                  fill_mode=False)
+#    rapidfire(launchpad, FWorker())
+    #remote
+    launchpad.add_wf(workflow)
+    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
+    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
+                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
+                  fill_mode=False)
 
 
 
