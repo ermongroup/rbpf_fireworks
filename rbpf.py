@@ -1616,7 +1616,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
     print "Using the max_weight importance weight we would have made mistakes on", incorrect_max_weight_particle_count,\
         "out of", number_time_instances, "time instances"
 
-    return (max_weight_target_set, run_info, number_resamplings, incorrect_max_weight_particle_count)
+    return (max_weight_target_set, run_info, number_resamplings, incorrect_max_weight_particle_count, number_time_instances)
 
 
 def test_read_write_data_KITTI(target_set):
@@ -2199,7 +2199,7 @@ class RunRBPF(FireTaskBase):
                 if PROFILE: 
                     cProfile.run('run_rbpf_on_targetset([meas_target_set], results_filename, params)')
                 else:
-                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes) = \
+                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes) = \
                     run_rbpf_on_targetset([meas_target_set], results_filename, params)
             else:       
                 if PROFILE:
@@ -2208,7 +2208,7 @@ class RunRBPF(FireTaskBase):
                         'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset}, {})
 #                    cProfile.run('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)')
                 else:
-                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes) = \
+                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes) = \
                     run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)
             print "done processing sequence: ", seq_idx
             
@@ -2257,7 +2257,10 @@ class RunRBPF(FireTaskBase):
 
         print 'end run'
 
-        return FWAction(mod_spec=[{'_inc': {"mistakes_by_max_weight_particle": max_weight_mistakes}}])
+#        return FWAction(mod_spec=[{'_inc': {"mistakes_by_max_weight_particle": max_weight_mistakes},
+#                                   '_inc': {"max_possible_mistakes": max_possible_mistakes}}])
+        return FWAction(mod_spec=[{'_inc': {"total_runtime": this_seq_run_time, \
+                                            "mistakes_by_max_weight_particle": max_weight_mistakes}}])
 
 
 

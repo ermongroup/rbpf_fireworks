@@ -1,3 +1,7 @@
+# If the database thinks a firework is still running, but no jobs are running on the cluster, try:
+# $ lpad detect_lostruns --time 1 --refresh
+#
+#
 #Note, on Atlas before this script:
 # $ PACKAGE_DIR=/atlas/u/jkuck/software
 # $ export PATH=$PACKAGE_DIR/anaconda2/bin:$PATH
@@ -66,10 +70,10 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-NUM_SEQUENCES_TO_GENERATE = 5
-NUM_TIME_STEPS = 20 #time steps per sequence
-NUM_PARTICLES_TO_TEST = [20, 50, 125]
-
+NUM_SEQUENCES_TO_GENERATE = 20
+NUM_TIME_STEPS = 40 #time steps per sequence
+#NUM_PARTICLES_TO_TEST = [20, 50, 125]
+NUM_PARTICLES_TO_TEST = [20, 80]
 
 ###################################### Experiment Organization ######################################
 GENERATED_DATA_DIR = '%sgenerated_data' % RBPF_HOME_DIRECTORY
@@ -231,22 +235,26 @@ if __name__ == "__main__":
     update_simul_local = False
     run_idx = 1 #just 1 run, see run_experiment.py for how to perform multiple runs
     for (gen_idx, (cur_Q, cur_R, cur_init_V, init_bb_size)) in enumerate(\
-        [(Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE),
-         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*3),
-         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE),
-         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*3),
-         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE),
-         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
-         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
-         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3),
-         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE),
-         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*3),
-         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE),
-         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*3),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3)]):
+#        [(Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE),
+#         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*3),
+#         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE),
+#         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*3),
+#         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE),
+#         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
+#         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
+#         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3),
+#         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE),
+#         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*3),
+#         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE),
+#         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*3),
+#         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE),
+#         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
+#         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
+#         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3)]):
+        [(Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE),
+         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE*3),
+         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE),
+         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE*3)]):
         data_folder = "%s/%sgen_idx=%d" % (GENERATED_DATA_DIR, CUR_GEN_NAME, gen_idx)
         data_generation_spec = \
             {#if True calculate data generation parameters on KITTI training data with measurements of type
@@ -293,7 +301,8 @@ if __name__ == "__main__":
             storeResultsFW = Firework(StoreResultsInDatabase(), spec=store_results_spec)
             all_fireworks.append(storeResultsFW)
 
-            for (proposal_distr, check_k_nearest) in [('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
+#            for (proposal_distr, check_k_nearest) in [('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
+            for (proposal_distr, check_k_nearest) in [('optimal', True), ('min_cost', True), ('sequential', True)]:
                 results_folder_name = '%d_particles' % (num_particles)
                 results_folder = '%s/%s_proposal_distr=%s,check_k=%s' % \
                     (data_folder, results_folder_name, proposal_distr, check_k_nearest)
