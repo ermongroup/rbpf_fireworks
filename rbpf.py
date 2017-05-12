@@ -969,7 +969,7 @@ class Particle:
         #cache for memoizing association likelihood computation
         self.assoc_likelihood_cache = {}
 
-        self.id_ = id_ #will be the same as the parent's id when copying in create_child
+        self.id_ = id_ 
 
         self.parent_id = -1
 
@@ -989,6 +989,8 @@ class Particle:
         NEXT_PARTICLE_ID += 1
         child_particle.importance_weight = self.importance_weight
         child_particle.targets = self.targets.create_child()
+        child_particle.all_measurement_associations = copy.deepcopy(self.all_measurement_associations)
+        child_particle.all_dead_targets = copy.deepcopy(self.all_dead_targets)
         return child_particle
 
     def create_new_target(self, measurement, width, height, cur_time):
@@ -1278,30 +1280,34 @@ def particles_match(particleA, particleB):
     #check the number of targets is the same
     if len(particleA.targets.living_targets) != len(particleB.targets.living_targets):
         match = False
-        return match
+        return (match, 'different number of targets')
 
     #check all targets have the same state, position mean and covariance, width, and height
     for idx in range(len(particleA.targets.living_targets)):
         targetA = particleA.targets.living_targets[idx]
         targetB = particleB.targets.living_targets[idx]
-        if targetA.x != targetB.x:
+        if not (targetA.x == targetB.x).all():
             match = False
-            return match            
-        if targetA.P != targetB.P:
+            print 'targetA and targetB have different states', '#'*80
+            print targetA.x
+            print targetB.x
+            return (match, 'different states')
+        if not (targetA.P == targetB.P).all():
             match = False
-            return match            
+            return (match, 'different covariances')
         if targetA.width != targetB.width:
             match = False
-            return match            
+            return (match, 'different widths')
         if targetA.height != targetB.height:
             match = False
-            return match            
+            return (match, 'different heights')
 
     #check both particles have the same importance weight
     if particleA.importance_weight != particleB.importance_weight:
         match = False
+        return (match, 'different importance weights')
 
-    return match
+    return (match, 'match!')
 
 
 def run_rbpf_on_targetset(target_sets, online_results_filename, params):
@@ -1408,7 +1414,9 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
         pIdxDebugInfo = 0
         for particle in particle_set:
             #this is where 
+            assert(len(particle.all_measurement_associations) == time_instance_index), (particle.all_measurement_associations, len(particle.all_measurement_associations), time_instance_index)
             new_target = particle.update_particle_with_measurement(time_stamp, measurement_lists, widths, heights, measurement_scores, params)
+            assert(len(particle.all_measurement_associations) == time_instance_index + 1), (particle.all_measurement_associations, len(particle.all_measurement_associations), time_instance_index)            
             new_target_list.append(new_target)
             pIdxDebugInfo += 1
 
@@ -1470,13 +1478,19 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 #actual particles belonging to the group (all are the same, so it doesn't matter which one)
                 particle_groups = {}
                 for particle in particle_set:
+                    assert(len(particle.all_measurement_associations) == time_instance_index + 1), (particle.all_measurement_associations, len(particle.all_measurement_associations), time_instance_index)
                     #assocs are associations on the ith time step, see all_measurement_associations for more info
-                    all_cur_assoc = ImmutableSet([ImmutableSet(assocs) for assocs in particle.all_measurement_associations])
-                    all_cur_deaths = ImmutableSet([ImmutableSet(dead_indices) for dead_indices in particle.all_dead_targets])
-                    particle_key = ImmutableSet((all_cur_assoc, all_cur_deaths))
+                    all_cur_assoc = tuple([tuple(assocs) for assocs in particle.all_measurement_associations])
+                    all_cur_deaths = tuple([tuple(dead_indices) for dead_indices in particle.all_dead_targets])
+                    particle_key = tuple((all_cur_assoc, all_cur_deaths))
                     if particle_key in particle_group_probs:
                         particle_group_probs[particle_key] += particle.importance_weight
-                        assert(particles_match(particle_groups[particle_key], particle))
+                        (match_bool, match_str) = particles_match(particle_groups[particle_key], particle)
+                        assert(match_bool), (match_str, particle_key, time_instance_index, len(particle.all_measurement_associations), 
+                            particle.importance_weight, particle_groups[particle_key].importance_weight, 
+                            particle.all_measurement_associations, particle_groups[particle_key].all_measurement_associations,
+                            particle.all_dead_targets, particle_groups[particle_key].all_dead_targets,
+                            measurement_lists)
                     else:
                         particle_group_probs[particle_key] = particle.importance_weight
                         particle_groups[particle_key] = particle

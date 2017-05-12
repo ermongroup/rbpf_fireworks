@@ -2818,7 +2818,7 @@ class MultiDetections_many:
             print "associating detections with name:", det_name
             for seq_idx in range(len(det_objects)):
                 for frame_idx in range(len(det_objects[seq_idx])):
-                    print "det_name before calling = ", det_name
+#                    print "det_name before calling = ", det_name
                     self.group_detections(self.detection_groups[seq_idx][frame_idx], det_name, det_objects[seq_idx][frame_idx])
 
         for seq_idx in range(len(self.detection_groups)):
