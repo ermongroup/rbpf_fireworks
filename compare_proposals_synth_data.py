@@ -1,9 +1,9 @@
 #Note, on Atlas before this script:
-# $ PACKAGE_DIR=/atlas/u/jkuck/softwar6
-# $ export PATH=$PACKAGE_DIR/anaconda2/bin:$PAT6
-# $ export LD_LIBRARY_PATH=$PACKAGE_DIR/anaconda2/local:$LD_LIBRARY_PAT6
-# $ source activate anaconda_ven6
-# $ cd /atlas/u/jkuck/rbpf_fireworks6
+# $ PACKAGE_DIR=/atlas/u/jkuck/software
+# $ export PATH=$PACKAGE_DIR/anaconda2/bin:$PATH
+# $ export LD_LIBRARY_PATH=$PACKAGE_DIR/anaconda2/local:$LD_LIBRARY_PATH
+# $ source activate anaconda_venv
+# $ cd /atlas/u/jkuck/rbpf_fireworks/
 #
 # To install anaconda packages run, e.g.:
 # $ conda install -c matsci fireworks=1.3.9
@@ -231,22 +231,22 @@ if __name__ == "__main__":
     update_simul_local = False
     run_idx = 1 #just 1 run, see run_experiment.py for how to perform multiple runs
     for (gen_idx, (cur_Q, cur_R, cur_init_V, init_bb_size)) in enumerate(\
-        [(Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*2),
-         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE/2),
-         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*2),
-         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE/2),
-         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*2),
-         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE/2),
-         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*2),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE/2),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*2)]):
+        [(Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE),
+         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*3),
+         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE),
+         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*3),
+         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE),
+         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
+         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
+         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3),
+         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE),
+         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*3),
+         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE),
+         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*3),
+         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE),
+         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
+         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
+         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3)]):
         data_folder = "%s/%sgen_idx=%d" % (GENERATED_DATA_DIR, CUR_GEN_NAME, gen_idx)
         data_generation_spec = \
             {#if True calculate data generation parameters on KITTI training data with measurements of type
@@ -293,10 +293,10 @@ if __name__ == "__main__":
             storeResultsFW = Firework(StoreResultsInDatabase(), spec=store_results_spec)
             all_fireworks.append(storeResultsFW)
 
-            for proposal_distr in ['optimal', 'min_cost', 'sequential']:
+            for (proposal_distr, check_k_nearest) in [('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
                 results_folder_name = '%d_particles' % (num_particles)
-                results_folder = '%s/%s_proposal_distr=%s' % \
-                    (data_folder, results_folder_name, proposal_distr)
+                results_folder = '%s/%s_proposal_distr=%s,check_k=%s' % \
+                    (data_folder, results_folder_name, proposal_distr, check_k_nearest)
                 setup_results_folder(results_folder)
                 run_rbpf_fireworks = []  
 
@@ -311,7 +311,7 @@ if __name__ == "__main__":
                         'run_idx': run_idx,
                         'seq_idx': seq_idx,
                         'results_folder': results_folder,
-                        'CHECK_K_NEAREST_TARGETS': True,                        
+                        'CHECK_K_NEAREST_TARGETS': check_k_nearest,                        
                         'K_NEAREST_TARGETS': 1,                        
                         'RUN_ONLINE': RUN_ONLINE,
                         'ONLINE_DELAY': online_delay,

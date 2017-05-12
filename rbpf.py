@@ -965,6 +965,12 @@ class Particle:
         self.all_dead_targets = []
 
         self.importance_weight = 1.0/N_PARTICLES
+
+        #for debuging
+        self.exact_probability = -1
+        self.proposal_probability = -1
+        #end for debugging
+
         self.likelihood_DOUBLE_CHECK_ME = -1
         #cache for memoizing association likelihood computation
         self.assoc_likelihood_cache = {}
@@ -1099,6 +1105,11 @@ class Particle:
             (meas_grp_associations, meas_grp_means, meas_grp_covs, dead_target_indices, imprt_re_weight) = \
             sample_and_reweight(self, measurement_lists,  widths, heights, SPEC['det_names'], \
                 cur_time, measurement_scores, params)
+            #debug
+#            self.exact_probability = exact_probability
+#            self.proposal_probability = proposal_probability
+            #end debug
+
             self.all_measurement_associations.append(meas_grp_associations)
             self.all_dead_targets.append(dead_target_indices)
             if SPEC['normalize_log_importance_weights'] == True:
@@ -1302,10 +1313,13 @@ def particles_match(particleA, particleB):
             match = False
             return (match, 'different heights')
 
+    #Actually, particles with the same state may not have the same importance weight if
+    #the proposal distribution we used was different for the two particles.  CHECK
+    #DETAILS ON WHETHER THIS IS ALLOWED IN SIS FRAMEWORK!!!
     #check both particles have the same importance weight
-    if particleA.importance_weight != particleB.importance_weight:
-        match = False
-        return (match, 'different importance weights')
+#    if particleA.importance_weight != particleB.importance_weight:
+#        match = False
+#        return (match, 'different importance weights')
 
     return (match, 'match!')
 
@@ -1491,6 +1505,8 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                             particle.all_measurement_associations, particle_groups[particle_key].all_measurement_associations,
                             particle.all_dead_targets, particle_groups[particle_key].all_dead_targets,
                             measurement_lists)
+#                            particle.exact_probability, particle.proposal_probability,
+#                            particle_groups[particle_key].exact_probability, particle_groups[particle_key].proposal_probability)
                     else:
                         particle_group_probs[particle_key] = particle.importance_weight
                         particle_groups[particle_key] = particle
@@ -1503,13 +1519,16 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                         MAP_particle_key = key
                 assert(MAP_particle_key)
                 MAP_particle = particle_groups[MAP_particle_key]
-                if not particles_match(MAP_particle, cur_max_weight_particle):
+                (match_bool, match_str) = particles_match(MAP_particle, cur_max_weight_particle)
+                if not match_bool:
                     incorrect_max_weight_particle_count += 1
 
                 #Really, this is the MAP particle group, would be better to change names after checking severity of problem
                 cur_max_weight_particle = MAP_particle
 
-            if prv_max_weight_particle != None and not particles_match(prv_max_weight_particle, cur_max_weight_particle):
+            if prv_max_weight_particle != None:
+                (match_bool, match_str) = particles_match(prv_max_weight_particle, cur_max_weight_particle)
+            if prv_max_weight_particle != None and not match_bool:
                 if SPEC['ONLINE_DELAY'] == 0:
                     (target_associations, duplicate_ids) = match_target_ids(cur_max_weight_target_set.living_targets,\
                                                            prv_max_weight_particle.targets.living_targets)
