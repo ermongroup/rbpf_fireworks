@@ -208,13 +208,16 @@ def gen_data_1source(params):
             birth_count = params['init_target_count']
         else:
             birth_count = np.random.poisson(params['lamda_b'])
+        if birth_count + len(measurementSet.living_targets) > params['max_target_count']:
+            birth_count = params['max_target_count'] - len(measurementSet.living_targets)
+
         #sample the number of clutter objects
         clutter_count = np.random.poisson(params['lamda_c'])
         #create birth and clutter measurements
         for b in range(birth_count):
             bb_size = np.random.multivariate_normal(params['avg_bb_birth'], params['var_bb_birth'])
-            x_pos = np.random.uniform(X_MIN, X_MAX)
-            y_pos = np.random.uniform(Y_MIN, Y_MAX)
+            x_pos = np.random.uniform(X_MIN/3, X_MAX/3)
+            y_pos = np.random.uniform(Y_MIN/3, Y_MAX/3)
             new_target = TargetState(cur_time, next_t_id, BoundingBox(x_pos, y_pos, abs(bb_size[0]), abs(bb_size[1]), cur_time))
             next_t_id += 1
             target_velocity = np.random.multivariate_normal([0,0], params['init_vel_cov'])
@@ -378,7 +381,8 @@ class GenData(FireTaskBase):
                 'NOT_BORDER_DEATH_PROBABILITIES': NOT_BORDER_DEATH_PROBABILITIES,
                 'init_vel_cov': fw_spec['init_vel_cov'],
                 'init_target_count' : fw_spec['init_target_count'],
-                'init_vel_to_center' : fw_spec['init_vel_to_center']}
+                'init_vel_to_center' : fw_spec['init_vel_to_center'],
+                'max_target_count' : fw_spec['max_target_count']}
 
         else: #use the provided data generation parameters
             data_gen_params = fw_spec['data_gen_params']
@@ -387,6 +391,8 @@ class GenData(FireTaskBase):
             data_gen_params['init_vel_cov'] = fw_spec['init_vel_cov']
             data_gen_params['init_target_count'] = fw_spec['init_target_count']
             data_gen_params['init_vel_to_center'] = fw_spec['init_vel_to_center']
+            data_gen_params['max_target_count'] = fw_spec['max_target_count']
+
 
 
         for gen_seq_idx in range(fw_spec['num_seq_to_generate']):
