@@ -52,6 +52,9 @@ import os
 sys.path.insert(0, "%sgeneral_tracking" % RBPF_HOME_DIRECTORY)
 from global_params import DEFAULT_TIME_STEP
 
+from rbpf_sampling_manyMeasSrcs import group_detections
+from rbpf_sampling_manyMeasSrcs import solve_perturbed_max_gumbel
+from rbpf_sampling_manyMeasSrcs import combine_arbitrary_number_measurements_4d as combine_4d_detections
 #from run_experiment import DIRECTORY_OF_ALL_RESULTS
 #from run_experiment import CUR_EXPERIMENT_BATCH_NAME
 #from run_experiment import SEQUENCES_TO_PROCESS
@@ -1275,7 +1278,7 @@ def get_eff_num_particles(particle_set):
     assert(abs(weight_sum - 1.0) < .000001), (weight_sum, n_eff)
     return 1.0/n_eff
 
-def particles_match(particleA, particleB):
+def cur_particle_states_match(particleA, particleB):
     '''
     Inputs:
     - particleA: type Particle
@@ -1314,14 +1317,177 @@ def particles_match(particleA, particleB):
             return (match, 'different heights')
 
     #Actually, particles with the same state may not have the same importance weight if
-    #the proposal distribution we used was different for the two particles.  CHECK
-    #DETAILS ON WHETHER THIS IS ALLOWED IN SIS FRAMEWORK!!!
+    #the proposal distribution we used was different for the two particles, in the case
+    #of min_cost proposal distribution.  CHECK DETAILS ON WHETHER THIS IS ALLOWED IN SIS FRAMEWORK!!!
+    #Also, we could have the same state at time k, but have arrived at the state through different
+    #associations (e.g. particleA gives birth to a target and then kills it that particleB never
+    #gave birth to.)
+
     #check both particles have the same importance weight
 #    if particleA.importance_weight != particleB.importance_weight:
 #        match = False
 #        return (match, 'different importance weights')
 
     return (match, 'match!')
+
+def group_particles(particle_set):
+    '''
+    ###CONSIDER ROUNDING PARTICLE POSITIONS TO SOME DEGREE, I don't THINK not rounding causes a bug###
+    ###We assume the same targets are always in the same list position, I THINK this is ok###
+    This works only in ONLINE mode, that is we group particles by their CURRENT state.
+    Input:
+    - particle_set: list of type Particle
+
+    Outputs:
+    - particle_group_probs: a dictionary where each entry represents a particle group.  Keys represent
+        the state of all particles in the group and values the sum of importance weights of particles 
+        in the group.
+    - particle_groups: a dictionary with the same keys as particle_group_probs.  Values are one of the
+        actual particles belonging to the group (all have the same CURRENT state, so it doesn't matter which one)
+    '''
+    assert(SPEC['RUN_ONLINE'])
+    assert(SPEC['ONLINE_DELAY'] == 0)
+    num_time_steps = len(particle_set[0].all_measurement_associations)
+    particle_group_probs = {}
+    #particle_groups is a dictionary with the same keys as particle_group_probs.  Values are one of the
+    #actual particles belonging to the group (all are the same, so it doesn't matter which one)
+    particle_groups = {}
+    for particle in particle_set:
+        #check for funny business
+        assert(len(particle.all_measurement_associations) == num_time_steps), (particle.all_measurement_associations, len(particle.all_measurement_associations))
+        particle_state_key = \
+            tuple([tuple([tuple(target.x.flatten()),tuple(target.P.flatten()),target.width,target.height]) \
+                   for target in particle.targets.living_targets])
+
+        if particle_state_key in particle_group_probs:
+            particle_group_probs[particle_state_key] += particle.importance_weight
+            (match_bool, match_str) = cur_particle_states_match(particle_groups[particle_state_key], particle)
+            assert(match_bool), (match_str, particle_state_key, time_instance_index, len(particle.all_measurement_associations), 
+                particle.importance_weight, particle_groups[particle_state_key].importance_weight, 
+                particle.all_measurement_associations, particle_groups[particle_state_key].all_measurement_associations,
+                particle.all_dead_targets, particle_groups[particle_state_key].all_dead_targets,
+                measurement_lists)
+        else:
+            particle_group_probs[particle_state_key] = particle.importance_weight
+            particle_groups[particle_state_key] = particle
+
+        ############testing############
+        for cur_key, cur_particle in particle_groups.iteritems():
+            if(cur_key != particle_state_key):
+                (match_bool, match_str) = cur_particle_states_match(cur_particle, particle)
+                assert(not match_bool), (match_str, particle_state_key, cur_key, len(particle.all_measurement_associations), 
+                    particle.importance_weight, particle_groups[particle_state_key].importance_weight, 
+                    particle.all_measurement_associations, particle_groups[particle_state_key].all_measurement_associations,
+                    cur_particle.all_measurement_associations,
+                    particle.all_dead_targets, particle_groups[particle_state_key].all_dead_targets)
+        ############done testing############
+
+    ############testing############
+    total_prob = 0.0
+    for key, prob in particle_group_probs.iteritems():
+        total_prob += prob
+    assert(np.isclose(total_prob, 1, rtol=1e-04, atol=1e-04))
+    ############done testing############
+    return(particle_group_probs, particle_groups)
+
+def modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, cur_time, params):
+    (particle_group_probs, particle_groups) = group_particles(particle_set)
+    #housekeeping, should make this nicer somehow
+    meas_groups = []
+    for det_idx, det_name in enumerate(SPEC['det_names']):
+        group_detections(meas_groups, det_name, measurement_lists[det_idx], widths[det_idx], heights[det_idx], params)
+
+
+    #now that we have estimates of p(x_1:k-1|y_1:k-1), perform modified SIS step
+    new_particle_set = []
+    particle_group_log_probs = {}
+    for idx in range(N_PARTICLES):
+        #1. solve perturbed max(log(p(x_k, y_k | x_1:k-1, y_1:k-1))) problem for each particle group
+        for p_key, particle in particle_groups.iteritems():
+            #should clean this up
+            p_target_deaths = []
+            for target in particle.targets.living_targets:
+                p_target_deaths.append(target.death_prob)
+                assert(p_target_deaths[len(p_target_deaths) - 1] >= 0 and p_target_deaths[len(p_target_deaths) - 1] <= 1)
+
+            assert(len(particle.targets.living_targets) == particle.targets.living_count)
+            (meas_associations, dead_target_indices, max_log_prob) = \
+                solve_perturbed_max_gumbel(particle, meas_groups, len(particle.targets.living_targets), 
+                p_target_deaths, params)
+
+            #add log(p_hat(x_1:k-1|y_1:k-1)) to max(log(p(x_k, y_k | x_1:k-1, y_1:k-1))) 
+            #for each particle group and store x_k
+            particle_group_log_probs[p_key] = \
+                {'max_log_prob': max_log_prob + np.log(particle_group_probs[p_key]),
+                 'meas_associations': meas_associations,
+                 'dead_target_indices': dead_target_indices}
+
+        #2. find the particle group with the maximum log probability
+        maximum_log_prob = -99
+        maximum_log_prob_p_key = None
+        for p_key, assoc_dict in particle_group_log_probs.iteritems():
+            if assoc_dict['max_log_prob'] > maximum_log_prob:
+                maximum_log_prob = assoc_dict['max_log_prob']
+                maximum_log_prob_p_key = p_key
+                print 'found a new max log prob particle group!!!!',  assoc_dict['max_log_prob']
+            else:
+                print 'max log prob,', assoc_dict['max_log_prob'], 'too small'
+        #important to have != None, assert(()) on the empty tuple produces an error    
+        assert(maximum_log_prob_p_key != None), particle_group_log_probs 
+
+
+        #3. create a new particle that is a copy of the max group, and associate measurements / kill
+        #targets according to the max x_k from 2.
+        assert(SPEC['use_general_num_dets'])
+        new_particle = particle_groups[maximum_log_prob_p_key].create_child()
+        birth_value = new_particle.targets.living_count
+
+
+    ############ MESSY ############
+        #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+        #of the position of meas_groups[i]
+        meas_grp_covs = []   
+        meas_grp_means2D = []
+        meas_grp_means = []
+        for (index, detection_group) in enumerate(meas_groups):
+            (combined_meas_mean, combined_covariance) = combine_4d_detections(params.posAndSize_inv_covariance_blocks, 
+                                params.meas_noise_mean, detection_group)
+            combined_meas_pos = combined_meas_mean[0:2]
+            meas_grp_means2D.append(combined_meas_pos)
+            meas_grp_means.append(combined_meas_mean)
+            meas_grp_covs.append(combined_covariance)
+    ############ END MESSY ############
+
+        meas_grp_associations = particle_group_log_probs[maximum_log_prob_p_key]['meas_associations']
+        dead_target_indices = particle_group_log_probs[maximum_log_prob_p_key]['dead_target_indices']
+
+
+        new_particle.all_measurement_associations.append(meas_grp_associations)
+        new_particle.all_dead_targets.append(dead_target_indices)  
+        assert(len(meas_grp_associations) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
+        for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
+            new_particle.process_meas_grp_assoc(birth_value, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx], cur_time)
+
+        #process target deaths
+        #double check dead_target_indices is sorted
+        assert(all([dead_target_indices[i] <= dead_target_indices[i+1] for i in xrange(len(dead_target_indices)-1)]))
+        #important to delete larger indices first to preserve values of the remaining indices
+        for index in reversed(dead_target_indices):
+            new_particle.targets.kill_target(index)
+
+        #checking if something funny is happening
+        original_num_targets = birth_value
+        num_targets_born = 0
+        num_targets_born = meas_grp_associations.count(birth_value)
+        num_targets_killed = len(dead_target_indices)
+        assert(new_particle.targets.living_count == original_num_targets + num_targets_born - num_targets_killed)
+        #done checking if something funny is happening
+        new_particle_set.append(new_particle)
+
+    return new_particle_set
+
+
+
 
 
 def run_rbpf_on_targetset(target_sets, online_results_filename, params):
@@ -1426,16 +1592,20 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
 
         new_target_list = [] #for debugging, list of booleans whether each particle created a new target
         pIdxDebugInfo = 0
-        for particle in particle_set:
-            #this is where 
-            assert(len(particle.all_measurement_associations) == time_instance_index), (particle.all_measurement_associations, len(particle.all_measurement_associations), time_instance_index)
-            new_target = particle.update_particle_with_measurement(time_stamp, measurement_lists, widths, heights, measurement_scores, params)
-            assert(len(particle.all_measurement_associations) == time_instance_index + 1), (particle.all_measurement_associations, len(particle.all_measurement_associations), time_instance_index)            
-            new_target_list.append(new_target)
-            pIdxDebugInfo += 1
 
-        print "about to normalize importance weights"
-        normalize_importance_weights(particle_set)
+        if params.SPEC['proposal_distr'] == 'modified_SIS_gumbel':
+            particle_set = modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
+        else:
+            for particle in particle_set:
+                #this is where 
+                assert(len(particle.all_measurement_associations) == time_instance_index), (particle.all_measurement_associations, len(particle.all_measurement_associations), time_instance_index)
+                new_target = particle.update_particle_with_measurement(time_stamp, measurement_lists, widths, heights, measurement_scores, params)
+                assert(len(particle.all_measurement_associations) == time_instance_index + 1), (particle.all_measurement_associations, len(particle.all_measurement_associations), time_instance_index)            
+                new_target_list.append(new_target)
+                pIdxDebugInfo += 1
+
+            print "about to normalize importance weights"
+            normalize_importance_weights(particle_set)
         #debugging
         if DEBUG:
             assert(len(new_target_list) == N_PARTICLES)
@@ -1478,38 +1648,11 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                         if(particle.importance_weight == max_imprt_weight):
                             cur_max_weight_target_set = particle.targets        
                             cur_max_weight_particle = particle
+                    assert(cur_max_weight_particle), (max_imprt_weight, len(particle_set))
                     print "max weight particle id = ", cur_max_weight_particle.id_
 
-                #What we REALLY want to do is split the particles into groups, where the particles in each group
-                #all represent the same state.  Then we sum the importance weights of particles in each group
-                #and our MAP estimate of the state of the world is given by the state of the group with the largest
-                #sum of importance weights.
-                #All measurement associations and target deaths uniquely identify a particle.  particle_group_probs
-                #is a dictionary where each entry represents a particle group.  Keys represent the state of all particles
-                #in the group and values the sum of importance weights of particles in the group
-                particle_group_probs = {}
-                #particle_groups is a dictionary with the same keys as particle_group_probs.  Values are one of the
-                #actual particles belonging to the group (all are the same, so it doesn't matter which one)
-                particle_groups = {}
-                for particle in particle_set:
-                    assert(len(particle.all_measurement_associations) == time_instance_index + 1), (particle.all_measurement_associations, len(particle.all_measurement_associations), time_instance_index)
-                    #assocs are associations on the ith time step, see all_measurement_associations for more info
-                    all_cur_assoc = tuple([tuple(assocs) for assocs in particle.all_measurement_associations])
-                    all_cur_deaths = tuple([tuple(dead_indices) for dead_indices in particle.all_dead_targets])
-                    particle_key = tuple((all_cur_assoc, all_cur_deaths))
-                    if particle_key in particle_group_probs:
-                        particle_group_probs[particle_key] += particle.importance_weight
-                        (match_bool, match_str) = particles_match(particle_groups[particle_key], particle)
-                        assert(match_bool), (match_str, particle_key, time_instance_index, len(particle.all_measurement_associations), 
-                            particle.importance_weight, particle_groups[particle_key].importance_weight, 
-                            particle.all_measurement_associations, particle_groups[particle_key].all_measurement_associations,
-                            particle.all_dead_targets, particle_groups[particle_key].all_dead_targets,
-                            measurement_lists)
-#                            particle.exact_probability, particle.proposal_probability,
-#                            particle_groups[particle_key].exact_probability, particle_groups[particle_key].proposal_probability)
-                    else:
-                        particle_group_probs[particle_key] = particle.importance_weight
-                        particle_groups[particle_key] = particle
+
+                (particle_group_probs, particle_groups) = group_particles(particle_set)
 
                 MAP_particle_key = None
                 MAP_particle_prob = -1
@@ -1517,9 +1660,10 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                     if prob > MAP_particle_prob:
                         MAP_particle_prob = prob
                         MAP_particle_key = key
-                assert(MAP_particle_key)
+                #important to have != None, assert(()) on the empty tuple produces an error                    
+                assert(MAP_particle_key != None), particle_group_probs
                 MAP_particle = particle_groups[MAP_particle_key]
-                (match_bool, match_str) = particles_match(MAP_particle, cur_max_weight_particle)
+                (match_bool, match_str) = cur_particle_states_match(MAP_particle, cur_max_weight_particle)
                 if not match_bool:
                     incorrect_max_weight_particle_count += 1
 
@@ -1528,7 +1672,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
 
 
             if prv_max_weight_particle != None:
-                (match_bool, match_str) = particles_match(prv_max_weight_particle, cur_max_weight_particle)
+                (match_bool, match_str) = cur_particle_states_match(prv_max_weight_particle, cur_max_weight_particle)
             if prv_max_weight_particle != None and not match_bool:
                 if SPEC['ONLINE_DELAY'] == 0:
                     (target_associations, duplicate_ids) = match_target_ids(cur_max_weight_target_set.living_targets,\
