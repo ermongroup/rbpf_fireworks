@@ -10,6 +10,7 @@ from munkres import Munkres
 from collections import defaultdict
 from itertools import combinations
 from itertools import permutations
+#from cvxpy import *
 
 import math
 
@@ -425,57 +426,74 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
 #    FIXME measurement_associations, proposal_probability
 ############################################################################################################
     #New implementation
-    assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost', 'optimal'])
-    if params.SPEC['proposal_distr'] == 'sequential':
+    assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost', 'optimal', 'traditional_SIR_gumbel'])
+    if params.SPEC['proposal_distr'] == 'traditional_SIR_gumbel':
         (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
-        associate_measurements_sequentially(particle, meas_groups, total_target_count, \
-        p_target_deaths, params)
+            associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_deaths, params)
+    
+        unassociated_target_death_probs = []
+        for i in range(total_target_count):
+            if i in meas_grp_associations:
+                target_unassociated = False
+            else:
+                target_unassociated = True            
+            if target_unassociated:
+                unassociated_target_death_probs.append(p_target_deaths[i])
+            else:
+                unassociated_target_death_probs.append(0.0)
 
-    elif params.SPEC['proposal_distr'] == 'min_cost':
-        (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
-        associate_meas_min_cost(particle, meas_groups, total_target_count, \
-        p_target_deaths, params)
+        return (targets_to_kill, meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, unassociated_target_death_probs)
 
-    else: 
-        assert(params.SPEC['proposal_distr'] == 'optimal')
-        (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
-        associate_meas_optimal(particle, meas_groups, total_target_count, \
-        p_target_deaths, params, meas_counts_by_source)
+    else:
+        if params.SPEC['proposal_distr'] == 'sequential':
+            (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
+            associate_measurements_sequentially(particle, meas_groups, total_target_count, \
+            p_target_deaths, params)
+
+        elif params.SPEC['proposal_distr'] == 'min_cost':
+            (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
+            associate_meas_min_cost(particle, meas_groups, total_target_count, \
+            p_target_deaths, params)
+
+        else: 
+            assert(params.SPEC['proposal_distr'] == 'optimal')
+            (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
+            associate_meas_optimal(particle, meas_groups, total_target_count, \
+            p_target_deaths, params, meas_counts_by_source)
 
 
-############################################################################################################
+    ############################################################################################################
 
-############################################################################################################
-    #sample target deaths from unassociated targets
-    unassociated_targets = []
-    unassociated_target_death_probs = []
+    ############################################################################################################
+        #sample target deaths from unassociated targets
+        unassociated_targets = []
+        unassociated_target_death_probs = []
 
-    for i in range(total_target_count):
-        target_unassociated = True
-        if i in meas_grp_associations:
-            target_unassociated = False
-        else:
-            target_unassociated = True            
-        if target_unassociated:
-            unassociated_targets.append(i)
-            unassociated_target_death_probs.append(p_target_deaths[i])
-        else:
-            unassociated_target_death_probs.append(0.0)
+        for i in range(total_target_count):
+            if i in meas_grp_associations:
+                target_unassociated = False
+            else:
+                target_unassociated = True            
+            if target_unassociated:
+                unassociated_targets.append(i)
+                unassociated_target_death_probs.append(p_target_deaths[i])
+            else:
+                unassociated_target_death_probs.append(0.0)
 
-    (targets_to_kill, death_probability) =  \
-        sample_target_deaths(particle, unassociated_targets, cur_time)
+        (targets_to_kill, death_probability) =  \
+            sample_target_deaths(particle, unassociated_targets, cur_time)
 
-    #probability of sampling all associations
-    proposal_probability *= death_probability
-    assert(proposal_probability != 0.0)
+        #probability of sampling all associations
+        proposal_probability *= death_probability
+        assert(proposal_probability != 0.0)
 
-    #debug
-    for i in range(total_target_count):
-        assert(meas_grp_associations.count(i) == 0 or \
-               meas_grp_associations.count(i) == 1), (meas_grp_associations,  measurement_list, total_target_count, p_target_deaths)
-    #done debug
+        #debug
+        for i in range(total_target_count):
+            assert(meas_grp_associations.count(i) == 0 or \
+                   meas_grp_associations.count(i) == 1), (meas_grp_associations,  measurement_list, total_target_count, p_target_deaths)
+        #done debug
 
-    return (targets_to_kill, meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, unassociated_target_death_probs)
+        return (targets_to_kill, meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, unassociated_target_death_probs)
 
 
 
@@ -637,6 +655,147 @@ def associate_meas_optimal(particle, meas_groups, total_target_count, p_target_d
 
     return(all_possible_measurement_associations[sampled_assoc_idx], meas_grp_means4D,
         meas_grp_covs, proposal_distribution[sampled_assoc_idx])
+
+def solve_gumbel_perturbed_assignment(log_probs):
+    '''
+    We would like to sample from the optimal proposal distribution p(x_k|y_1:k, x_1:k-1),
+    the normalization constant is intractable to compute.  We can compute p(y_k, x_k|y_1:k-1, x_1:k-1),
+    which is proporitional to p(x_k|y_1:k, x_1:k-1).  Max(p(y_k, x_k|y_1:k-1, x_1:k-1)) can be
+    found by solving a linear program given a matrix log probabilities.  We approximate adding gumbel 
+    noise to every possible assignment(which would require a combinatorial number of Gumbels), 
+    by adding a Gumbel to each entry of the log_probs matrix.  Instead of taking the maximum of 
+    each of these Gumbels (which would make the problem nonconvex) we further approximate by summing them.
+
+    Inputs:
+    - log_probs: numpy matrix with dimensions (#measurements + 2, #targets + 2)
+
+    Outpus:
+    - assigment: numpy matrix with same dimensions as log_probs, this is the assignment that results
+        the largest log probability after perturbing log_probs with Gumbel noise
+
+    - max_log_prob: this is the value of trace((log_probs+Gumbel_Noise)*assignment.T)
+
+    '''
+    #sample a Gumbel matrix
+    G = numpy.random.gumbel(loc=0.0, scale=1.0, size=(log_probs.shape[0], log_probs.shape[1]))
+
+    #solve convex optimization problem
+    A = Variable(log_probs.shape[0], log_probs.shape[1])
+    objective = Maximize(trace((log_probs+G)*(A.T)))
+    constraints = [A>=0]                   
+    for i in range(log_probs.shape[0]-2):
+        constraints.append(sum_entries(A[i, :]) == 1)
+    for j in range(log_probs.shape[1]-2):
+        constraints.append(sum_entries(A[:, j]) == 1)
+    constraints.append(A[(log_probs.shape[0]-2,log_probs.shape[1]-2)] == 0)
+    constraints.append(A[(log_probs.shape[0]-1,log_probs.shape[1]-2)] == 0)
+    constraints.append(A[(log_probs.shape[0]-2,log_probs.shape[1]-1)] == 0)
+    constraints.append(A[(log_probs.shape[0]-1,log_probs.shape[1]-1)] == 0)
+
+    prob = Problem(objective, constraints)
+    prob.solve()
+    assignment = A.value
+    max_log_prob = prob.value
+    return(assignment, max_log_prob)
+
+
+def associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_deaths, params):
+    '''
+    Sample measurement associations from close to the optimal proposal distribution p(c_k | e_{1-k-1}, c_{1:k-1}, y_{1:k})
+    using an approximation to the Gumbel max trick
+
+    ONLY WORKS WITH 1 measurement source
+    Inputs:
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle     
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
+    - total_target_count: the number of living targets on the previous time instace
+    - p_target_deaths: a list of length len(total_target_count) where 
+        p_target_deaths[i] = the probability that target i has died between the last
+        time instance and the current time instance
+    - params: type Parameters, gives prior probabilities and other parameters we are using
+
+    '''
+    #construct a (#measurements+2)x(#targets+2) matrix of log probabilities
+    log_probs = -1*np.ones((len(meas_groups) + 2, total_target_count+2))
+
+    #calculate log probs for measurement-target association entries in the log-prob matrix
+    for m_idx in range(len(meas_groups)):
+        for t_idx in range(total_target_count):
+            cur_prob = math.log(memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params))
+            cur_prob += math.log(sum(params.target_emission_probs[0])) #log(p_emit)
+            log_probs[m_idx][t_idx] = cur_prob
+
+    #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
+    lives_row_idx = len(meas_groups)
+    dies_row_idx = len(meas_groups) + 1
+    p_target_does_not_emit = 1.0 - sum(params.target_emission_probs[0]) #ONLY WORKS WITH 1 measurement source
+    for t_idx in range(total_target_count):
+        #would probably be better to kill offscreen targets before association
+        if(particle.targets.living_targets[t_idx].offscreen == True):
+            cur_death_prob = .999999999999 #sloppy should define an epsilon or something
+        else:
+            cur_death_prob = particle.targets.living_targets[t_idx].death_prob
+        log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
+        log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
+
+    #add birth/clutter measurement association entries to the log-prob matrix
+    clutter_col = total_target_count
+    birth_col = total_target_count + 1
+    for m_idx in range(len(meas_groups)):
+        log_probs[m_idx][clutter_col] = math.log(params.clutter_lambda)
+        log_probs[m_idx][birth_col] = math.log(params.birth_lambda)
+
+    (assignment, max_log_prob) = solve_gumbel_perturbed_assignment(log_probs)
+    unnormalized_log_proposal_probability = np.trace(np.dot(log_probs, assignment.T))
+    unnormalized_proposal_probability = np.exp(unnormalized_log_proposal_probability)
+
+    meas_associations = []
+    #read off assignments
+    for m_idx in range(len(measurements)):
+        for assign_idx in range(total_target_count+2):
+            if (np.isclose(assignment[m_idx,assign_idx], 1, rtol=1e-04, atol=1e-04)):
+                if assign_idx < total_target_count: #target association
+                    measurement_associations.append(assign_idx)
+                elif assign_idx == total_target_count: #clutter
+                    measurement_associations.append(-1)
+                else: #birth
+                    measurement_associations.append(total_target_count)
+    assert(len(meas_associations) == len(measurements))
+
+    #read off target deaths
+    dead_target_indices = []
+    for target_idx in range(total_target_count):
+        if (np.isclose(assignment[dies_row_idx,target_idx], 1, rtol=1e-04, atol=1e-04)):
+            dead_target_indices.append(target_idx)
+
+    #Now approximate the partition function
+    partition_estimate = 0.0
+    for i in range(params.SPEC['num_gumbel_partition_samples']):
+        (assignment, max_log_prob) = solve_gumbel_perturbed_assignment(log_probs)
+        partition_estimate += max_log_prob - np.euler_gamma*np.sum(assignment)
+    partition_estimate = partition_estimate/params.SPEC['num_gumbel_partition_samples'] #now we have log(Z) estimated
+    partition_estimate = np.exp(partition_estimate)
+
+    proposal_probability = unnormalized_proposal_probability/partition_estimate
+############ THIS DOESN"T REALLY BELONG HERE, BUT FOLLOWING RETURN VALUES FOR OTHER PROPOSAL DISTRIBUTIONS ############
+    #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+    #of the position of meas_groups[i]
+    meas_grp_covs = []   
+    meas_grp_means2D = []
+    meas_grp_means4D = []
+    for (index, detection_group) in enumerate(meas_groups):
+        (combined_meas_mean, combined_covariance) = combine_arbitrary_number_measurements_4d(params.posAndSize_inv_covariance_blocks, 
+                            params.meas_noise_mean, detection_group)
+        combined_meas_pos = combined_meas_mean[0:2]
+        meas_grp_means2D.append(combined_meas_pos)
+        meas_grp_means4D.append(combined_meas_mean)
+        meas_grp_covs.append(combined_covariance)
+############ END THIS DOESN"T REALLY BELONG HERE, BUT FOLLOWING RETURN VALUES FOR OTHER PROPOSAL DISTRIBUTIONS ############
+
+
+    return(meas_associations, meas_grp_means4D, meas_grp_covs, proposal_probability)
+
 
 
 def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_deaths, params):

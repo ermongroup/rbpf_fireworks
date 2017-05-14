@@ -1,3 +1,7 @@
+# If the database thinks a firework is still running, but no jobs are running on the cluster, try:
+# $ lpad detect_lostruns --time 1 --refresh
+#
+#
 #Note, on Atlas before this script:
 # $ PACKAGE_DIR=/atlas/u/jkuck/software
 # $ export PATH=$PACKAGE_DIR/anaconda2/bin:$PATH
@@ -16,20 +20,37 @@
 # add the following line to the file ~/.bashrc.user on Atlas:
 # export PYTHONPATH="${PYTHONPATH}:/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/"
 #
+# To install cvxpy on atlas run (hopefully):
+#
+#$ export PATH=/opt/rh/python27/root/usr/bin:$PATH
+#$ export LD_LIBRARY_PATH=/opt/rh/python27/root/usr/lib64/:$LD_LIBRARY_PATH
+#$ pip install --user numpy
+#$ pip install --user cvxpy
 ##########################################################################################
 #
 #Note, on Sherlock before this script:
 #$ ml load python/2.7.5
 #$ easy_install-2.7 --user pip
 #$ export PATH=~/.local/bin:$PATH
-# $ pip2.7 install --user fireworks #and others
-# $ cd /scratch/users/kuck/rbpf_fireworks/
+#$ pip2.7 install --user fireworks #and others
+#$ pip2.7 install --user filterpy
+#$ pip2.7 install --user scipy --upgrade
+#$ pip2.7 install --user munkres
+#$ cd /scratch/users/kuck/rbpf_fireworks/
 #
 # Add the following line to the file ~/.bashrc on Sherlock:
 # export PYTHONPATH="/scratch/users/kuck/rbpf_fireworks:$PYTHONPATH"
 # Weird, but to run commands like "lpad -l my_launchpad.yaml get_fws",
 # add the following line to the file ~/.bashrc.user on Atlas:
 # export PYTHONPATH="${PYTHONPATH}:/scratch/users/kuck/rbpf_fireworks/KITTI_helpers/"
+#
+#
+# When setting up:
+# - make cluster_config.py file
+# - make my_qadapter.yaml file (look at fireworks workflow manager website for info)
+#
+# To install cvxpy on sherlock run:
+# $ pip2.7 install --user cvxpy
 import copy
 import os
 import errno
@@ -40,9 +61,9 @@ from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 
 #local:
-from fireworks.core.rocket_launcher import rapidfire
+#from fireworks.core.rocket_launcher import rapidfire
 #remote:
-#from fireworks.queue.queue_launcher import rapidfire
+from fireworks.queue.queue_launcher import rapidfire
 
 from fireworks.user_objects.queue_adapters.common_adapter import CommonAdapter
 from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
@@ -68,7 +89,7 @@ from generate_data import GenData
 NUM_RUNS=1
 NUM_SEQUENCES_TO_GENERATE = 5
 NUM_TIME_STEPS = 20 #time steps per sequence
-NUM_PARTICLES_TO_TEST = [125]
+NUM_PARTICLES_TO_TEST = [25]
 
 
 ###################################### Experiment Organization ######################################
@@ -278,11 +299,12 @@ if __name__ == "__main__":
             storeResultsFW = Firework(StoreResultsInDatabase(), spec=store_results_spec)
             all_fireworks.append(storeResultsFW)
 
-            for proposal_distr in ['min_cost', 'optimal', 'sequential']:
-#            for proposal_distr in ['min_cost']:
+
+            for (proposal_distr, check_k_nearest) in [('traditional_SIR_gumbel', False), ('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
+#            for (proposal_distr, check_k_nearest) in [('optimal', True), ('min_cost', True), ('sequential', True)]:
                 results_folder_name = '%d_particles' % (num_particles)
-                results_folder = '%s/%s_proposal_distr=%s' % \
-                    (data_folder, results_folder_name, proposal_distr)
+                results_folder = '%s/%s_proposal_distr=%s,check_k=%s' % \
+                    (data_folder, results_folder_name, proposal_distr, check_k_nearest)
                 setup_results_folder(results_folder)
                 run_rbpf_fireworks = []  
 
@@ -297,7 +319,7 @@ if __name__ == "__main__":
                         'run_idx': run_idx,
                         'seq_idx': seq_idx,
                         'results_folder': results_folder,
-                        'CHECK_K_NEAREST_TARGETS': True,                        
+                        'CHECK_K_NEAREST_TARGETS': check_k_nearest,                        
                         'K_NEAREST_TARGETS': 1,                        
                         'RUN_ONLINE': RUN_ONLINE,
                         'ONLINE_DELAY': online_delay,
@@ -350,7 +372,10 @@ if __name__ == "__main__":
 #                        'gt_path': None #None for KITTI data, file path (string) for synthetic data
                         'gt_path': "%sground_truth" % data_folder, #None for KITTI data, file path (string) for synthetic data
                         'data_generation_spec': data_generation_spec,
-                        'birth_clutter_model':birth_clutter_model}
+                        'birth_clutter_model':birth_clutter_model,
+                        #the number of samples we will use to compute the expected value of the partition function 
+                        #using an approximation to the Gumbel max trick
+                        'num_gumbel_partition_samples': 20 }
 
                     cur_firework = Firework(RunRBPF(), spec=cur_spec)
     #                cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
@@ -381,14 +406,14 @@ if __name__ == "__main__":
     # store workflow and launch it
     workflow = Workflow(all_fireworks, firework_dependencies)
     #local
-    launchpad.add_wf(workflow)
-    rapidfire(launchpad, FWorker())
-    #remote
 #    launchpad.add_wf(workflow)
-#    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
-#    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
-#                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
-#                  fill_mode=False)
+#    rapidfire(launchpad, FWorker())
+    #remote
+    launchpad.add_wf(workflow)
+    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
+    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
+                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
+                  fill_mode=False)
 
 
 

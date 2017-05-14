@@ -1106,8 +1106,8 @@ class Particle:
             sample_and_reweight(self, measurement_lists,  widths, heights, SPEC['det_names'], \
                 cur_time, measurement_scores, params)
             #debug
-            self.exact_probability = exact_probability
-            self.proposal_probability = proposal_probability
+#            self.exact_probability = exact_probability
+#            self.proposal_probability = proposal_probability
             #end debug
 
             self.all_measurement_associations.append(meas_grp_associations)
@@ -1504,9 +1504,9 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                             particle.importance_weight, particle_groups[particle_key].importance_weight, 
                             particle.all_measurement_associations, particle_groups[particle_key].all_measurement_associations,
                             particle.all_dead_targets, particle_groups[particle_key].all_dead_targets,
-                            measurement_lists, 
-                            particle.exact_probability, particle.proposal_probability,
-                            particle_groups[particle_key].exact_probability, particle_groups[particle_key].proposal_probability)
+                            measurement_lists)
+#                            particle.exact_probability, particle.proposal_probability,
+#                            particle_groups[particle_key].exact_probability, particle_groups[particle_key].proposal_probability)
                     else:
                         particle_group_probs[particle_key] = particle.importance_weight
                         particle_groups[particle_key] = particle
@@ -1526,7 +1526,9 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 #Really, this is the MAP particle group, would be better to change names after checking severity of problem
                 cur_max_weight_particle = MAP_particle
 
-            (match_bool, match_str) = particles_match(prv_max_weight_particle, cur_max_weight_particle)
+
+            if prv_max_weight_particle != None:
+                (match_bool, match_str) = particles_match(prv_max_weight_particle, cur_max_weight_particle)
             if prv_max_weight_particle != None and not match_bool:
                 if SPEC['ONLINE_DELAY'] == 0:
                     (target_associations, duplicate_ids) = match_target_ids(cur_max_weight_target_set.living_targets,\
@@ -1615,7 +1617,8 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
     print "Using the max_weight importance weight we would have made mistakes on", incorrect_max_weight_particle_count,\
         "out of", number_time_instances, "time instances"
 
-    return (max_weight_target_set, run_info, number_resamplings, incorrect_max_weight_particle_count)
+
+    return (max_weight_target_set, run_info, number_resamplings, incorrect_max_weight_particle_count, number_time_instances)
 
 
 def test_read_write_data_KITTI(target_set):
@@ -2198,7 +2201,8 @@ class RunRBPF(FireTaskBase):
                 if PROFILE: 
                     cProfile.run('run_rbpf_on_targetset([meas_target_set], results_filename, params)')
                 else:
-                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes) = \
+
+                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes) = \
                     run_rbpf_on_targetset([meas_target_set], results_filename, params)
             else:       
                 if PROFILE:
@@ -2207,7 +2211,7 @@ class RunRBPF(FireTaskBase):
                         'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset}, {})
 #                    cProfile.run('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)')
                 else:
-                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes) = \
+                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes) = \
                     run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)
             print "done processing sequence: ", seq_idx
             
@@ -2256,7 +2260,11 @@ class RunRBPF(FireTaskBase):
 
         print 'end run'
 
-        return FWAction(mod_spec=[{'_inc': {"mistakes_by_max_weight_particle": max_weight_mistakes}}])
+
+#        return FWAction(mod_spec=[{'_inc': {"mistakes_by_max_weight_particle": max_weight_mistakes},
+#                                   '_inc': {"max_possible_mistakes": max_possible_mistakes}}])
+        return FWAction(mod_spec=[{'_inc': {"total_runtime": this_seq_run_time, \
+                                            "mistakes_by_max_weight_particle": max_weight_mistakes}}])
 
 
 

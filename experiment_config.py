@@ -34,3 +34,7 @@ MONGODB_NAME = 'atlas_mult_meas'
 #MONGODB_PORT = 33291
 #MONGODB_NAME = 'nips_prep'
 #
+
+MONGODB_HOST = 'ds139761.mlab.com'
+MONGODB_PORT = 39761
+MONGODB_NAME = 'nips_prep_sherlock'
