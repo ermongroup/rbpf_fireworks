@@ -318,7 +318,7 @@ if __name__ == "__main__":
             storeResultsFW = Firework(StoreResultsInDatabase(), spec=store_results_spec)
             all_fireworks.append(storeResultsFW)
 
-            for (proposal_distr, check_k_nearest) in [('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
+            for (proposal_distr, check_k_nearest) in [('traditional_SIR_gumbel', False), ('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
 #            for (proposal_distr, check_k_nearest) in [('optimal', True), ('min_cost', True), ('sequential', True)]:
                 results_folder_name = '%d_particles' % (num_particles)
                 results_folder = '%s/%s_proposal_distr=%s,check_k=%s' % \
@@ -390,7 +390,10 @@ if __name__ == "__main__":
 #                        'gt_path': None #None for KITTI data, file path (string) for synthetic data
                         'gt_path': "%sground_truth" % data_folder, #None for KITTI data, file path (string) for synthetic data
                         'data_generation_spec': data_generation_spec,
-                        'birth_clutter_model':birth_clutter_model}
+                        'birth_clutter_model':birth_clutter_model,
+                        #the number of samples we will use to compute the expected value of the partition function 
+                        #using an approximation to the Gumbel max trick
+                        'num_gumbel_partition_samples': 20 }
 
                     cur_firework = Firework(RunRBPF(), spec=cur_spec)
     #                cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
