@@ -10,7 +10,7 @@ from munkres import Munkres
 from collections import defaultdict
 from itertools import combinations
 from itertools import permutations
-#from cvxpy import *
+from cvxpy import *
 
 import math
 
@@ -428,7 +428,7 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
     #New implementation
     assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost', 'optimal', 'traditional_SIR_gumbel'])
     if params.SPEC['proposal_distr'] == 'traditional_SIR_gumbel':
-        (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
+        (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, targets_to_kill) = \
             associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_deaths, params)
     
         unassociated_target_death_probs = []
@@ -719,17 +719,20 @@ def associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_de
     #construct a (#measurements+2)x(#targets+2) matrix of log probabilities
     log_probs = -1*np.ones((len(meas_groups) + 2, total_target_count+2))
 
+    p_target_does_not_emit = params.target_groupEmission_priors[ImmutableSet([])]
+    #ONLY WORKS WITH 1 measurement source    
+    p_target_emits = 1.0 - p_target_does_not_emit
+
     #calculate log probs for measurement-target association entries in the log-prob matrix
     for m_idx in range(len(meas_groups)):
         for t_idx in range(total_target_count):
             cur_prob = math.log(memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params))
-            cur_prob += math.log(sum(params.target_emission_probs[0])) #log(p_emit)
+            cur_prob += math.log(p_target_emits) 
             log_probs[m_idx][t_idx] = cur_prob
 
     #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
     lives_row_idx = len(meas_groups)
     dies_row_idx = len(meas_groups) + 1
-    p_target_does_not_emit = 1.0 - sum(params.target_emission_probs[0]) #ONLY WORKS WITH 1 measurement source
     for t_idx in range(total_target_count):
         #would probably be better to kill offscreen targets before association
         if(particle.targets.living_targets[t_idx].offscreen == True):
@@ -752,16 +755,16 @@ def associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_de
 
     meas_associations = []
     #read off assignments
-    for m_idx in range(len(measurements)):
+    for m_idx in range(len(meas_groups)):
         for assign_idx in range(total_target_count+2):
             if (np.isclose(assignment[m_idx,assign_idx], 1, rtol=1e-04, atol=1e-04)):
                 if assign_idx < total_target_count: #target association
-                    measurement_associations.append(assign_idx)
+                    meas_associations.append(assign_idx)
                 elif assign_idx == total_target_count: #clutter
-                    measurement_associations.append(-1)
+                    meas_associations.append(-1)
                 else: #birth
-                    measurement_associations.append(total_target_count)
-    assert(len(meas_associations) == len(measurements))
+                    meas_associations.append(total_target_count)
+    assert(len(meas_associations) == len(meas_groups))
 
     #read off target deaths
     dead_target_indices = []
@@ -794,7 +797,7 @@ def associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_de
 ############ END THIS DOESN"T REALLY BELONG HERE, BUT FOLLOWING RETURN VALUES FOR OTHER PROPOSAL DISTRIBUTIONS ############
 
 
-    return(meas_associations, meas_grp_means4D, meas_grp_covs, proposal_probability)
+    return(meas_associations, meas_grp_means4D, meas_grp_covs, proposal_probability, dead_target_indices)
 
 
 
