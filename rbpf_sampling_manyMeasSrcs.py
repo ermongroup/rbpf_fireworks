@@ -726,7 +726,12 @@ def associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_de
     #calculate log probs for measurement-target association entries in the log-prob matrix
     for m_idx in range(len(meas_groups)):
         for t_idx in range(total_target_count):
-            cur_prob = math.log(memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params))
+            likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
+            assert(likelihood >= 0.0), likelihood
+            if likelihood > 0.0:
+                cur_prob = math.log(likelihood)
+            else:
+                cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
             cur_prob += math.log(p_target_emits) 
             log_probs[m_idx][t_idx] = cur_prob
 
