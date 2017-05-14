@@ -11,6 +11,7 @@ from collections import defaultdict
 from itertools import combinations
 from itertools import permutations
 import cvxpy as cvx
+
 import math
 
 #if we have prior of 0, return PRIOR_EPSILON
@@ -369,7 +370,7 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
     if params.SPEC['use_log_probs'] == 'Compare':
         imprt_re_weightA = exact_probability/proposal_probability
         imprt_re_weightB = math.exp(log_exact_probability - math.log(proposal_probability))    
-        assert(abs(imprt_re_weightA -imprt_re_weightB) < .000001), (imprt_re_weightA, imprt_re_weightB, exact_probability, log_exact_probability, proposal_probability)
+        assert(np.abs(imprt_re_weightA -imprt_re_weightB) < .000001), (imprt_re_weightA, imprt_re_weightB, exact_probability, log_exact_probability, proposal_probability)
 
     assert(num_targs == particle.targets.living_count)
     #double check targets_to_kill is sorted
@@ -549,7 +550,7 @@ def min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_as
             if params.SPEC['targ_meas_assoc_metric'] == 'box_overlap':
                 assert(c == 1-boxoverlap(associated_measGrp, associated_target))
             else:
-                assert(abs(c - l2_dist(associated_measGrp, associated_target)) < .000001), (c, l2_dist(cur_detection, cur_target))
+                assert(np.abs(c - l2_dist(associated_measGrp, associated_target)) < .000001), (c, l2_dist(cur_detection, cur_target))
 
 
     return measurement_assoc
@@ -725,7 +726,12 @@ def associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_de
     #calculate log probs for measurement-target association entries in the log-prob matrix
     for m_idx in range(len(meas_groups)):
         for t_idx in range(total_target_count):
-            cur_prob = math.log(memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params))
+            likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
+            assert(likelihood >= 0.0), likelihood
+            if likelihood > 0.0:
+                cur_prob = math.log(likelihood)
+            else:
+                cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
             cur_prob += math.log(p_target_emits) 
             log_probs[m_idx][t_idx] = cur_prob
 
