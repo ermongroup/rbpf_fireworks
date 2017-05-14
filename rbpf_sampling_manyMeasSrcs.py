@@ -10,7 +10,7 @@ from munkres import Munkres
 from collections import defaultdict
 from itertools import combinations
 from itertools import permutations
-from cvxpy import *
+import cvxpy as cvx
 
 import math
 
@@ -370,7 +370,7 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
     if params.SPEC['use_log_probs'] == 'Compare':
         imprt_re_weightA = exact_probability/proposal_probability
         imprt_re_weightB = math.exp(log_exact_probability - math.log(proposal_probability))    
-        assert(abs(imprt_re_weightA -imprt_re_weightB) < .000001), (imprt_re_weightA, imprt_re_weightB, exact_probability, log_exact_probability, proposal_probability)
+        assert(np.abs(imprt_re_weightA -imprt_re_weightB) < .000001), (imprt_re_weightA, imprt_re_weightB, exact_probability, log_exact_probability, proposal_probability)
 
     assert(num_targs == particle.targets.living_count)
     #double check targets_to_kill is sorted
@@ -550,7 +550,7 @@ def min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_as
             if params.SPEC['targ_meas_assoc_metric'] == 'box_overlap':
                 assert(c == 1-boxoverlap(associated_measGrp, associated_target))
             else:
-                assert(abs(c - l2_dist(associated_measGrp, associated_target)) < .000001), (c, l2_dist(cur_detection, cur_target))
+                assert(np.abs(c - l2_dist(associated_measGrp, associated_target)) < .000001), (c, l2_dist(cur_detection, cur_target))
 
 
     return measurement_assoc
@@ -680,19 +680,19 @@ def solve_gumbel_perturbed_assignment(log_probs):
     G = numpy.random.gumbel(loc=0.0, scale=1.0, size=(log_probs.shape[0], log_probs.shape[1]))
 
     #solve convex optimization problem
-    A = Variable(log_probs.shape[0], log_probs.shape[1])
-    objective = Maximize(trace((log_probs+G)*(A.T)))
+    A = cvx.Variable(log_probs.shape[0], log_probs.shape[1])
+    objective = cvx.Maximize(cvx.trace((log_probs+G)*(A.T)))
     constraints = [A>=0]                   
     for i in range(log_probs.shape[0]-2):
-        constraints.append(sum_entries(A[i, :]) == 1)
+        constraints.append(cvx.sum_entries(A[i, :]) == 1)
     for j in range(log_probs.shape[1]-2):
-        constraints.append(sum_entries(A[:, j]) == 1)
+        constraints.append(cvx.sum_entries(A[:, j]) == 1)
     constraints.append(A[(log_probs.shape[0]-2,log_probs.shape[1]-2)] == 0)
     constraints.append(A[(log_probs.shape[0]-1,log_probs.shape[1]-2)] == 0)
     constraints.append(A[(log_probs.shape[0]-2,log_probs.shape[1]-1)] == 0)
     constraints.append(A[(log_probs.shape[0]-1,log_probs.shape[1]-1)] == 0)
 
-    prob = Problem(objective, constraints)
+    prob = cvx.Problem(objective, constraints)
     prob.solve()
     assignment = A.value
     max_log_prob = prob.value
