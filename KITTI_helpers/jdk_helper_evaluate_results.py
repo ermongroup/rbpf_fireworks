@@ -1169,9 +1169,9 @@ class RunEval(FireTaskBase):
                 return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics_with_%s"%mod_dir: metric_medians}}])
         else:
             if use_corrected_eval:
-                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics%s"%fw_spec['proposal_distr']: metric_medians}}])
+                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics%s%s"%(fw_spec['proposal_distr'], fw_spec['K_NEAREST_TARGETS']) : metric_medians}}])
             else:
-                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics%s"%fw_spec['proposal_distr']: metric_medians}}])
+                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics%s%s"%(fw_spec['proposal_distr'], fw_spec['K_NEAREST_TARGETS']) : metric_medians}}])
 
 
 @explicit_serialize

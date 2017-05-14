@@ -216,8 +216,8 @@ def gen_data_1source(params):
         #create birth and clutter measurements
         for b in range(birth_count):
             bb_size = np.random.multivariate_normal(params['avg_bb_birth'], params['var_bb_birth'])
-            x_pos = np.random.uniform(X_MIN/3, X_MAX/3)
-            y_pos = np.random.uniform(Y_MIN/3, Y_MAX/3)
+            x_pos = np.random.uniform((X_MAX+X_MIN)/2 - (X_MAX - X_MIN)/6, (X_MAX+X_MIN)/2 + (X_MAX - X_MIN)/6)
+            y_pos = np.random.uniform((Y_MAX+Y_MIN)/2 - (Y_MAX - Y_MIN)/6, (Y_MAX+Y_MIN)/2 + (Y_MAX - Y_MIN)/6)
             new_target = TargetState(cur_time, next_t_id, BoundingBox(x_pos, y_pos, abs(bb_size[0]), abs(bb_size[1]), cur_time))
             next_t_id += 1
             target_velocity = np.random.multivariate_normal([0,0], params['init_vel_cov'])
