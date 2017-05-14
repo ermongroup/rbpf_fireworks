@@ -10,8 +10,7 @@ from munkres import Munkres
 from collections import defaultdict
 from itertools import combinations
 from itertools import permutations
-from cvxpy import *
-
+import cvxpy as cvx
 import math
 
 #if we have prior of 0, return PRIOR_EPSILON
@@ -680,19 +679,19 @@ def solve_gumbel_perturbed_assignment(log_probs):
     G = numpy.random.gumbel(loc=0.0, scale=1.0, size=(log_probs.shape[0], log_probs.shape[1]))
 
     #solve convex optimization problem
-    A = Variable(log_probs.shape[0], log_probs.shape[1])
-    objective = Maximize(trace((log_probs+G)*(A.T)))
+    A = cvx.Variable(log_probs.shape[0], log_probs.shape[1])
+    objective = cvx.Maximize(cvx.trace((log_probs+G)*(A.T)))
     constraints = [A>=0]                   
     for i in range(log_probs.shape[0]-2):
-        constraints.append(sum_entries(A[i, :]) == 1)
+        constraints.append(cvx.sum_entries(A[i, :]) == 1)
     for j in range(log_probs.shape[1]-2):
-        constraints.append(sum_entries(A[:, j]) == 1)
+        constraints.append(cvx.sum_entries(A[:, j]) == 1)
     constraints.append(A[(log_probs.shape[0]-2,log_probs.shape[1]-2)] == 0)
     constraints.append(A[(log_probs.shape[0]-1,log_probs.shape[1]-2)] == 0)
     constraints.append(A[(log_probs.shape[0]-2,log_probs.shape[1]-1)] == 0)
     constraints.append(A[(log_probs.shape[0]-1,log_probs.shape[1]-1)] == 0)
 
-    prob = Problem(objective, constraints)
+    prob = cvx.Problem(objective, constraints)
     prob.solve()
     assignment = A.value
     max_log_prob = prob.value
