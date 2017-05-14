@@ -22,14 +22,23 @@
 #$ ml load python/2.7.5
 #$ easy_install-2.7 --user pip
 #$ export PATH=~/.local/bin:$PATH
-# $ pip2.7 install --user fireworks #and others
-# $ cd /scratch/users/kuck/rbpf_fireworks/
+#$ pip2.7 install --user fireworks #and others
+#$ pip2.7 install --user filterpy
+#$ pip2.7 install --user scipy --upgrade
+#$ pip2.7 install --user munkres
+#$ cd /scratch/users/kuck/rbpf_fireworks/
 #
 # Add the following line to the file ~/.bashrc on Sherlock:
 # export PYTHONPATH="/scratch/users/kuck/rbpf_fireworks:$PYTHONPATH"
 # Weird, but to run commands like "lpad -l my_launchpad.yaml get_fws",
 # add the following line to the file ~/.bashrc.user on Atlas:
 # export PYTHONPATH="${PYTHONPATH}:/scratch/users/kuck/rbpf_fireworks/KITTI_helpers/"
+#
+#
+# When setting up:
+# - make cluster_config.py file
+# - make my_qadapter.yaml file (look at fireworks workflow manager website for info)
+#
 import copy
 import os
 import errno
@@ -68,7 +77,8 @@ from generate_data import GenData
 NUM_RUNS=1
 NUM_SEQUENCES_TO_GENERATE = 5
 NUM_TIME_STEPS = 20 #time steps per sequence
-NUM_PARTICLES_TO_TEST = [20, 50, 125]
+#NUM_PARTICLES_TO_TEST = [20, 50, 125]
+NUM_PARTICLES_TO_TEST = [20]
 
 
 ###################################### Experiment Organization ######################################
@@ -232,20 +242,20 @@ if __name__ == "__main__":
     run_idx = 1 #just 1 run, see run_experiment.py for how to perform multiple runs
     for (gen_idx, (cur_Q, cur_R, cur_init_V, init_bb_size)) in enumerate(\
         [(Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE),
-         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*3),
-         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE),
-         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*3),
-         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE),
-         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
-         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
-         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3),
-         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE),
-         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*3),
-         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE),
-         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*3),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
-         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
+#         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*3),
+#         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE),
+#         (Q_DEFAULT*6, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*3),
+#         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE),
+#         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
+#         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
+#         (Q_DEFAULT*6, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3),
+#         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE),
+#         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV*8, BB_SIZE*3),
+#         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE),
+#         (Q_DEFAULT, R_DEFAULT*6, INIT_VEL_COV, BB_SIZE*3),
+#         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE),
+#         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
+#         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
          (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3)]):
         data_folder = "%s/%sgen_idx=%d" % (GENERATED_DATA_DIR, CUR_GEN_NAME, gen_idx)
         data_generation_spec = \
