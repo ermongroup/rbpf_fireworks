@@ -20,20 +20,29 @@
 # add the following line to the file ~/.bashrc.user on Atlas:
 # export PYTHONPATH="${PYTHONPATH}:/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/"
 #
+# To install cvxpy on atlas run (hopefully):
+#
+#$ export PATH=/opt/rh/python27/root/usr/bin:$PATH
+#$ export LD_LIBRARY_PATH=/opt/rh/python27/root/usr/lib64/:$LD_LIBRARY_PATH
+#$ pip install --user numpy
+#$ pip install --user cvxpy
 ##########################################################################################
 #
 #Note, on Sherlock before this script:
 #$ ml load python/2.7.5
 #$ easy_install-2.7 --user pip
 #$ export PATH=~/.local/bin:$PATH
-# $ pip2.7 install --user fireworks #and others
-# $ cd /scratch/users/kuck/rbpf_fireworks/
+#$ pip2.7 install --user fireworks #and others
+#$ cd /scratch/users/kuck/rbpf_fireworks/
 #
 # Add the following line to the file ~/.bashrc on Sherlock:
 # export PYTHONPATH="/scratch/users/kuck/rbpf_fireworks:$PYTHONPATH"
 # Weird, but to run commands like "lpad -l my_launchpad.yaml get_fws",
 # add the following line to the file ~/.bashrc.user on Atlas:
 # export PYTHONPATH="${PYTHONPATH}:/scratch/users/kuck/rbpf_fireworks/KITTI_helpers/"
+#
+# To install cvxpy on sherlock run:
+# $ pip2.7 install --user cvxpy
 import copy
 import os
 import errno
@@ -301,8 +310,8 @@ if __name__ == "__main__":
             storeResultsFW = Firework(StoreResultsInDatabase(), spec=store_results_spec)
             all_fireworks.append(storeResultsFW)
 
-#            for (proposal_distr, check_k_nearest) in [('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
-            for (proposal_distr, check_k_nearest) in [('optimal', True), ('min_cost', True), ('sequential', True)]:
+            for (proposal_distr, check_k_nearest) in [('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
+#            for (proposal_distr, check_k_nearest) in [('optimal', True), ('min_cost', True), ('sequential', True)]:
                 results_folder_name = '%d_particles' % (num_particles)
                 results_folder = '%s/%s_proposal_distr=%s,check_k=%s' % \
                     (data_folder, results_folder_name, proposal_distr, check_k_nearest)
