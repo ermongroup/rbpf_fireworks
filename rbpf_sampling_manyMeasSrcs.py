@@ -382,7 +382,7 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
 
 #    print "imprt_re_weight:", imprt_re_weight
 
-    return (meas_grp_associations, meas_grp_means, meas_grp_covs, targets_to_kill, imprt_re_weight)
+    return (meas_grp_associations, meas_grp_means, meas_grp_covs, targets_to_kill, imprt_re_weight, log_exact_probability, proposal_probability)
 
 def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_count, 
     p_target_deaths, cur_time, measurement_scores, params, meas_counts_by_source=None):
@@ -696,7 +696,7 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
         remaining_meas_count = list_of_measurement_associations.count(-1)
         for (index, detection_group) in enumerate(meas_groups):
             if list_of_measurement_associations[index] == -1:
-                #create set of the names of detection sources preset in this detection group
+                #create set of the names of detection sources present in this detection group
                 group_det_names = []
                 for det_name, det in detection_group.iteritems():
                     group_det_names.append(det_name)

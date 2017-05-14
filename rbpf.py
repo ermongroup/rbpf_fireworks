@@ -1,6 +1,6 @@
 import numpy as np
 from fireworks.utilities.fw_utilities import explicit_serialize
-from fireworks.core.firework import FireTaskBase
+from fireworks.core.firework import FWAction, FireTaskBase
 #from fireworks.core.firework import FiretaskBase
 from filterpy.kalman import KalmanFilter
 from filterpy.common import Q_discrete_white_noise
@@ -965,6 +965,12 @@ class Particle:
         self.all_dead_targets = []
 
         self.importance_weight = 1.0/N_PARTICLES
+
+        #for debuging
+        self.exact_probability = -1
+        self.proposal_probability = -1
+        #end for debugging
+
         self.likelihood_DOUBLE_CHECK_ME = -1
         #cache for memoizing association likelihood computation
         self.assoc_likelihood_cache = {}
@@ -1096,9 +1102,14 @@ class Particle:
 
 
         if SPEC['use_general_num_dets'] == True:
-            (meas_grp_associations, meas_grp_means, meas_grp_covs, dead_target_indices, imprt_re_weight) = \
+            (meas_grp_associations, meas_grp_means, meas_grp_covs, dead_target_indices, imprt_re_weight, exact_probability, proposal_probability) = \
             sample_and_reweight(self, measurement_lists,  widths, heights, SPEC['det_names'], \
                 cur_time, measurement_scores, params)
+            #debug
+            self.exact_probability = exact_probability
+            self.proposal_probability = proposal_probability
+            #end debug
+
             self.all_measurement_associations.append(meas_grp_associations)
             self.all_dead_targets.append(dead_target_indices)
             if SPEC['normalize_log_importance_weights'] == True:
@@ -1302,10 +1313,13 @@ def particles_match(particleA, particleB):
             match = False
             return (match, 'different heights')
 
+    #Actually, particles with the same state may not have the same importance weight if
+    #the proposal distribution we used was different for the two particles.  CHECK
+    #DETAILS ON WHETHER THIS IS ALLOWED IN SIS FRAMEWORK!!!
     #check both particles have the same importance weight
-    if particleA.importance_weight != particleB.importance_weight:
-        match = False
-        return (match, 'different importance weights')
+#    if particleA.importance_weight != particleB.importance_weight:
+#        match = False
+#        return (match, 'different importance weights')
 
     return (match, 'match!')
 
@@ -1490,7 +1504,9 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                             particle.importance_weight, particle_groups[particle_key].importance_weight, 
                             particle.all_measurement_associations, particle_groups[particle_key].all_measurement_associations,
                             particle.all_dead_targets, particle_groups[particle_key].all_dead_targets,
-                            measurement_lists)
+                            measurement_lists, 
+                            particle.exact_probability, particle.proposal_probability,
+                            particle_groups[particle_key].exact_probability, particle_groups[particle_key].proposal_probability)
                     else:
                         particle_group_probs[particle_key] = particle.importance_weight
                         particle_groups[particle_key] = particle
@@ -1503,13 +1519,15 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                         MAP_particle_key = key
                 assert(MAP_particle_key)
                 MAP_particle = particle_groups[MAP_particle_key]
-                if not particles_match(MAP_particle, cur_max_weight_particle):
+                (match_bool, match_str) = particles_match(MAP_particle, cur_max_weight_particle)
+                if not match_bool:
                     incorrect_max_weight_particle_count += 1
 
                 #Really, this is the MAP particle group, would be better to change names after checking severity of problem
                 cur_max_weight_particle = MAP_particle
 
-            if prv_max_weight_particle != None and not particles_match(prv_max_weight_particle, cur_max_weight_particle):
+            (match_bool, match_str) = particles_match(prv_max_weight_particle, cur_max_weight_particle)
+            if prv_max_weight_particle != None and not match_bool:
                 if SPEC['ONLINE_DELAY'] == 0:
                     (target_associations, duplicate_ids) = match_target_ids(cur_max_weight_target_set.living_targets,\
                                                            prv_max_weight_particle.targets.living_targets)
@@ -1597,7 +1615,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
     print "Using the max_weight importance weight we would have made mistakes on", incorrect_max_weight_particle_count,\
         "out of", number_time_instances, "time instances"
 
-    return (max_weight_target_set, run_info, number_resamplings)
+    return (max_weight_target_set, run_info, number_resamplings, incorrect_max_weight_particle_count)
 
 
 def test_read_write_data_KITTI(target_set):
@@ -2180,7 +2198,8 @@ class RunRBPF(FireTaskBase):
                 if PROFILE: 
                     cProfile.run('run_rbpf_on_targetset([meas_target_set], results_filename, params)')
                 else:
-                    (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset([meas_target_set], results_filename, params)
+                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes) = \
+                    run_rbpf_on_targetset([meas_target_set], results_filename, params)
             else:       
                 if PROFILE:
                     cProfile.runctx('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)',
@@ -2188,7 +2207,8 @@ class RunRBPF(FireTaskBase):
                         'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset}, {})
 #                    cProfile.run('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)')
                 else:
-                    (estimated_ts, cur_seq_info, number_resamplings) = run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)
+                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes) = \
+                    run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)
             print "done processing sequence: ", seq_idx
             
             tB = time.time()
@@ -2235,5 +2255,8 @@ class RunRBPF(FireTaskBase):
             print max_imprt_weight_count_dict
 
         print 'end run'
+
+        return FWAction(mod_spec=[{'_inc': {"mistakes_by_max_weight_particle": max_weight_mistakes}}])
+
 
 
