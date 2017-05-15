@@ -1334,6 +1334,9 @@ def group_particles(particle_set):
     '''
     ###CONSIDER ROUNDING PARTICLE POSITIONS TO SOME DEGREE, I don't THINK not rounding causes a bug###
     ###We assume the same targets are always in the same list position, I THINK this is ok###
+    ### We don't check how long targets have been unassociated for, but I think this should be OK,
+    because it should be basically impossible for two targets to have the same position and covariance
+    with different association histories ###
     This works only in ONLINE mode, that is we group particles by their CURRENT state.
     Input:
     - particle_set: list of type Particle
