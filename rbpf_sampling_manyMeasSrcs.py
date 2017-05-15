@@ -429,9 +429,9 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
     assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost', 'optimal', 'traditional_SIR_gumbel'])
     if params.SPEC['proposal_distr'] == 'traditional_SIR_gumbel':
         (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, targets_to_kill) = \
-            associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params,\
-            meas_counts_by_source)
-#            associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_deaths, params)
+            associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_deaths, params)        
+#            associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params,\
+#            meas_counts_by_source)
 
         unassociated_target_death_probs = []
         for i in range(total_target_count):
@@ -656,18 +656,18 @@ def associate_meas_optimal(particle, meas_groups, total_target_count, p_target_d
 ############ END THIS DOESN"T REALLY BELONG HERE, BUT FOLLOWING RETURN VALUES FOR OTHER PROPOSAL DISTRIBUTIONS ############
 
 #UNCOMMENT ME WHEN DONE DEBUGGING GUMBEL TO WORK WITH OTHER STUFF
-#    return(all_possible_measurement_associations[sampled_assoc_idx], meas_grp_means4D,
-#        meas_grp_covs, proposal_distribution[sampled_assoc_idx])
-
-
-    ######### DEBUGGING GUMBEL ###############
-    proposal_distr_dict = {}
-    for idx, assoc in enumerate(all_possible_measurement_associations):
-        proposal_distr_dict[tuple(assoc)] = proposal_distribution[idx]
-
     return(all_possible_measurement_associations[sampled_assoc_idx], meas_grp_means4D,
-        meas_grp_covs, proposal_distribution[sampled_assoc_idx], partition_val, proposal_distribution, proposal_distr_dict) 
-    ######### DONE DEBUGGING GUMBEL ###############
+        meas_grp_covs, proposal_distribution[sampled_assoc_idx])
+
+
+######    ######### DEBUGGING GUMBEL ###############
+######    proposal_distr_dict = {}
+######    for idx, assoc in enumerate(all_possible_measurement_associations):
+######        proposal_distr_dict[tuple(assoc)] = proposal_distribution[idx]
+######
+######    return(all_possible_measurement_associations[sampled_assoc_idx], meas_grp_means4D,
+######        meas_grp_covs, proposal_distribution[sampled_assoc_idx], partition_val, proposal_distribution, proposal_distr_dict) 
+######    ######### DONE DEBUGGING GUMBEL ###############
 
 def solve_gumbel_perturbed_assignment(log_probs, ubc_count):
     '''
@@ -742,72 +742,38 @@ def associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_de
     - params: type Parameters, gives prior probabilities and other parameters we are using
 
     '''
-    #construct a (#measurements+2)x(#targets+2) matrix of log probabilities
-    log_probs = -1*np.ones((len(meas_groups) + 2, total_target_count+2))
+    log_probs = construct_log_probs_matrix(particle, meas_groups, total_target_count, p_target_deaths, params)
 
-    p_target_does_not_emit = params.target_groupEmission_priors[ImmutableSet([])]
-    #ONLY WORKS WITH 1 measurement source    
-    p_target_emits = 1.0 - p_target_does_not_emit
+    #solve a perturbed assignment problem where the number of unobserved targets, clutter measurements
+    #and birth measurements must sum to ubc_count for every possible value that ubc_count can take
+    assignment = None
+    max_log_prob = None
+    for ubc_count in range(np.abs(len(meas_groups) - total_target_count), len(meas_groups) + total_target_count + 1, 2):
+        (cur_assignment, cur_max_log_prob) = solve_gumbel_perturbed_assignment(log_probs, ubc_count)
+        if max_log_prob == None or cur_max_log_prob > max_log_prob:
+            assignment = cur_assignment
+            max_log_prob = cur_max_log_prob
 
-    #calculate log probs for measurement-target association entries in the log-prob matrix
-    for m_idx in range(len(meas_groups)):
-        for t_idx in range(total_target_count):
-            likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
-            assert(likelihood >= 0.0), likelihood
-            if likelihood > 0.0:
-                cur_prob = math.log(likelihood)
-            else:
-                cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
-            cur_prob += math.log(p_target_emits) 
-            log_probs[m_idx][t_idx] = cur_prob
-
-    #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
-    lives_row_idx = len(meas_groups)
-    dies_row_idx = len(meas_groups) + 1
-    for t_idx in range(total_target_count):
-        #would probably be better to kill offscreen targets before association
-        if(particle.targets.living_targets[t_idx].offscreen == True):
-            cur_death_prob = .999999999999 #sloppy should define an epsilon or something
-        else:
-            cur_death_prob = particle.targets.living_targets[t_idx].death_prob
-        log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
-        log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
-
-    #add birth/clutter measurement association entries to the log-prob matrix
-    clutter_col = total_target_count
-    birth_col = total_target_count + 1
-    for m_idx in range(len(meas_groups)):
-        log_probs[m_idx][clutter_col] = math.log(params.clutter_lambda)
-        log_probs[m_idx][birth_col] = math.log(params.birth_lambda)
-
-    (assignment, max_log_prob) = solve_gumbel_perturbed_assignment(log_probs)
     unnormalized_log_proposal_probability = np.trace(np.dot(log_probs, assignment.T))
     unnormalized_proposal_probability = np.exp(unnormalized_log_proposal_probability)
 
-    meas_associations = []
-    #read off assignments
-    for m_idx in range(len(meas_groups)):
-        for assign_idx in range(total_target_count+2):
-            if (np.isclose(assignment[m_idx,assign_idx], 1, rtol=1e-04, atol=1e-04)):
-                if assign_idx < total_target_count: #target association
-                    meas_associations.append(assign_idx)
-                elif assign_idx == total_target_count: #clutter
-                    meas_associations.append(-1)
-                else: #birth
-                    meas_associations.append(total_target_count)
-    assert(len(meas_associations) == len(meas_groups))
-
-    #read off target deaths
-    dead_target_indices = []
-    for target_idx in range(total_target_count):
-        if (np.isclose(assignment[dies_row_idx,target_idx], 1, rtol=1e-04, atol=1e-04)):
-            dead_target_indices.append(target_idx)
+    (meas_associations, dead_target_indices) = convert_assignment_matrix(assignment)
 
     #Now approximate the partition function
     partition_estimate = 0.0
     for i in range(params.SPEC['num_gumbel_partition_samples']):
-        (assignment, max_log_prob) = solve_gumbel_perturbed_assignment(log_probs)
-        partition_estimate += max_log_prob - np.euler_gamma*np.sum(assignment)
+        #solve a perturbed assignment problem where the number of unobserved targets, clutter measurements
+        #and birth measurements must sum to ubc_count for every possible value that ubc_count can take
+        assignment = None
+        max_log_prob = None
+        for ubc_count in range(np.abs(len(meas_groups) - total_target_count), len(meas_groups) + total_target_count + 1, 2):
+            (cur_assignment, cur_max_log_prob) = solve_gumbel_perturbed_assignment(log_probs, ubc_count)
+            if max_log_prob == None or cur_max_log_prob > max_log_prob:
+                assignment = cur_assignment
+                max_log_prob = cur_max_log_prob
+
+#        partition_estimate += max_log_prob - np.euler_gamma*np.sum(assignment)
+        partition_estimate += max_log_prob - np.euler_gamma #think about this line some more!!
     partition_estimate = partition_estimate/params.SPEC['num_gumbel_partition_samples'] #now we have log(Z) estimated
     partition_estimate = np.exp(partition_estimate)
 
@@ -854,8 +820,6 @@ def convert_assignment_matrix(assignment_matrix):
     target_count = assignment_matrix.shape[1] - 2
     dies_row_idx = measurement_count + 1
 
-
-
     #read off assignments
     for m_idx in range(measurement_count):
         for assign_idx in range(target_count+2):
@@ -876,15 +840,11 @@ def convert_assignment_matrix(assignment_matrix):
 
     return(meas_associations, dead_target_indices)
 
-def associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params, meas_counts_by_source):
+def construct_log_probs_matrix(particle, meas_groups, total_target_count, p_target_deaths, params):
     '''
-    Sample measurement associations from the optimal proposal distribution 
-    p(c_k | e_{1-k-1}, c_{1:k-1}, y_{1:k})
-    using the Gumbel max trick over all enumerated associations
-
     ONLY WORKS WITH 1 measurement source
     Inputs:
-    - particle: type Particle, we will perform sampling and importance reweighting on this particle     
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle         
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
         in the group, key='det_name', value=detection
     - total_target_count: the number of living targets on the previous time instace
@@ -893,6 +853,11 @@ def associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_tar
         time instance and the current time instance
     - params: type Parameters, gives prior probabilities and other parameters we are using
 
+    Outputs:
+    - log_probs: numpy matrix with dimensions (#measurements+2)x(#targets+2) of log probabilities.
+        np.trace(np.dot(log_probs,A.T) will be the log probability of an assignment A, given our
+        Inputs.  (Where an assignment defines measurement associations to targets, birth or clutter
+        and unassociated target life/death)
     '''
     #construct a (#measurements+2)x(#targets+2) matrix of log probabilities
     log_probs = -1*np.ones((len(meas_groups) + 2, total_target_count+2))
@@ -936,8 +901,31 @@ def associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_tar
             math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
         log_probs[m_idx][birth_col] = math.log(params.birth_lambda) + \
             math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
+   
+    return log_probs
 
-    USE_GUMBEL_TRICK = False
+
+def associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params, meas_counts_by_source):
+    '''
+    Sample measurement associations from the optimal proposal distribution 
+    p(c_k | e_{1-k-1}, c_{1:k-1}, y_{1:k})
+    using the Gumbel max trick over all enumerated associations
+
+    ONLY WORKS WITH 1 measurement source
+    Inputs:
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle     
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
+    - total_target_count: the number of living targets on the previous time instace
+    - p_target_deaths: a list of length len(total_target_count) where 
+        p_target_deaths[i] = the probability that target i has died between the last
+        time instance and the current time instance
+    - params: type Parameters, gives prior probabilities and other parameters we are using
+
+    '''
+    log_probs = construct_log_probs_matrix(particle, meas_groups, total_target_count, p_target_deaths, params)
+
+    USE_GUMBEL_TRICK = True
     if USE_GUMBEL_TRICK:
         #find the maximum Gumbel perturbed log probability of all assignments
         all_assignments = enumerate_assignments(total_target_count, len(meas_groups))
@@ -949,6 +937,7 @@ def associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_tar
 
         max_log_prob = max(all_perturbed_log_probs)
         assignment = all_assignments[all_perturbed_log_probs.index(max_log_prob)]
+        (meas_associations, dead_target_indices) = convert_assignment_matrix(assignment)
 
         unnormalized_log_proposal_probability = np.trace(np.dot(log_probs, assignment.T))
         unnormalized_proposal_probability = np.exp(unnormalized_log_proposal_probability)
@@ -1008,7 +997,7 @@ def associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_tar
 
         proposal_probability = all_norm_probs[sampled_assign_idx]
         assignment = all_assignments[sampled_assign_idx]
-
+        (meas_associations, dead_target_indices) = convert_assignment_matrix(assignment)
 
 
 
@@ -1040,43 +1029,7 @@ def solve_perturbed_max_gumbel(particle, meas_groups, total_target_count, p_targ
 
 
     '''
-    #construct a (#measurements+2)x(#targets+2) matrix of log probabilities
-    log_probs = -1*np.ones((len(meas_groups) + 2, total_target_count+2))
-
-    p_target_does_not_emit = params.target_groupEmission_priors[ImmutableSet([])]
-    #ONLY WORKS WITH 1 measurement source    
-    p_target_emits = 1.0 - p_target_does_not_emit
-
-    #calculate log probs for measurement-target association entries in the log-prob matrix
-    for m_idx in range(len(meas_groups)):
-        for t_idx in range(total_target_count):
-            likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
-            assert(likelihood >= 0.0), likelihood
-            if likelihood > 0.0:
-                cur_prob = math.log(likelihood)
-            else:
-                cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
-            cur_prob += math.log(p_target_emits) 
-            log_probs[m_idx][t_idx] = cur_prob
-
-    #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
-    lives_row_idx = len(meas_groups)
-    dies_row_idx = len(meas_groups) + 1
-    for t_idx in range(total_target_count):
-        #would probably be better to kill offscreen targets before association
-        if(particle.targets.living_targets[t_idx].offscreen == True):
-            cur_death_prob = .999999999999 #sloppy should define an epsilon or something
-        else:
-            cur_death_prob = particle.targets.living_targets[t_idx].death_prob
-        log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
-        log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
-
-    #add birth/clutter measurement association entries to the log-prob matrix
-    clutter_col = total_target_count
-    birth_col = total_target_count + 1
-    for m_idx in range(len(meas_groups)):
-        log_probs[m_idx][clutter_col] = math.log(params.clutter_lambda)
-        log_probs[m_idx][birth_col] = math.log(params.birth_lambda)
+    log_probs = construct_log_probs_matrix(particle, meas_groups, total_target_count, p_target_deaths, params)
 
     #solve a perturbed assignment problem where the number of unobserved targets, clutter measurements
     #and birth measurements must sum to ubc_count for every possible value that ubc_count can take
@@ -1092,24 +1045,7 @@ def solve_perturbed_max_gumbel(particle, meas_groups, total_target_count, p_targ
 #    unnormalized_log_proposal_probability = np.trace(np.dot(log_probs, assignment.T))
 #    unnormalized_proposal_probability = np.exp(unnormalized_log_proposal_probability)
 
-    meas_associations = []
-    #read off assignments
-    for m_idx in range(len(meas_groups)):
-        for assign_idx in range(total_target_count+2):
-            if (np.isclose(assignment[m_idx,assign_idx], 1, rtol=1e-04, atol=1e-04)):
-                if assign_idx < total_target_count: #target association
-                    meas_associations.append(assign_idx)
-                elif assign_idx == total_target_count: #clutter
-                    meas_associations.append(-1)
-                else: #birth
-                    meas_associations.append(total_target_count)
-    assert(len(meas_associations) == len(meas_groups))
-
-    #read off target deaths
-    dead_target_indices = []
-    for target_idx in range(total_target_count):
-        if (np.isclose(assignment[dies_row_idx,target_idx], 1, rtol=1e-04, atol=1e-04)):
-            dead_target_indices.append(target_idx)
+    (meas_associations, dead_target_indices) = convert_assignment_matrix(assignment)
 
 
     return(meas_associations, dead_target_indices, max_log_prob)
@@ -1123,43 +1059,7 @@ def solve_perturbed_max_gumbel_exact(particle, meas_groups, total_target_count, 
 
 
     '''
-    #construct a (#measurements+2)x(#targets+2) matrix of log probabilities
-    log_probs = -1*np.ones((len(meas_groups) + 2, total_target_count+2))
-
-    p_target_does_not_emit = params.target_groupEmission_priors[ImmutableSet([])]
-    #ONLY WORKS WITH 1 measurement source    
-    p_target_emits = 1.0 - p_target_does_not_emit
-
-    #calculate log probs for measurement-target association entries in the log-prob matrix
-    for m_idx in range(len(meas_groups)):
-        for t_idx in range(total_target_count):
-            likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
-            assert(likelihood >= 0.0), likelihood
-            if likelihood > 0.0:
-                cur_prob = math.log(likelihood)
-            else:
-                cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
-            cur_prob += math.log(p_target_emits) 
-            log_probs[m_idx][t_idx] = cur_prob
-
-    #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
-    lives_row_idx = len(meas_groups)
-    dies_row_idx = len(meas_groups) + 1
-    for t_idx in range(total_target_count):
-        #would probably be better to kill offscreen targets before association
-        if(particle.targets.living_targets[t_idx].offscreen == True):
-            cur_death_prob = .999999999999 #sloppy should define an epsilon or something
-        else:
-            cur_death_prob = particle.targets.living_targets[t_idx].death_prob
-        log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
-        log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
-
-    #add birth/clutter measurement association entries to the log-prob matrix
-    clutter_col = total_target_count
-    birth_col = total_target_count + 1
-    for m_idx in range(len(meas_groups)):
-        log_probs[m_idx][clutter_col] = math.log(params.clutter_lambda)
-        log_probs[m_idx][birth_col] = math.log(params.birth_lambda)
+    log_probs = construct_log_probs_matrix(particle, meas_groups, total_target_count, p_target_deaths, params)
 
     #find the maximum Gumbel perturbed log probability of all assignments
     all_assignments = enumerate_assignments(total_target_count, len(meas_groups))
@@ -1175,24 +1075,7 @@ def solve_perturbed_max_gumbel_exact(particle, meas_groups, total_target_count, 
 #    unnormalized_log_proposal_probability = np.trace(np.dot(log_probs, assignment.T))
 #    unnormalized_proposal_probability = np.exp(unnormalized_log_proposal_probability)
 
-    meas_associations = []
-    #read off assignments
-    for m_idx in range(len(meas_groups)):
-        for assign_idx in range(total_target_count+2):
-            if (np.isclose(assignment[m_idx,assign_idx], 1, rtol=1e-04, atol=1e-04)):
-                if assign_idx < total_target_count: #target association
-                    meas_associations.append(assign_idx)
-                elif assign_idx == total_target_count: #clutter
-                    meas_associations.append(-1)
-                else: #birth
-                    meas_associations.append(total_target_count)
-    assert(len(meas_associations) == len(meas_groups))
-
-    #read off target deaths
-    dead_target_indices = []
-    for target_idx in range(total_target_count):
-        if (np.isclose(assignment[dies_row_idx,target_idx], 1, rtol=1e-04, atol=1e-04)):
-            dead_target_indices.append(target_idx)
+    (meas_associations, dead_target_indices) = convert_assignment_matrix(assignment)
 
 
     return(meas_associations, dead_target_indices, max_log_prob)
