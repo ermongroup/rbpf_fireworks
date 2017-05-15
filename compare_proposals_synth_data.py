@@ -88,9 +88,9 @@ from generate_data import GenData
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
 NUM_SEQUENCES_TO_GENERATE = 20
-NUM_TIME_STEPS = 40 #time steps per sequence
+NUM_TIME_STEPS = 20 #time steps per sequence
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
-NUM_PARTICLES_TO_TEST = [20, 80]
+NUM_PARTICLES_TO_TEST = [20]
 
 
 ###################################### Experiment Organization ######################################
@@ -269,10 +269,10 @@ if __name__ == "__main__":
 #         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
 #         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
 #         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3)]):
-        [(Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE),
-         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE*3),
-         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE),
-         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE*3)]):
+        [(Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE)]):
+######         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE*3),
+######         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE),
+######         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE*3)]):
         data_folder = "%s/%sgen_idx=%d" % (GENERATED_DATA_DIR, CUR_GEN_NAME, gen_idx)
         data_generation_spec = \
             {#if True calculate data generation parameters on KITTI training data with measurements of type
@@ -321,7 +321,8 @@ if __name__ == "__main__":
 
 
 
-            for (proposal_distr, check_k_nearest) in [('traditional_SIR_gumbel', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
+            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False)]:
+#            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False), ('traditional_SIR_gumbel', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
 #            for (proposal_distr, check_k_nearest) in [('traditional_SIR_gumbel', False), ('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
 #            for (proposal_distr, check_k_nearest) in [('optimal', True), ('min_cost', True), ('sequential', True)]:
                 results_folder_name = '%d_particles' % (num_particles)
