@@ -54,6 +54,7 @@ from global_params import DEFAULT_TIME_STEP
 
 from rbpf_sampling_manyMeasSrcs import group_detections
 from rbpf_sampling_manyMeasSrcs import solve_perturbed_max_gumbel
+from rbpf_sampling_manyMeasSrcs import solve_perturbed_max_gumbel_exact
 from rbpf_sampling_manyMeasSrcs import combine_arbitrary_number_measurements_4d as combine_4d_detections
 #from run_experiment import DIRECTORY_OF_ALL_RESULTS
 #from run_experiment import CUR_EXPERIMENT_BATCH_NAME
@@ -1415,8 +1416,10 @@ def modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, c
 
             assert(len(particle.targets.living_targets) == particle.targets.living_count)
             (meas_associations, dead_target_indices, max_log_prob) = \
-                solve_perturbed_max_gumbel(particle, meas_groups, len(particle.targets.living_targets), 
+                solve_perturbed_max_gumbel_exact(particle, meas_groups, len(particle.targets.living_targets), 
                 p_target_deaths, params)
+#                solve_perturbed_max_gumbel(particle, meas_groups, len(particle.targets.living_targets), 
+#                p_target_deaths, params)
 
             #add log(p_hat(x_1:k-1|y_1:k-1)) to max(log(p(x_k, y_k | x_1:k-1, y_1:k-1))) 
             #for each particle group and store x_k
