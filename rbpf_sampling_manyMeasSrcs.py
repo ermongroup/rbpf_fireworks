@@ -656,7 +656,7 @@ def associate_meas_optimal(particle, meas_groups, total_target_count, p_target_d
     return(all_possible_measurement_associations[sampled_assoc_idx], meas_grp_means4D,
         meas_grp_covs, proposal_distribution[sampled_assoc_idx])
 
-def solve_gumbel_perturbed_assignment(log_probs):
+def solve_gumbel_perturbed_assignment(log_probs, ubc_count):
     '''
     We would like to sample from the optimal proposal distribution p(x_k|y_1:k, x_1:k-1),
     the normalization constant is intractable to compute.  We can compute p(y_k, x_k|y_1:k-1, x_1:k-1),
@@ -668,7 +668,7 @@ def solve_gumbel_perturbed_assignment(log_probs):
 
     Inputs:
     - log_probs: numpy matrix with dimensions (#measurements + 2, #targets + 2)
-
+    - ubc_count: integer, unobserved target+birth+clutter count is constrained to equal ubc_count
     Outpus:
     - assigment: numpy matrix with same dimensions as log_probs, this is the assignment that results
         the largest log probability after perturbing log_probs with Gumbel noise
@@ -679,9 +679,16 @@ def solve_gumbel_perturbed_assignment(log_probs):
     #sample a Gumbel matrix
     G = numpy.random.gumbel(loc=0.0, scale=1.0, size=(log_probs.shape[0], log_probs.shape[1]))
 
+    assert((ubc_count - np.abs(M-T)) % 2 == 0)
+    M = log_probs.shape[0] - 2 #number of measurements
+    T = log_probs.shape[1] - 2 #number of targets
+    #the number of 1's in the assignment matrix (measurement target assignments + births +
+    #clutters + unobserved targets)
+    number_of_assignments = min(M, T) - (ubc_count - np.abs(M-T))/2 + ubc_count
+
     #solve convex optimization problem
     A = cvx.Variable(log_probs.shape[0], log_probs.shape[1])
-    objective = cvx.Maximize(cvx.trace((log_probs+G)*(A.T)))
+    objective = cvx.Maximize(cvx.trace((log_probs)*(A.T)) + cvx.trace(G*(A.T))/number_of_assignments)
     constraints = [A>=0]                   
     for i in range(log_probs.shape[0]-2):
         constraints.append(cvx.sum_entries(A[i, :]) == 1)
@@ -692,10 +699,16 @@ def solve_gumbel_perturbed_assignment(log_probs):
     constraints.append(A[(log_probs.shape[0]-2,log_probs.shape[1]-1)] == 0)
     constraints.append(A[(log_probs.shape[0]-1,log_probs.shape[1]-1)] == 0)
 
+    constraints.append(sum_entries(A[log_probs.shape[0]-2, :])
+                     + sum_entries(A[log_probs.shape[0]-1, :])
+                     + sum_entries(A[:, log_probs.shape[1]-2])
+                     + sum_entries(A[:, log_probs.shape[1]-1]) == ubc_count)
+
     prob = cvx.Problem(objective, constraints)
     prob.solve()
     assignment = A.value
     max_log_prob = prob.value
+    assert(np.isclose(np.sum(assignment), number_of_assignments, rtol=1e-04, atol=1e-04))
     return(assignment, max_log_prob)
 
 
@@ -849,9 +862,19 @@ def solve_perturbed_max_gumbel(particle, meas_groups, total_target_count, p_targ
         log_probs[m_idx][clutter_col] = math.log(params.clutter_lambda)
         log_probs[m_idx][birth_col] = math.log(params.birth_lambda)
 
-    (assignment, max_log_prob) = solve_gumbel_perturbed_assignment(log_probs)
-    unnormalized_log_proposal_probability = np.trace(np.dot(log_probs, assignment.T))
-    unnormalized_proposal_probability = np.exp(unnormalized_log_proposal_probability)
+    #solve a perturbed assignment problem where the number of unobserved targets, clutter measurements
+    #and birth measurements must sum to ubc_count for every possible value that ubc_count can take
+    assignment = None
+    max_log_prob = None
+    for ubc_count in range(np.abs(len(meas_groups) - total_target_count), len(meas_groups) + total_target_count + 1, 2):
+        (cur_assignment, cur_max_log_prob) = solve_gumbel_perturbed_assignment(log_probs)
+        if max_log_prob == None or cur_max_log_prob > max_log_prob:
+            assignment = cur_assignment
+            max_log_prob = cur_max_log_prob
+
+#not used here, but should probably combine this function with where used in traditional SIR gumbel
+#    unnormalized_log_proposal_probability = np.trace(np.dot(log_probs, assignment.T))
+#    unnormalized_proposal_probability = np.exp(unnormalized_log_proposal_probability)
 
     meas_associations = []
     #read off assignments
