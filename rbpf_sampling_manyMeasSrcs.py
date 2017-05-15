@@ -679,9 +679,9 @@ def solve_gumbel_perturbed_assignment(log_probs, ubc_count):
     #sample a Gumbel matrix
     G = numpy.random.gumbel(loc=0.0, scale=1.0, size=(log_probs.shape[0], log_probs.shape[1]))
 
-    assert((ubc_count - np.abs(M-T)) % 2 == 0)
     M = log_probs.shape[0] - 2 #number of measurements
     T = log_probs.shape[1] - 2 #number of targets
+    assert((ubc_count - np.abs(M-T)) % 2 == 0)
     #the number of 1's in the assignment matrix (measurement target assignments + births +
     #clutters + unobserved targets)
     number_of_assignments = min(M, T) - (ubc_count - np.abs(M-T))/2 + ubc_count
@@ -699,10 +699,10 @@ def solve_gumbel_perturbed_assignment(log_probs, ubc_count):
     constraints.append(A[(log_probs.shape[0]-2,log_probs.shape[1]-1)] == 0)
     constraints.append(A[(log_probs.shape[0]-1,log_probs.shape[1]-1)] == 0)
 
-    constraints.append(sum_entries(A[log_probs.shape[0]-2, :])
-                     + sum_entries(A[log_probs.shape[0]-1, :])
-                     + sum_entries(A[:, log_probs.shape[1]-2])
-                     + sum_entries(A[:, log_probs.shape[1]-1]) == ubc_count)
+    constraints.append(cvx.sum_entries(A[log_probs.shape[0]-2, :])
+                     + cvx.sum_entries(A[log_probs.shape[0]-1, :])
+                     + cvx.sum_entries(A[:, log_probs.shape[1]-2])
+                     + cvx.sum_entries(A[:, log_probs.shape[1]-1]) == ubc_count)
 
     prob = cvx.Problem(objective, constraints)
     prob.solve()
@@ -867,7 +867,7 @@ def solve_perturbed_max_gumbel(particle, meas_groups, total_target_count, p_targ
     assignment = None
     max_log_prob = None
     for ubc_count in range(np.abs(len(meas_groups) - total_target_count), len(meas_groups) + total_target_count + 1, 2):
-        (cur_assignment, cur_max_log_prob) = solve_gumbel_perturbed_assignment(log_probs)
+        (cur_assignment, cur_max_log_prob) = solve_gumbel_perturbed_assignment(log_probs, ubc_count)
         if max_log_prob == None or cur_max_log_prob > max_log_prob:
             assignment = cur_assignment
             max_log_prob = cur_max_log_prob
