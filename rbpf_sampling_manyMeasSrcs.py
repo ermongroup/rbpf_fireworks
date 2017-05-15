@@ -819,7 +819,7 @@ def associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_de
 
 def solve_perturbed_max_gumbel(particle, meas_groups, total_target_count, p_target_deaths, params):
     '''
-    Solve gumbel perturbed max log(p(x_k, y_k | x_1:k-1, y_1:k-1)) problem to approximately sample
+    Solve gumbel perturbed linear program to approximately sample
     from p(x_k| x_1:k-1, y_1:k).
 
 
@@ -897,6 +897,257 @@ def solve_perturbed_max_gumbel(particle, meas_groups, total_target_count, p_targ
 
 
     return(meas_associations, dead_target_indices, max_log_prob)
+
+
+def solve_perturbed_max_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params):
+    '''
+    Solve gumbel perturbed max log(p(x_k, y_k | x_1:k-1, y_1:k-1)) exactly by enumerating all
+    possibly x_k and adding an independent gumbel to each to exactly sample
+    from p(x_k| x_1:k-1, y_1:k).
+
+
+    '''
+    #construct a (#measurements+2)x(#targets+2) matrix of log probabilities
+    log_probs = -1*np.ones((len(meas_groups) + 2, total_target_count+2))
+
+    p_target_does_not_emit = params.target_groupEmission_priors[ImmutableSet([])]
+    #ONLY WORKS WITH 1 measurement source    
+    p_target_emits = 1.0 - p_target_does_not_emit
+
+    #calculate log probs for measurement-target association entries in the log-prob matrix
+    for m_idx in range(len(meas_groups)):
+        for t_idx in range(total_target_count):
+            likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
+            assert(likelihood >= 0.0), likelihood
+            if likelihood > 0.0:
+                cur_prob = math.log(likelihood)
+            else:
+                cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
+            cur_prob += math.log(p_target_emits) 
+            log_probs[m_idx][t_idx] = cur_prob
+
+    #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
+    lives_row_idx = len(meas_groups)
+    dies_row_idx = len(meas_groups) + 1
+    for t_idx in range(total_target_count):
+        #would probably be better to kill offscreen targets before association
+        if(particle.targets.living_targets[t_idx].offscreen == True):
+            cur_death_prob = .999999999999 #sloppy should define an epsilon or something
+        else:
+            cur_death_prob = particle.targets.living_targets[t_idx].death_prob
+        log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
+        log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
+
+    #add birth/clutter measurement association entries to the log-prob matrix
+    clutter_col = total_target_count
+    birth_col = total_target_count + 1
+    for m_idx in range(len(meas_groups)):
+        log_probs[m_idx][clutter_col] = math.log(params.clutter_lambda)
+        log_probs[m_idx][birth_col] = math.log(params.birth_lambda)
+
+    #find the maximum Gumbel perturbed log probability of all assignments
+    all_assignments = enumerate_assignments(target_count, measurement_count)
+    all_perturbed_log_probs = [np.dot(log_probs,A.T)
+        +numpy.random.gumbel(loc=0.0, scale=1.0, size=1) for A in all_assignments]
+
+    max_log_prob = max(all_perturbed_log_probs)
+    assignment = all_assignments.index(max_log_prob) #assignment with the maximum perturbed log probability
+#not used here, but should probably combine this function with where used in traditional SIR gumbel
+#    unnormalized_log_proposal_probability = np.trace(np.dot(log_probs, assignment.T))
+#    unnormalized_proposal_probability = np.exp(unnormalized_log_proposal_probability)
+
+    meas_associations = []
+    #read off assignments
+    for m_idx in range(len(meas_groups)):
+        for assign_idx in range(total_target_count+2):
+            if (np.isclose(assignment[m_idx,assign_idx], 1, rtol=1e-04, atol=1e-04)):
+                if assign_idx < total_target_count: #target association
+                    meas_associations.append(assign_idx)
+                elif assign_idx == total_target_count: #clutter
+                    meas_associations.append(-1)
+                else: #birth
+                    meas_associations.append(total_target_count)
+    assert(len(meas_associations) == len(meas_groups))
+
+    #read off target deaths
+    dead_target_indices = []
+    for target_idx in range(total_target_count):
+        if (np.isclose(assignment[dies_row_idx,target_idx], 1, rtol=1e-04, atol=1e-04)):
+            dead_target_indices.append(target_idx)
+
+
+    return(meas_associations, dead_target_indices, max_log_prob)
+
+
+def get_unobserved_target_indices(target_count, measurement_association):
+    '''
+    Inputs:
+    - target_count: the number of targets    
+    - measurement_association: list where measurement_association[j]
+        is an integer representing the association of the jth measurement with:
+            clutter = -1
+            target association = [0,target_count-1]
+            birth = target_count
+
+    Outputs:
+    - unobserved_targets: list of integer indices of targets that are not associated
+        with a measurement in measurement_association
+    '''
+    unobserved_targets = []
+    for i in range(target_count):
+        if not i in measurement_association:
+            unobserved_targets.append(i)
+    return unobserved_targets
+
+def get_assoc_assignments(target_count, measurement_association):
+    '''
+    get all assignments for a particular association of measurements (enumerate 
+    unobserved target life/death options)
+    Inputs:
+    - target_count: the number of targets    
+    - measurement_association: list where measurement_association[j]
+        is an integer representing the association of the jth measurement with:
+            clutter = -1
+            target association = [0,target_count-1]
+            birth = target_count
+
+    Outputs:
+    - assoc_assignments: list of numpy arrays with dimensions (measurement_count+2, target_count+2).
+        each array represents a state of measurement associations and whether each unobserved target
+        is alive or dead for the particular measurement associations specified by measurement_association
+    '''
+    assoc_assignments = []
+    base_assignment = np.zeros((len(measurement_association) + 2, target_count + 2))
+    for meas_idx, assoc_idx in measurement_association:
+        assert(assoc_idx >= -1 and assoc_idx <= target_count)
+        if assoc_idx >= 0 and assoc_idx < target_count: #target association
+            base_assignment[meas_idx][assoc_idx] = 1
+        elif assoc_idx == -1: #clutter
+            base_assignment[meas_idx][target_count] = 1
+        else:
+            assert(assoc_idx == target_count) #clutter
+            base_assignment[meas_idx][target_count+1] = 1
+
+    unobserved_targets = get_unobserved_target_indices(target_count, measurement_association)
+    unobserved_target_count = len(unobserved_targets)
+    possible_deaths = []
+    for assign_idx in range(2**unobserved_target_count):
+        cur_deaths = []
+        for unobserved_targ_idx in range(unobserved_target_count):
+            cur_deaths.append(assign_idx//(2**unobserved_targ_idx) % 2)
+        possible_deaths.append(cur_deaths)
+
+    for cur_deaths in possible_deaths:
+        cur_assignment = np.copy(base_assignment)
+        for idx, target_idx in enumerate(unobserved_targets):
+            if cur_deaths[idx] == 0: #target with index target_idx lives
+                cur_assignment[len(meas_associations)][target_idx] = 1
+            else: #target with index target_idx dies
+                cur_assignment[len(meas_associations)+1][target_idx] = 1
+        assoc_assignments.append(cur_assignment)
+    
+    return assoc_assignments
+
+
+def enumerate_assignments(target_count, measurement_count):
+    '''
+    return all the possible valid assignment matrices, that is measurement associations (target,birth, and clutter)
+    and unobserved target life/death options
+    Inputs:
+    - target_count: the number of targets
+    - measurement_count: the number of measurements
+    
+    Outputs:
+    - all_assignments: list of numpy arrays with dimensions (measurement_count+2, target_count+2).
+        each array represents a state of measurement associations and whether each unobserved target
+        is alive or dead
+    '''
+    all_assignments = []
+    all_measurement_associations = enumerate_measurement_associations(target_count, measurement_count)
+    for meas_assoc in all_measurement_associations:
+        all_assignments.extend(get_assoc_assignments(target_count, meas_assoc))
+
+def enumerate_measurement_associations(target_count, measurement_count):
+    '''
+    Inputs:
+    - target_count: the number of targets
+    - measurement_count: the number of measurements
+
+    Outputs:
+    - all_possible_measurement_associations: list of lists, all_possible_measurement_associations[i]
+        is the i'th possible measurement association, where all_possible_measurement_associations[i][j]
+        is an integer representing the association of the jth measurement with:
+            clutter = -1
+            target association = [0,target_count-1]
+            birth = target_count
+    '''
+    all_possible_measurement_associations = []
+    #target association count; we can association between and all targets with a measurement
+    for t_a_c in range(target_count + 1): 
+        #birth count; we can have between 0 and measurement_count - t_a_c births
+        for b_c in range(measurement_count-t_a_c+1): 
+            #clutter count; the remaining measurements must all be clutter
+            c_c = measurement_count - t_a_c - b_c
+            #create a list [0,1,2,...,#measurements - 1]
+            measurement_indices = range(measurement_count)
+            #enumerate all possible groups of measurements that can be associated
+            #with targets.  There will be (#measurements choose t_a_c) of these
+            for t_a_meas_indices in combinations(measurement_indices, t_a_c):
+                #create a list of measurement indices that are NOT associated with a target
+                remaining_meas_indices = [idx for idx in measurement_indices if not idx in t_a_meas_indices]
+                assert(len(remaining_meas_indices)+len(t_a_meas_indices) == len(measurement_indices))
+                #enumerate all possible groups of measurements that can be associated
+                #with births.  There will be ((#measurements - t_a_c) choose b_c) of these
+                for b_meas_indices in combinations(remaining_meas_indices, b_c):
+                    #create a list of remaining measurement indices that must be associated with clutter
+                    c_meas_indices = [idx for idx in remaining_meas_indices if not idx in b_meas_indices]
+                    assert(len(c_meas_indices)+len(b_meas_indices) == len(remaining_meas_indices))
+                    #now enumerate every permutation of target indices that can be associated
+                    #with the combination of measurement indices in t_a_meas_indices
+                    for t_a_target_indices in permutations(range(target_count), t_a_c):
+                        #now create the current measurement association
+                        cur_meas_association = [-99 for i in range(len(measurement_indices))]
+                        #iterate over MEASUREMENTs that are associated with SOME target
+                        #idx: the current measurement's index in the tuple of only those measurements
+                        #that are associated with targets.
+                        #t_a_meas_idx: the current measurement's index in the list of all measurements
+                        for (idx, t_a_meas_idx) in enumerate(t_a_meas_indices):
+                            cur_associated_target_idx = t_a_target_indices[idx]
+                            cur_meas_association[t_a_meas_idx] = cur_associated_target_idx
+                        #set birth measurement associations
+                        for b_meas_idx in b_meas_indices:
+                            cur_meas_association[b_meas_idx] = target_count
+                        #set clutter measurement associations           
+                        for c_meas_idx in c_meas_indices:
+                            cur_meas_association[c_meas_idx] = -1
+                        #check we assigned each measurement an association
+                        for association in cur_meas_association:
+                            assert(association != -99)
+                            assert(association >= -1 and association <= target_count)
+                        assert(not cur_meas_association in all_possible_measurement_associations)
+                        all_possible_measurement_associations.append(cur_meas_association)    
+
+    return all_possible_measurement_associations
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_deaths, params):
