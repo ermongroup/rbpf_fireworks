@@ -61,9 +61,9 @@ from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 
 #local:
-#from fireworks.core.rocket_launcher import rapidfire
+from fireworks.core.rocket_launcher import rapidfire
 #remote:
-from fireworks.queue.queue_launcher import rapidfire
+#from fireworks.queue.queue_launcher import rapidfire
 
 from fireworks.user_objects.queue_adapters.common_adapter import CommonAdapter
 from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
@@ -87,10 +87,10 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-NUM_SEQUENCES_TO_GENERATE = 20
-NUM_TIME_STEPS = 40 #time steps per sequence
+NUM_SEQUENCES_TO_GENERATE = 1
+NUM_TIME_STEPS = 20 #time steps per sequence
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
-NUM_PARTICLES_TO_TEST = [20, 80]
+NUM_PARTICLES_TO_TEST = [20]
 
 
 ###################################### Experiment Organization ######################################
@@ -99,20 +99,20 @@ CUR_GEN_NAME= 'test'
 
 ###################################### RBPF Parameters ######################################
 #Specify how the proposal distribution should be pruned
-CHECK_K_NEAREST_TARGETS = True
-K_NEAREST_TARGETS = 1
+#CHECK_K_NEAREST_TARGETS = True
+#K_NEAREST_TARGETS = 1
 
 #If False, ONLINE_DELAY is maximized (we wait until the video ends before picking a particle)
 RUN_ONLINE = True #save near online results 
 #near online mode, wait this many frames before picking max weight particle 
-ONLINE_DELAY = 3
+#ONLINE_DELAY = 3
 
 MAX_1_MEAS_UPDATE = True
 #if true, view measurements as jointly gaussian and update
 #target once per time stamp with combination of associated measurements
-UPDATE_MULT_MEAS_SIMUL = True
-if(MAX_1_MEAS_UPDATE):
-    UPDATE_MULT_MEAS_SIMUL = False
+#####UPDATE_MULT_MEAS_SIMUL = True
+#####if(MAX_1_MEAS_UPDATE):
+#####    UPDATE_MULT_MEAS_SIMUL = False
 #for debugging, zero out covariance between measurement sources when
 #UPDATE_MULT_MEAS_SIMUL=True, should be the same result as sequential updates
 TREAT_MEAS_INDEP = False
@@ -269,10 +269,10 @@ if __name__ == "__main__":
 #         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
 #         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
 #         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3)]):
-        [(Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE),
-         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE*3),
-         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE),
-         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE*3)]):
+        [(Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE)]):
+######         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE*3),
+######         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE),
+######         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE*3)]):
         data_folder = "%s/%sgen_idx=%d" % (GENERATED_DATA_DIR, CUR_GEN_NAME, gen_idx)
         data_generation_spec = \
             {#if True calculate data generation parameters on KITTI training data with measurements of type
@@ -320,7 +320,9 @@ if __name__ == "__main__":
             all_fireworks.append(storeResultsFW)
 
 
-            for (proposal_distr, check_k_nearest) in [('traditional_SIR_gumbel', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
+
+            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False)]:
+#            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False), ('traditional_SIR_gumbel', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
 #            for (proposal_distr, check_k_nearest) in [('traditional_SIR_gumbel', False), ('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
 #            for (proposal_distr, check_k_nearest) in [('optimal', True), ('min_cost', True), ('sequential', True)]:
                 results_folder_name = '%d_particles' % (num_particles)
@@ -427,14 +429,14 @@ if __name__ == "__main__":
     # store workflow and launch it
     workflow = Workflow(all_fireworks, firework_dependencies)
     #local
-#    launchpad.add_wf(workflow)
-#    rapidfire(launchpad, FWorker())
-    #remote
     launchpad.add_wf(workflow)
-    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
-    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
-                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
-                  fill_mode=False)
+    rapidfire(launchpad, FWorker())
+    #remote
+#    launchpad.add_wf(workflow)
+#    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
+#    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
+#                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
+#                  fill_mode=False)
 
 
 
