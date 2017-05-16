@@ -6,9 +6,9 @@
 #MONGODB_PORT = 53239
 #MONGODB_NAME = 'sherlock_mult_meas'
 
-MONGODB_HOST = 'ds153609.mlab.com'
-MONGODB_PORT = 53609
-MONGODB_NAME = 'atlas_mult_meas'
+#MONGODB_HOST = 'ds153609.mlab.com'
+#MONGODB_PORT = 53609
+#MONGODB_NAME = 'atlas_mult_meas'
 
 #MONGODB_HOST = 'ds153179.mlab.com'
 #MONGODB_PORT = 53179
@@ -38,3 +38,7 @@ MONGODB_NAME = 'atlas_mult_meas'
 #MONGODB_HOST = 'ds139761.mlab.com'
 #MONGODB_PORT = 39761
 #MONGODB_NAME = 'nips_prep_sherlock'
+
+MONGODB_HOST = 'ds143141.mlab.com'
+MONGODB_PORT = 43141
+MONGODB_NAME = 'nips_compare_proposals_atlas'

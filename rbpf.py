@@ -670,10 +670,7 @@ class TargetSet:
 
         self.parent_target_set = None 
 
-        if SPEC['ONLINE_DELAY'] == 0:        
-            self.living_targets_q = deque([-1])
-        else:
-            self.living_targets_q = deque([-1 for i in range(SPEC['ONLINE_DELAY'])])
+        self.living_targets_q = deque([-1 for i in range(SPEC['ONLINE_DELAY']+1)])
 
     def create_child(self):
         child_target_set = TargetSet()
@@ -801,7 +798,7 @@ class TargetSet:
 
         else:
             print self.living_targets_q
-            (delayed_frame_idx, delayed_liv_targets) = self.living_targets_q[0]
+            (delayed_frame_idx, delayed_liv_targets) = self.living_targets_q[1]
             print delayed_frame_idx
             print delayed_liv_targets
             assert(delayed_frame_idx == frame_idx - SPEC['ONLINE_DELAY']), (delayed_frame_idx, frame_idx, SPEC['ONLINE_DELAY'])
@@ -825,7 +822,7 @@ class TargetSet:
                         (frame_idx - SPEC['ONLINE_DELAY'], target.id_, left, top, right, bottom))
 
             if frame_idx == total_frame_count - 1:
-                q_idx = 1
+                q_idx = 2
                 for cur_frame_idx in range(frame_idx - SPEC['ONLINE_DELAY'] + 1, total_frame_count - 1):
                     print '-'*20
                     print cur_frame_idx
@@ -1283,11 +1280,16 @@ def get_eff_num_particles(particle_set):
     assert(abs(weight_sum - 1.0) < .000001), (weight_sum, n_eff)
     return 1.0/n_eff
 
-def cur_particle_states_match(particleA, particleB):
+def cur_particle_states_match(particleA, particleB, min_delay, max_delay):
     '''
     Inputs:
     - particleA: type Particle
     - particleB: type Particle
+    - min_delay: positive integer, check particles had the same state [min_delay,max_delay] time instances in the past,
+        i.e. if min_delay=0 and max_delay=2 we check that the states match on this time instance, the previous time
+        instance, and two time instances in the past
+    - max_delay: positive integer
+
 
     Outputs:
     - match: type Boolean, whether particleA and particleB have the same current state
@@ -1295,31 +1297,58 @@ def cur_particle_states_match(particleA, particleB):
         targets should be in the same locations in each particle's target list.  Also
         check importance weights are the same (they should be).
     '''
-    match = True
-    #check the number of targets is the same
-    if len(particleA.targets.living_targets) != len(particleB.targets.living_targets):
-        match = False
-        return (match, 'different number of targets')
+    assert(min_delay <= SPEC['ONLINE_DELAY'] and max_delay <= SPEC['ONLINE_DELAY'] and min_delay<=max_delay)
 
-    #check all targets have the same state, position mean and covariance, width, and height
-    for idx in range(len(particleA.targets.living_targets)):
-        targetA = particleA.targets.living_targets[idx]
-        targetB = particleB.targets.living_targets[idx]
-        if not (targetA.x == targetB.x).all():
+    match = True
+
+    if min_delay == 0:    
+        #check the number of targets is the same
+        if len(particleA.targets.living_targets) != len(particleB.targets.living_targets):
             match = False
-            print 'targetA and targetB have different states', '#'*80
-            print targetA.x
-            print targetB.x
-            return (match, 'different states')
-        if not (targetA.P == targetB.P).all():
+            return (match, 'different number of targets')
+    
+        #check all targets have the same state, position mean and covariance, width, and height
+        for idx in range(len(particleA.targets.living_targets)):
+            targetA = particleA.targets.living_targets[idx]
+            targetB = particleB.targets.living_targets[idx]
+            if not (targetA.x == targetB.x).all():
+                match = False
+                return (match, 'different states')
+            if not (targetA.P == targetB.P).all():
+                match = False
+                return (match, 'different covariances')
+            if targetA.width != targetB.width:
+                match = False
+                return (match, 'different widths')
+            if targetA.height != targetB.height:
+                match = False
+                return (match, 'different heights')
+
+    for cur_delay in range(max(1, min_delay), max_delay+1):
+        pastTargetsA = particleA.targets.living_targets_q[-cur_delay][1]
+        pastTargetsB = particleB.targets.living_targets_q[-cur_delay][1]
+
+        #check the number of targets is the same
+        if len(pastTargetsA) != len(pastTargetsB):
             match = False
-            return (match, 'different covariances')
-        if targetA.width != targetB.width:
-            match = False
-            return (match, 'different widths')
-        if targetA.height != targetB.height:
-            match = False
-            return (match, 'different heights')
+            return (match, 'different number of targets')
+    
+        #check all targets have the same state, position mean and covariance, width, and height
+        for idx in range(len(pastTargetsA)):
+            targetA = pastTargetsA[idx]
+            targetB = pastTargetsB[idx]
+            if not (targetA.x == targetB.x).all():
+                match = False
+                return (match, 'different states')
+            if not (targetA.P == targetB.P).all():
+                match = False
+                return (match, 'different covariances')
+            if targetA.width != targetB.width:
+                match = False
+                return (match, 'different widths')
+            if targetA.height != targetB.height:
+                match = False
+                return (match, 'different heights')
 
     #Actually, particles with the same state may not have the same importance weight if
     #the proposal distribution we used was different for the two particles, in the case
@@ -1335,17 +1364,19 @@ def cur_particle_states_match(particleA, particleB):
 
     return (match, 'match!')
 
-def group_particles(particle_set):
+def group_particles(particle_set, min_delay, max_delay): 
     '''
     ###CONSIDER ROUNDING PARTICLE POSITIONS TO SOME DEGREE, I don't THINK not rounding causes a bug###
     ###We assume the same targets are always in the same list position, I THINK this is ok###
     ### We don't check how long targets have been unassociated for, but I think this should be OK,
     because it should be basically impossible for two targets to have the same position and covariance
     with different association histories ###
-    This works only in ONLINE mode, that is we group particles by their CURRENT state.
     Input:
     - particle_set: list of type Particle
-
+    - min_delay: positive integer, group particles that had the same state [min_delay,max_delay] time instances in the past,
+        i.e. if min_delay=0 and max_delay=2 we require that the state match on this time instance, the previous time
+        instance, and two time instances in the past
+    - max_delay: positive integer
     Outputs:
     - particle_group_probs: a dictionary where each entry represents a particle group.  Keys represent
         the state of all particles in the group and values the sum of importance weights of particles 
@@ -1354,7 +1385,7 @@ def group_particles(particle_set):
         actual particles belonging to the group (all have the same CURRENT state, so it doesn't matter which one)
     '''
     assert(SPEC['RUN_ONLINE'])
-    assert(SPEC['ONLINE_DELAY'] == 0)
+    assert(min_delay <= SPEC['ONLINE_DELAY'] and max_delay <= SPEC['ONLINE_DELAY'] and min_delay<=max_delay)
     num_time_steps = len(particle_set[0].all_measurement_associations)
     particle_group_probs = {}
     #particle_groups is a dictionary with the same keys as particle_group_probs.  Values are one of the
@@ -1363,13 +1394,22 @@ def group_particles(particle_set):
     for particle in particle_set:
         #check for funny business
         assert(len(particle.all_measurement_associations) == num_time_steps), (particle.all_measurement_associations, len(particle.all_measurement_associations))
-        particle_state_key = \
-            tuple([tuple([tuple(target.x.flatten()),tuple(target.P.flatten()),target.width,target.height]) \
-                   for target in particle.targets.living_targets])
+        if min_delay == 0:
+            particle_state_key = \
+                tuple([tuple([tuple(target.x.flatten()),tuple(target.P.flatten()),target.width,target.height]) \
+                       for target in particle.targets.living_targets])
+        else:
+            particle_state_key = ()
+
+        for cur_delay in range(max(1, min_delay), max_delay+1):
+            particle_state_key = \
+                tuple(particle_state_key,\
+                tuple([tuple([tuple(target.x.flatten()),tuple(target.P.flatten()),target.width,target.height]) \
+                       for target in particle.targets.living_targets_q[-cur_delay][1]]))
 
         if particle_state_key in particle_group_probs:
             particle_group_probs[particle_state_key] += particle.importance_weight
-            (match_bool, match_str) = cur_particle_states_match(particle_groups[particle_state_key], particle)
+            (match_bool, match_str) = cur_particle_states_match(particle_groups[particle_state_key], particle, min_delay, max_delay)
             assert(match_bool), (match_str, particle_state_key, time_instance_index, len(particle.all_measurement_associations), 
                 particle.importance_weight, particle_groups[particle_state_key].importance_weight, 
                 particle.all_measurement_associations, particle_groups[particle_state_key].all_measurement_associations,
@@ -1382,7 +1422,7 @@ def group_particles(particle_set):
         ############testing############
         for cur_key, cur_particle in particle_groups.iteritems():
             if(cur_key != particle_state_key):
-                (match_bool, match_str) = cur_particle_states_match(cur_particle, particle)
+                (match_bool, match_str) = cur_particle_states_match(cur_particle, particle, min_delay, max_delay)
                 assert(not match_bool), (match_str, particle_state_key, cur_key, len(particle.all_measurement_associations), 
                     particle.importance_weight, particle_groups[particle_state_key].importance_weight, 
                     particle.all_measurement_associations, particle_groups[particle_state_key].all_measurement_associations,
@@ -1399,7 +1439,7 @@ def group_particles(particle_set):
     return(particle_group_probs, particle_groups)
 
 def modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, cur_time, params):
-    (particle_group_probs, particle_groups) = group_particles(particle_set)
+    (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'])
     #housekeeping, should make this nicer somehow
     meas_groups = []
     for det_idx, det_name in enumerate(SPEC['det_names']):
@@ -1663,7 +1703,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                     print "max weight particle id = ", cur_max_weight_particle.id_
 
 
-                (particle_group_probs, particle_groups) = group_particles(particle_set)
+                (particle_group_probs, particle_groups) = group_particles(particle_set, SPEC['ONLINE_DELAY'], SPEC['ONLINE_DELAY'])
 
                 MAP_particle_key = None
                 MAP_particle_prob = -1
@@ -1674,7 +1714,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 #important to have != None, assert(()) on the empty tuple produces an error                    
                 assert(MAP_particle_key != None), particle_group_probs
                 MAP_particle = particle_groups[MAP_particle_key]
-                (match_bool, match_str) = cur_particle_states_match(MAP_particle, cur_max_weight_particle)
+                (match_bool, match_str) = cur_particle_states_match(MAP_particle, cur_max_weight_particle, SPEC['ONLINE_DELAY'], SPEC['ONLINE_DELAY'])
                 if not match_bool:
                     incorrect_max_weight_particle_count += 1
 
@@ -1696,9 +1736,10 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
 
 
             else:
-                if prv_max_weight_particle != None:
-                    (match_bool, match_str) = cur_particle_states_match(prv_max_weight_particle, cur_max_weight_particle)
-                if prv_max_weight_particle != None and not match_bool:
+#                if prv_max_weight_particle != None:
+#                    (match_bool, match_str) = cur_particle_states_match(prv_max_weight_particle, cur_max_weight_particle)
+#                if prv_max_weight_particle != None and not match_bool:
+                if prv_max_weight_particle != None and prv_max_weight_particle != cur_max_weight_particle:
                     #FIX ME SOMETIME, should max targets from last time step!!!!!!
                     if SPEC['ONLINE_DELAY'] == 0:
                         assert(len(cur_max_weight_target_set.living_targets_q) == 1 and
