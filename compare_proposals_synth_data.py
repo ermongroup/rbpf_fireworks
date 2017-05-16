@@ -321,7 +321,8 @@ if __name__ == "__main__":
 
 
 
-            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False), ('traditional_SIR_gumbel', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
+            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False)]:
+#            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False), ('traditional_SIR_gumbel', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
 #            for (proposal_distr, check_k_nearest) in [('traditional_SIR_gumbel', False), ('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
 #            for (proposal_distr, check_k_nearest) in [('optimal', True), ('min_cost', True), ('sequential', True)]:
                 results_folder_name = '%d_particles' % (num_particles)
