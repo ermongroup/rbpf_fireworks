@@ -284,7 +284,7 @@ if __name__ == "__main__":
             #supply data generation parameters if 'use_KITTI_data_gen_params' is False, otherwise set to None
 #                        'data_gen_params' : None,
             'data_gen_params' : 
-                {'lamda_c': 1,
+                {'lamda_c': .3,
                 'lamda_b': .03,
                 'p_emission': 0.9,
                 'process_noise': cur_Q,
@@ -306,7 +306,7 @@ if __name__ == "__main__":
             #Number of targets to begin with on the first time step
             'init_target_count': 3,
             #Don't allow more targets than this at one time
-            'max_target_count': 5,
+            'max_target_count': 4,
             #save the parameter idx for referencing
             'data_gen_idx': gen_idx}
         data_gen_firework = Firework(GenData(), spec = data_generation_spec)
@@ -321,10 +321,10 @@ if __name__ == "__main__":
 
 
 
-            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False)]:
+#            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False), ('traditional_SIR_gumbel', False), ('optimal', False)]:
 #            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False), ('traditional_SIR_gumbel', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
 #            for (proposal_distr, check_k_nearest) in [('traditional_SIR_gumbel', False), ('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
-#            for (proposal_distr, check_k_nearest) in [('optimal', True), ('min_cost', True), ('sequential', True)]:
+            for (proposal_distr, check_k_nearest) in [('sequential', True)]:
                 results_folder_name = '%d_particles' % (num_particles)
                 results_folder = '%s/%s_proposal_distr=%s,check_k=%s' % \
                     (data_folder, results_folder_name, proposal_distr, check_k_nearest)
@@ -346,10 +346,6 @@ if __name__ == "__main__":
                         'K_NEAREST_TARGETS': 1,                        
                         'RUN_ONLINE': RUN_ONLINE,
                         'ONLINE_DELAY': online_delay,
-                        'MAX_1_MEAS_UPDATE': max_1_meas_update_local,                    
-                        'UPDATE_MULT_MEAS_SIMUL': update_simul_local,
-                        'TREAT_MEAS_INDEP': TREAT_MEAS_INDEP,                        
-                        'TREAT_MEAS_INDEP_2': TREAT_MEAS_INDEP_2,
                         'USE_CONSTANT_R': USE_CONSTANT_R,
                         'P': P_default.tolist(),
                         'R': R_DEFAULT.tolist(),
