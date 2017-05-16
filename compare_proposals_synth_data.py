@@ -99,20 +99,20 @@ CUR_GEN_NAME= 'test'
 
 ###################################### RBPF Parameters ######################################
 #Specify how the proposal distribution should be pruned
-CHECK_K_NEAREST_TARGETS = True
-K_NEAREST_TARGETS = 1
+#CHECK_K_NEAREST_TARGETS = True
+#K_NEAREST_TARGETS = 1
 
 #If False, ONLINE_DELAY is maximized (we wait until the video ends before picking a particle)
 RUN_ONLINE = True #save near online results 
 #near online mode, wait this many frames before picking max weight particle 
-ONLINE_DELAY = 3
+#ONLINE_DELAY = 3
 
 MAX_1_MEAS_UPDATE = True
 #if true, view measurements as jointly gaussian and update
 #target once per time stamp with combination of associated measurements
-UPDATE_MULT_MEAS_SIMUL = True
-if(MAX_1_MEAS_UPDATE):
-    UPDATE_MULT_MEAS_SIMUL = False
+#####UPDATE_MULT_MEAS_SIMUL = True
+#####if(MAX_1_MEAS_UPDATE):
+#####    UPDATE_MULT_MEAS_SIMUL = False
 #for debugging, zero out covariance between measurement sources when
 #UPDATE_MULT_MEAS_SIMUL=True, should be the same result as sequential updates
 TREAT_MEAS_INDEP = False
