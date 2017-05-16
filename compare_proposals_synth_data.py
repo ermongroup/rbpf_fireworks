@@ -61,9 +61,9 @@ from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 
 #local:
-#from fireworks.core.rocket_launcher import rapidfire
+from fireworks.core.rocket_launcher import rapidfire
 #remote:
-from fireworks.queue.queue_launcher import rapidfire
+#from fireworks.queue.queue_launcher import rapidfire
 
 from fireworks.user_objects.queue_adapters.common_adapter import CommonAdapter
 from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
@@ -87,10 +87,10 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-NUM_SEQUENCES_TO_GENERATE = 20
-NUM_TIME_STEPS = 40 #time steps per sequence
+NUM_SEQUENCES_TO_GENERATE = 1
+NUM_TIME_STEPS = 20 #time steps per sequence
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
-NUM_PARTICLES_TO_TEST = [20, 80]
+NUM_PARTICLES_TO_TEST = [20]
 
 
 ###################################### Experiment Organization ######################################
@@ -269,10 +269,10 @@ if __name__ == "__main__":
 #         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
 #         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
 #         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3)]):
-        [(Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE),
-         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE*3),
-         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE),
-         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE*3)]):
+        [(Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE)]):
+######         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE*3),
+######         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE),
+######         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE*3)]):
         data_folder = "%s/%sgen_idx=%d" % (GENERATED_DATA_DIR, CUR_GEN_NAME, gen_idx)
         data_generation_spec = \
             {#if True calculate data generation parameters on KITTI training data with measurements of type
@@ -429,14 +429,14 @@ if __name__ == "__main__":
     # store workflow and launch it
     workflow = Workflow(all_fireworks, firework_dependencies)
     #local
-#    launchpad.add_wf(workflow)
-#    rapidfire(launchpad, FWorker())
-    #remote
     launchpad.add_wf(workflow)
-    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
-    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
-                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
-                  fill_mode=False)
+    rapidfire(launchpad, FWorker())
+    #remote
+#    launchpad.add_wf(workflow)
+#    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
+#    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
+#                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
+#                  fill_mode=False)
 
 
 
