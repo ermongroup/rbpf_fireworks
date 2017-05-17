@@ -3126,7 +3126,7 @@ class MultiDetections_many:
             birth_count_priors[birth_count] = float(count)/total_frame_count
 
         birth_lambdas_by_group = {}
-        for det_set, count in clutter_by_group_count.iteritems():
+        for det_set, count in birth_by_group_count.iteritems():
             birth_lambdas_by_group[det_set] = float(count)/total_frame_count    
 
         total_prob = 0.0
