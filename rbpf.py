@@ -1403,9 +1403,9 @@ def group_particles(particle_set, min_delay, max_delay):
 
         for cur_delay in range(max(1, min_delay), max_delay+1):
             particle_state_key = \
-                tuple(particle_state_key,\
+                tuple([particle_state_key,\
                 tuple([tuple([tuple(target.x.flatten()),tuple(target.P.flatten()),target.width,target.height]) \
-                       for target in particle.targets.living_targets_q[-cur_delay][1]]))
+                       for target in particle.targets.living_targets_q[-cur_delay][1]])])
 
         if particle_state_key in particle_group_probs:
             particle_group_probs[particle_state_key] += particle.importance_weight
