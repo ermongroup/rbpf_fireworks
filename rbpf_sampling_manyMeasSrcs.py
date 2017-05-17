@@ -1410,14 +1410,17 @@ def conditional_birth_clutter_distribution(remaining_meas_count_by_groups, param
     partition_val = conditional_birth_clutter_partition(remaining_meas_count_by_groups, params)
 
     for meas_group, remaining_count in remaining_meas_count_by_groups.iteritems():
-        birth_lambda = params.birth_lambdas_by_group[meas_group]
-        clutter_lambda = params.clutter_lambdas_by_group[meas_group]
-
-        #use a small value if we never saw one of these groups in our training data            
-        if birth_lambda == 0:
+        if meas_group in params.birth_lambdas_by_group:
+            birth_lambda = params.birth_lambdas_by_group[meas_group]
+        if not meas_group in params.birth_lambdas_by_group or birth_lambda == 0:
+            #use a small value if we never saw one of these groups in our training data            
             birth_lambda = min(params.birth_lambdas_by_group.itervalues())/100000
-        if clutter_lambda == 0:
+
+        if meas_group in params.clutter_lambdas_by_group:
+            clutter_lambda = params.clutter_lambdas_by_group[meas_group]
+        if not meas_group in params.clutter_lambdas_by_group or clutter_lambda == 0:
             clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100000
+                
         #calculate proposal for this measurement group type
         cur_group_proposal = []
         cur_group_birth_counts = []
@@ -1446,14 +1449,17 @@ def conditional_birth_clutter_partition(remaining_meas_count_by_groups, params):
     '''
     partition_val = 1.0
     for meas_group, remaining_count in remaining_meas_count_by_groups.iteritems():
-        birth_lambda = params.birth_lambdas_by_group[meas_group]
-        clutter_lambda = params.clutter_lambdas_by_group[meas_group]
-
-        #use a small value if we never saw one of these groups in our training data            
-        if birth_lambda == 0:
+        if meas_group in params.birth_lambdas_by_group:
+            birth_lambda = params.birth_lambdas_by_group[meas_group]
+        if not meas_group in params.birth_lambdas_by_group or birth_lambda == 0:
+            #use a small value if we never saw one of these groups in our training data            
             birth_lambda = min(params.birth_lambdas_by_group.itervalues())/100000
-        if clutter_lambda == 0:
+
+        if meas_group in params.clutter_lambdas_by_group:
+            clutter_lambda = params.clutter_lambdas_by_group[meas_group]
+        if not meas_group in params.clutter_lambdas_by_group or clutter_lambda == 0:
             clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100000
+
         cur_sum = 0
         for b_c in range(remaining_count + 1): #we can have 0 to remaining_count births
             c_c = remaining_count - b_c #the rest of the remaining measurements of this group type are then clutters
