@@ -1356,7 +1356,7 @@ def unnormalized_marginal_meas_target_assoc(particle, meas_groups, total_target_
                 likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
                 assert(likelihood >= 0.0), likelihood
                 if likelihood == 0:
-                    likelihood = .00000000000000000000000001 #something small, probably should make this nicer
+                    likelihood = .000000000000000001 #something small, probably should make this nicer
                 p_emission = params.target_groupEmission_priors[get_immutable_set_meas_names(meas_groups[m_idx])]
                 proposal_probability *= likelihood*p_emission
                 observed_target_count+=1
@@ -1490,7 +1490,7 @@ def associate_meas_min_cost_corrected(particle, meas_groups, total_target_count,
     """
     # 1. sample measurment target associations marginalized over birth/clutter/unassociated death
     (meas_grp_means4D, meas_grp_covs, marginal_meas_target_proposal_distr, proposal_measurement_target_associations) = \
-    unnormalized_marginal_meas_target_assoc(particle, meas_groups, total_target_count, p_target_deaths, params)
+    unnormalized_marginal_meas_target_assoc(particle, meas_groups, total_target_count, params)
 
     marginal_meas_target_proposal_distr /= float(np.sum(marginal_meas_target_proposal_distr))
 
@@ -1952,6 +1952,7 @@ def sample_target_deaths(particle, unassociated_targets, cur_time):
         #kill offscreen targets with probability 1.0
         if(particle.targets.living_targets[target_idx].offscreen == True):
             targets_to_kill.append(target_idx)
+            assert(particle.targets.living_targets[target_idx].death_prob == 1.0)
         elif(target_idx in unassociated_targets):
             cur_death_prob = particle.targets.living_targets[target_idx].death_prob
             if(random.random() < cur_death_prob):
@@ -1986,7 +1987,7 @@ def calc_death_prior(living_target_indices, p_target_deaths, unassociated_target
         for (cur_target_index, cur_target_death_prob) in enumerate(p_target_deaths):
             if not(cur_target_index in living_target_indices):
                 death_prior *= cur_target_death_prob
-                assert((cur_target_death_prob) != 0.0), cur_target_death_prob        
+                assert((cur_target_death_prob) != 0.0), (cur_target_death_prob, p_target_deaths)
             elif cur_target_index in unassociated_target_indices:
                 death_prior *= (1.0 - cur_target_death_prob)
                 assert((1.0 - cur_target_death_prob) != 0.0), cur_target_death_prob

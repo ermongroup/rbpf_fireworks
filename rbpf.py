@@ -2,8 +2,8 @@ import numpy as np
 from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 #from fireworks.core.firework import FiretaskBase
-from filterpy.kalman import KalmanFilter
-from filterpy.common import Q_discrete_white_noise
+#from filterpy.kalman import KalmanFilter
+#from filterpy.common import Q_discrete_white_noise
 from filterpy.monte_carlo import stratified_resample
 import filterpy
 
@@ -547,8 +547,14 @@ class Target:
         self.all_states.append((self.x, self.width, self.height))
         self.all_time_stamps.append(round(cur_time, 2))
 
-        if(self.x[0][0]<0 or self.x[0][0]>=CAMERA_PIXEL_WIDTH or \
-           self.x[2][0]<0 or self.x[2][0]>=CAMERA_PIXEL_HEIGHT):
+
+        x1 = self.x[0][0] - self.width/2.0
+        x2 = self.x[0][0] + self.width/2.0
+        y1 = self.x[2][0] - self.height/2.0
+        y2 = self.x[2][0] + self.height/2.0
+
+        if(x2<0 or x1>=CAMERA_PIXEL_WIDTH or \
+           y2<0 or y1>=CAMERA_PIXEL_HEIGHT):
 #           print '!'*40, "TARGET IS OFFSCREEN", '!'*40
             self.offscreen = True
             if USE_GENERATED_DATA:
@@ -722,6 +728,17 @@ class TargetSet:
         self.living_count -= 1
         if not USE_CREATE_CHILD:
             assert(len(self.living_targets) == self.living_count and len(self.all_targets) == self.total_count)
+
+    def kill_offscreen_targets(self):
+        '''
+        Kill offscreen targets, run after predict, before association
+        '''
+        off_screen_target_indices = []
+        for idx, target in enumerate(self.living_targets):
+            if target.offscreen:
+                off_screen_target_indices.append(idx)
+        for offscreen_idx in reversed(off_screen_target_indices):
+            self.kill_target(offscreen_idx)
 
     def plot_all_target_locations(self, title):
         fig = plt.figure()
@@ -1638,6 +1655,7 @@ def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths,
         (targets_to_kill, death_probability) =  \
             sample_target_deaths(particle_groups[sampled_particle_key], unassociated_targets, cur_time)
 
+
         #probability of sampling all associations
         proposal_probability *= death_probability
         assert(proposal_probability != 0.0)
@@ -1653,8 +1671,14 @@ def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths,
         for i in range(particle.targets.living_count):
             if(not i in targets_to_kill):
                 living_target_indices.append(i)
+            ####DONE DEBUGGING#######
+            else:
+                assert(p_target_deaths[i] > 0.0), p_target_deaths
+            ####DONE DEBUGGING#######
             if(not i in sampled_assoc):
                 unassociated_target_indices.append(i)
+
+        assert(unassociated_target_indices == unassociated_targets)
 
         # a list containing the number of measurements detected by each source
         # used in prior calculation to count the number of ordered vectors given
@@ -1819,6 +1843,12 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 #update particle death probabilities AFTER predict so that targets that moved
                 #off screen this time instance will be killed
                 particle.update_target_death_probabilities(time_stamp, prev_time_stamp)
+
+                #######kill offscreen targets BEFORE measurement associations##########
+                particle.targets.kill_offscreen_targets()
+            
+
+
 
         new_target_list = [] #for debugging, list of booleans whether each particle created a new target
         pIdxDebugInfo = 0
