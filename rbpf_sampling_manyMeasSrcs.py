@@ -520,6 +520,9 @@ def min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_as
     cost_matrix = []
     this_ids = [[],[]]
 
+    if params.SPEC['targ_meas_assoc_metric'] == 'box_overlap':
+        max_assoc_cost = .5 #following KITTI evaluation criteria for overlap
+
     for cur_detection in meas_grp_means4D:
         cost_row = []
         for cur_target in target_pos4D:

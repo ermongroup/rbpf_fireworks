@@ -448,28 +448,28 @@ if __name__ == "__main__":
                                                     run_rbpf_fireworks.append(cur_firework)
 
 
-                #                   seq_idx_to_eval = [i for i in range(21)]
-                                    seq_idx_to_eval = SEQUENCES_TO_PROCESS
-                                    eval_old_spec = copy.deepcopy(cur_spec)
-                                    eval_old_spec['seq_idx_to_eval'] = seq_idx_to_eval 
-                                    eval_old_spec['use_corrected_eval'] = False
-                                    eval_old_firework = Firework(RunEval(), spec=eval_old_spec)
+                        #                   seq_idx_to_eval = [i for i in range(21)]
+                                            seq_idx_to_eval = SEQUENCES_TO_PROCESS
+                                            eval_old_spec = copy.deepcopy(cur_spec)
+                                            eval_old_spec['seq_idx_to_eval'] = seq_idx_to_eval 
+                                            eval_old_spec['use_corrected_eval'] = False
+                                            eval_old_firework = Firework(RunEval(), spec=eval_old_spec)
 
-                                    eval_new_spec = copy.deepcopy(cur_spec)
-                                    eval_new_spec['seq_idx_to_eval'] = seq_idx_to_eval 
-                                    eval_new_spec['use_corrected_eval'] = True
-                                    eval_new_firework = Firework(RunEval(), spec=eval_new_spec)
+                                            eval_new_spec = copy.deepcopy(cur_spec)
+                                            eval_new_spec['seq_idx_to_eval'] = seq_idx_to_eval 
+                                            eval_new_spec['use_corrected_eval'] = True
+                                            eval_new_firework = Firework(RunEval(), spec=eval_new_spec)
 
-                                    eval_fireworks = [eval_old_firework, eval_new_firework]
-                                    all_fireworks.extend(run_rbpf_fireworks)
-                                    all_fireworks.extend(eval_fireworks)
-                                    for fw in run_rbpf_fireworks:
-                                        firework_dependencies[fw] = eval_fireworks
+                                            eval_fireworks = [eval_old_firework, eval_new_firework]
+                                            all_fireworks.extend(run_rbpf_fireworks)
+                                            all_fireworks.extend(eval_fireworks)
+                                            for fw in run_rbpf_fireworks:
+                                                firework_dependencies[fw] = eval_fireworks
 
-                                    storeResultsFW = Firework(StoreResultsInDatabase(), spec=eval_new_spec)
-                                    all_fireworks.append(storeResultsFW)
-                                    firework_dependencies[eval_old_firework] = storeResultsFW
-                                    firework_dependencies[eval_new_firework] = storeResultsFW
+                                            storeResultsFW = Firework(StoreResultsInDatabase(), spec=eval_new_spec)
+                                            all_fireworks.append(storeResultsFW)
+                                            firework_dependencies[eval_old_firework] = storeResultsFW
+                                            firework_dependencies[eval_new_firework] = storeResultsFW
 
 
 
