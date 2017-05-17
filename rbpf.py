@@ -56,6 +56,15 @@ from rbpf_sampling_manyMeasSrcs import group_detections
 from rbpf_sampling_manyMeasSrcs import solve_perturbed_max_gumbel
 from rbpf_sampling_manyMeasSrcs import solve_perturbed_max_gumbel_exact
 from rbpf_sampling_manyMeasSrcs import combine_arbitrary_number_measurements_4d as combine_4d_detections
+from rbpf_sampling_manyMeasSrcs import sample_target_deaths
+from rbpf_sampling_manyMeasSrcs import get_likelihood
+from rbpf_sampling_manyMeasSrcs import get_assoc_prior
+from rbpf_sampling_manyMeasSrcs import calc_death_prior
+from rbpf_sampling_manyMeasSrcs import unnormalized_marginal_meas_target_assoc
+from rbpf_sampling_manyMeasSrcs import get_immutable_set_meas_names
+from rbpf_sampling_manyMeasSrcs import conditional_birth_clutter_distribution
+from rbpf_sampling_manyMeasSrcs import nCr
+
 #from run_experiment import DIRECTORY_OF_ALL_RESULTS
 #from run_experiment import CUR_EXPERIMENT_BATCH_NAME
 #from run_experiment import SEQUENCES_TO_PROCESS
@@ -96,7 +105,7 @@ if LSTM_MOTION:
 DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
 
 
-PROFILE = True
+PROFILE = False
 USE_GENERATED_DATA = False
 
 PLOT_TARGET_LOCATIONS = False
@@ -1434,7 +1443,7 @@ def group_particles(particle_set, min_delay, max_delay):
     total_prob = 0.0
     for key, prob in particle_group_probs.iteritems():
         total_prob += prob
-    assert(np.isclose(total_prob, 1, rtol=1e-04, atol=1e-04))
+    assert(np.isclose(total_prob, 1, rtol=1e-04, atol=1e-04)), total_prob
     ############done testing############
     return(particle_group_probs, particle_groups)
 
@@ -1537,6 +1546,176 @@ def modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, c
 
     return new_particle_set
 
+
+def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths, heights, cur_time, params):
+    (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'])
+    #housekeeping, should make this nicer somehow
+    meas_groups = []
+    for det_idx, det_name in enumerate(SPEC['det_names']):
+        group_detections(meas_groups, det_name, measurement_lists[det_idx], widths[det_idx], heights[det_idx], params)
+
+
+    #construct distribution over particles and measurement target associations
+    proposal_distr = [] 
+    marginal_proposal_info = []
+    for p_key, particle in particle_groups.iteritems():
+        (meas_grp_means4D, meas_grp_covs, marginal_meas_target_proposal_distr, proposal_measurement_target_associations) = \
+        unnormalized_marginal_meas_target_assoc(particle, meas_groups, len(particle.targets.living_targets), params)
+        for m_t_prop_idx, associations in enumerate(proposal_measurement_target_associations):
+            proposal_distr.append(particle_group_probs[p_key]*marginal_meas_target_proposal_distr[m_t_prop_idx])
+            marginal_proposal_info.append({'particle_key': p_key,
+                                  'measurement_target_associations': associations})
+
+    proposal_distr = np.asarray(proposal_distr)
+    assert(np.sum(proposal_distr) != 0.0)
+    proposal_distr /= float(np.sum(proposal_distr))    
+
+    new_particle_set = []
+    particle_group_log_probs = {}
+    for idx in range(N_PARTICLES):
+
+        #1. sample particle and measurement-target associations
+        sampled_part_assoc_idx = np.random.choice(len(proposal_distr), p=proposal_distr)
+        proposal_probability = proposal_distr[sampled_part_assoc_idx] 
+        sampled_particle_key = marginal_proposal_info[sampled_part_assoc_idx]['particle_key']
+        sampled_assoc = marginal_proposal_info[sampled_part_assoc_idx]['measurement_target_associations'][:] #make a deep copy
+
+        #get a list of all possible measurement groups, length (2^#measurement sources)-1, each detection source can be in the set
+        #or out of the set, but we can't have the empty set
+        detection_groups = params.get_all_possible_measurement_groups()
+        remaining_meas_count_by_groups = defaultdict(int)
+        unassociated_meas_indices_by_groups = defaultdict(list)
+        #count remaining measurements by measurement sources present in the group
+        for (index, meas_group) in enumerate(meas_groups):
+            if sampled_assoc[index] == -1:
+                remaining_meas_count_by_groups[get_immutable_set_meas_names(meas_group)] += 1
+                unassociated_meas_indices_by_groups[get_immutable_set_meas_names(meas_group)].append(index)
+        total_birth_count = 0
+        total_clutter_count = 0
+        total_target_count = len(particle_groups[sampled_particle_key].targets.living_targets)
+        conditional_proposals = conditional_birth_clutter_distribution(remaining_meas_count_by_groups, params)
+        for meas_group, conditional_proposal_info in conditional_proposals.iteritems():
+            # 2. sample # of births and clutter conditioned on 1. or each measurement group type
+            sampled_birth_count_idx = np.random.choice(len(conditional_proposal_info['proposal_distribution']),
+                                                        p=conditional_proposal_info['proposal_distribution'])
+            sampled_birth_count = conditional_proposal_info['birth_counts'][sampled_birth_count_idx]
+            sampled_clutter_count = remaining_meas_count_by_groups[meas_group] - sampled_birth_count
+            total_birth_count += sampled_birth_count
+            total_clutter_count += sampled_clutter_count
+            birth_count_proposal_prob = conditional_proposal_info['proposal_distribution'][sampled_birth_count_idx]
+            proposal_probability *= birth_count_proposal_prob
+
+            # 3. uniformly sample which unassociated measurements are birth/clutter according to the counts from 2.
+            unassociated_measurements = unassociated_meas_indices_by_groups[meas_group]
+            proposal_probability *= nCr(len(unassociated_measurements), sampled_birth_count)
+            for b_c_idx in range(sampled_birth_count):
+                sampled_birth_idx = np.random.choice(len(unassociated_measurements))
+                sampled_assoc[unassociated_measurements[sampled_birth_idx]] = total_target_count #set to birth val
+                del unassociated_measurements[sampled_birth_idx]
+     
+        assert(sampled_assoc.count(total_target_count) == total_birth_count), (sampled_assoc.count(total_target_count), total_birth_count, sampled_assoc, idx, cur_time, total_target_count)
+        assert(sampled_assoc.count(-1) == total_clutter_count)
+
+        # 4. sample target deaths from unassociated targets
+        unassociated_targets = []
+        unassociated_target_death_probs = []
+        p_target_deaths = []
+        for target in particle_groups[sampled_particle_key].targets.living_targets:
+            p_target_deaths.append(target.death_prob)
+            assert(p_target_deaths[len(p_target_deaths) - 1] >= 0 and p_target_deaths[len(p_target_deaths) - 1] <= 1)
+
+        for i in range(total_target_count):
+            if i in sampled_assoc:
+                target_unassociated = False
+            else:
+                target_unassociated = True            
+            if target_unassociated:
+                unassociated_targets.append(i)
+                unassociated_target_death_probs.append(p_target_deaths[i])
+            else:
+                unassociated_target_death_probs.append(0.0)
+
+        (targets_to_kill, death_probability) =  \
+            sample_target_deaths(particle_groups[sampled_particle_key], unassociated_targets, cur_time)
+
+        #probability of sampling all associations
+        proposal_probability *= death_probability
+        assert(proposal_probability != 0.0)
+
+
+        # 5. create a new particle that is a copy of the max group, and associate measurements / kill
+        #targets according to the max x_k from 2.
+        assert(SPEC['use_general_num_dets'])
+        new_particle = particle_groups[sampled_particle_key].create_child()
+        #calc importance weight
+        living_target_indices = []
+        unassociated_target_indices = []
+        for i in range(particle.targets.living_count):
+            if(not i in targets_to_kill):
+                living_target_indices.append(i)
+            if(not i in sampled_assoc):
+                unassociated_target_indices.append(i)
+
+        # a list containing the number of measurements detected by each source
+        # used in prior calculation to count the number of ordered vectors given
+        # an unordered association set
+        meas_counts_by_source = [] 
+        for meas_list in measurement_lists:
+            meas_counts_by_source.append(len(meas_list))
+
+        likelihood = get_likelihood(particle_groups[sampled_particle_key], meas_groups, particle_groups[sampled_particle_key].targets.living_count,
+                                       sampled_assoc, params, log=False)
+        assoc_prior = get_assoc_prior(particle_groups[sampled_particle_key].targets.living_count, meas_groups, sampled_assoc, params, meas_counts_by_source, log=False)
+        death_prior = calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices, log=False)
+        exact_probability = likelihood * assoc_prior * death_prior        
+        new_particle.importance_weight = particle_group_probs[sampled_particle_key]*exact_probability/proposal_probability
+        birth_value = new_particle.targets.living_count
+
+
+    ############ MESSY ############
+        #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+        #of the position of meas_groups[i]
+        meas_grp_covs = []   
+        meas_grp_means2D = []
+        meas_grp_means = []
+        for (index, detection_group) in enumerate(meas_groups):
+            (combined_meas_mean, combined_covariance) = combine_4d_detections(params.posAndSize_inv_covariance_blocks, 
+                                params.meas_noise_mean, detection_group)
+            combined_meas_pos = combined_meas_mean[0:2]
+            meas_grp_means2D.append(combined_meas_pos)
+            meas_grp_means.append(combined_meas_mean)
+            meas_grp_covs.append(combined_covariance)
+    ############ END MESSY ############
+
+        sampled_assoc = sampled_assoc
+        dead_target_indices = targets_to_kill
+
+
+        new_particle.all_measurement_associations.append(sampled_assoc)
+        new_particle.all_dead_targets.append(dead_target_indices)  
+        assert(len(sampled_assoc) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
+        for meas_grp_idx, meas_grp_assoc in enumerate(sampled_assoc):
+            new_particle.process_meas_grp_assoc(birth_value, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx], cur_time)
+
+        #process target deaths
+        #double check dead_target_indices is sorted
+        assert(all([dead_target_indices[i] <= dead_target_indices[i+1] for i in xrange(len(dead_target_indices)-1)]))
+        #important to delete larger indices first to preserve values of the remaining indices
+        for index in reversed(dead_target_indices):
+            new_particle.targets.kill_target(index)
+
+        #checking if something funny is happening
+        original_num_targets = birth_value
+        num_targets_born = 0
+        num_targets_born = sampled_assoc.count(birth_value)
+        num_targets_killed = len(dead_target_indices)
+        assert(new_particle.targets.living_count == original_num_targets + num_targets_born - num_targets_killed)
+        #done checking if something funny is happening
+        new_particle_set.append(new_particle)
+        assert(new_particle.parent_particle != None)
+
+
+    return new_particle_set
 
 
 
@@ -1646,6 +1825,8 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
 
         if params.SPEC['proposal_distr'] == 'modified_SIS_gumbel':
             particle_set = modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
+        elif params.SPEC['proposal_distr'] == 'modified_SIS_min_cost':
+            particle_set = modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
         else:
             for particle in particle_set:
                 #this is where 
@@ -1655,6 +1836,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 new_target_list.append(new_target)
                 pIdxDebugInfo += 1
 
+        if params.SPEC['proposal_distr'] != 'modified_SIS_gumbel':
             print "about to normalize importance weights"
             normalize_importance_weights(particle_set)
         #debugging
@@ -1723,7 +1905,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 cur_max_weight_target_set = cur_max_weight_particle.targets
 
 
-            if params.SPEC['proposal_distr'] == 'modified_SIS_gumbel':
+            if params.SPEC['proposal_distr'] in ['modified_SIS_gumbel', 'modified_SIS_min_cost']:
                 if time_instance_index>0 and cur_max_weight_particle.parent_particle != prv_max_weight_particle:
                     (target_associations, duplicate_ids) = \
                     match_target_ids(cur_max_weight_particle.parent_particle.targets.living_targets,\
@@ -2479,7 +2661,8 @@ class RunRBPF(FireTaskBase):
 #        return FWAction(mod_spec=[{'_inc': {"mistakes_by_max_weight_particle": max_weight_mistakes},
 #                                   '_inc': {"max_possible_mistakes": max_possible_mistakes}}])
         return FWAction(mod_spec=[{'_inc': {"total_runtime": this_seq_run_time, \
-                                            "mistakes_by_max_weight_particle": max_weight_mistakes}}])
+                                            "mistakes_by_max_weight_particle": max_weight_mistakes, \
+                                            "number_resamplings": number_resamplings}}])
 
 
 

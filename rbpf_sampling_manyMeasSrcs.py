@@ -41,6 +41,11 @@ class Parameters:
         #dictionary where target_groupEmission_priors[det_set] is the prior probability
         #that a ground truth object will emit the set of measurements specified by the immutable set det_set.
         self.target_groupEmission_priors = target_groupEmission_priors
+        check_prior_emission_distr = 0.0
+        for grp, prob in self.target_groupEmission_priors.iteritems():
+            check_prior_emission_distr+=prob
+        assert(np.isclose(check_prior_emission_distr, 1.0, rtol=1e-04, atol=1e-04))
+
 
         self.clutter_grpCountByFrame_priors = clutter_grpCountByFrame_priors
         self.clutter_group_priors = clutter_group_priors
@@ -113,7 +118,7 @@ class Parameters:
         #print "meas_noise_mean: ", self.meas_noise_mean
         #print "posAndSize_inv_covariance_blocks: ", self.posAndSize_inv_covariance_blocks
 
-    def get_all_possible_measurement_groups():
+    def get_all_possible_measurement_groups(self):
         '''
         Outputs: 
         - all_measurement_groups: list of ImmutableSet objects with length ((2^#measurement sources)-1).  All possible groups
@@ -454,7 +459,7 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
 #    FIXME measurement_associations, proposal_probability
 ############################################################################################################
     #New implementation
-    assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost', 'optimal', 'traditional_SIR_gumbel'])
+    assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost', 'min_cost_corrected', 'optimal', 'traditional_SIR_gumbel'])
     if params.SPEC['proposal_distr'] == 'traditional_SIR_gumbel':
         (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, targets_to_kill) = \
             associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_deaths, params)        
@@ -484,6 +489,11 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
             (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
             associate_meas_min_cost(particle, meas_groups, total_target_count, \
             p_target_deaths, params)
+
+        elif params.SPEC['proposal_distr'] == 'min_cost_corrected':
+            (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
+            associate_meas_min_cost_corrected(particle, meas_groups, total_target_count, \
+            p_target_deaths, params)        
 
         else: 
             assert(params.SPEC['proposal_distr'] == 'optimal')
@@ -1262,13 +1272,23 @@ def enumerate_measurement_associations(target_count, measurement_count):
 
 
 
+def get_immutable_set_meas_names(meas_group):
+    '''
+    Inputs:
+    - meas_group: a dictionary of detections, key='det_name', value=detection
+
+    Outputs:
+    - meas_names_set: an ImmutableSet of the det_names in this group (all the keys in meas_group)
+    '''
+    #create set of the names of detection sources present in this detection group
+    group_meas_names = []
+    for meas_name, meas in meas_group.iteritems():
+        group_meas_names.append(meas_name)
+    meas_names_set = ImmutableSet(group_meas_names)        
+    return meas_names_set        
 
 
-
-
-
-
-def marginal_distr_meas_target_assoc_min_cost(particle, meas_groups, total_target_count, p_target_deaths, params):
+def unnormalized_marginal_meas_target_assoc(particle, meas_groups, total_target_count, params):
 
     """
     Sample measurement target associations marginalized over birth association, clutter associations, and
@@ -1278,17 +1298,18 @@ def marginal_distr_meas_target_assoc_min_cost(particle, meas_groups, total_targe
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
         in the group, key='det_name', value=detection
     - total_target_count: the number of living targets on the previous time instace
-    - p_target_deaths: a list of length len(total_target_count) where 
-        p_target_deaths[i] = the probability that target i has died between the last
-        time instance and the current time instance
     - params: type Parameters, gives prior probabilities and other parameters we are using
 
     Output:
     - meas_grp_means4D
     - meas_grp_covs
-    - marginal_meas_target_proposal_distr: numpy array, proposal distribution over 3 measurement-target associations,
-    marginalized over birth/clutter/life/death
-    - proposal_measurement_target_associations        
+    - marginal_meas_target_proposal_distr: numpy array, UNNORMALIZED proposal distribution over 3 measurement-target associations,
+    marginalized over birth/clutter/life/death (important for modified SIS)
+    - proposal_measurement_target_associations: list of lists of integers, proposal_measurement_target_associations[i]
+        is the measurement association proposed with probability marginal_meas_target_proposal_distr[i].  Elements
+        of association are integers with values:
+            [0, total_target_count-1]: target association
+            -1: birth OR clutter association
     """
     marginal_meas_target_proposal_distr = []
     proposal_measurement_target_associations = []
@@ -1327,7 +1348,23 @@ def marginal_distr_meas_target_assoc_min_cost(particle, meas_groups, total_targe
     for max_assoc_cost in max_costs:
         list_of_measurement_associations = min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_assoc_cost)
 
-        proposal_probability = probability of target associations !!!!!WRITE ME!!!!!!!
+        proposal_probability = 1.0
+        observed_target_count = 0
+        for m_idx in range(len(meas_groups)):
+            t_idx = list_of_measurement_associations[m_idx]
+            if t_idx != -1: #target association
+                likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
+                assert(likelihood >= 0.0), likelihood
+                if likelihood == 0:
+                    likelihood = .00000000000000000000000001 #something small, probably should make this nicer
+                p_emission = params.target_groupEmission_priors[get_immutable_set_meas_names(meas_groups[m_idx])]
+                proposal_probability *= likelihood*p_emission
+                observed_target_count+=1
+
+        unobserved_target_count = total_target_count - observed_target_count
+        assert(unobserved_target_count >= 0)
+        proposal_probability *= (params.target_groupEmission_priors[ImmutableSet([])])**unobserved_target_count
+
 
         #get a list of all possible measurement groups, length (2^#measurement sources)-1, each detection source can be in the set
         #or out of the set, but we can't have the empty set
@@ -1336,23 +1373,10 @@ def marginal_distr_meas_target_assoc_min_cost(particle, meas_groups, total_targe
         #count remaining measurements by measurement sources present in the group
         for (index, meas_group) in enumerate(meas_groups):
             if list_of_measurement_associations[index] == -1:
-                remaining_meas_count_by_groups[meas_group] += 1
+                remaining_meas_count_by_groups[get_immutable_set_meas_names(meas_group)] += 1
 
-        b_c_prob_factor = 1.0 #we multiply the proposal probability by this to marginalize over possible births and clutter associations
-        for meas_group, remaining_count in remaining_meas_count_by_groups.iteritems():
-            birth_lambda = params.birth_lambdas_by_group[meas_group]
-            clutter_lambda = params.clutter_lambdas_by_group[meas_group]
-
-            #use a small value if we never saw one of these groups in our training data            
-            if birth_lambda == 0:
-                birth_lambda = min(params.birth_lambdas_by_group.itervalues())/100000
-            if clutter_lambda == 0:
-                clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100000
-            cur_sum = 0
-            for b_c in range(remaining_count + 1): #we can have 0 to remaining_count births
-                c_c = remaining_count - b_c #the rest of the remaining measurements of this group type are then clutters
-                cur_sum += (birth_lambda**b_c)*(clutter_lambda**c_c)
-            b_c_prob_factor *= cur_sum
+        #we multiply the proposal probability by this to marginalize over possible births and clutter associations
+        b_c_prob_factor = conditional_birth_clutter_partition(remaining_meas_count_by_groups, params)
 
         proposal_probability *= b_c_prob_factor #now we have the marginal probability of these measurement associations
         marginal_meas_target_proposal_distr.append(proposal_probability)
@@ -1361,27 +1385,157 @@ def marginal_distr_meas_target_assoc_min_cost(particle, meas_groups, total_targe
 
     marginal_meas_target_proposal_distr = np.asarray(marginal_meas_target_proposal_distr)
     assert(np.sum(marginal_meas_target_proposal_distr) != 0.0)
+
+
+    return (meas_grp_means4D, meas_grp_covs, marginal_meas_target_proposal_distr, proposal_measurement_target_associations)
+
+
+
+def conditional_birth_clutter_distribution(remaining_meas_count_by_groups, params):
+    '''
+    Inputs:
+    - remaining_meas_count_by_groups: dictioary, key = ImmutableSet(det_names in group), val=remaining measurement count of this 
+        measurement group type
+
+    Outputs 
+    - conditional_proposals: dictionary with
+        key = ImmutableSet(det_names in group)
+        val = dictionary = 
+           'proposal_distribution': numpy array, proposal distribution of birth/clutter counts for det_names groups
+           'birth_counts': list of integers, same length as proposal_distribution, ith element contains birth count
+                           for the ith proposal probability, clutter count = remaining_meas_count - birth_count
+    '''
+
+    conditional_proposals = {}
+    partition_val = conditional_birth_clutter_partition(remaining_meas_count_by_groups, params)
+
+    for meas_group, remaining_count in remaining_meas_count_by_groups.iteritems():
+        birth_lambda = params.birth_lambdas_by_group[meas_group]
+        clutter_lambda = params.clutter_lambdas_by_group[meas_group]
+
+        #use a small value if we never saw one of these groups in our training data            
+        if birth_lambda == 0:
+            birth_lambda = min(params.birth_lambdas_by_group.itervalues())/100000
+        if clutter_lambda == 0:
+            clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100000
+        #calculate proposal for this measurement group type
+        cur_group_proposal = []
+        cur_group_birth_counts = []
+        for b_c in range(remaining_count + 1): #we can have 0 to remaining_count births
+            c_c = remaining_count - b_c #the rest of the remaining measurements of this group type are then clutters
+            cur_prob = ((birth_lambda*params.p_birth_likelihood)**b_c)*((clutter_lambda*params.p_clutter_likelihood)**c_c)*nCr(remaining_count, b_c) #FIX ME, birth clutter likelihood!!!!!
+            cur_group_proposal.append(cur_prob)
+            cur_group_birth_counts.append(b_c)
+
+        cur_group_proposal = np.asarray(cur_group_proposal)
+        assert(np.sum(cur_group_proposal) != 0.0)
+        cur_group_proposal /= float(np.sum(cur_group_proposal))
+        cur_group_entry = {'proposal_distribution': cur_group_proposal,
+                           'birth_counts': cur_group_birth_counts}
+        conditional_proposals[meas_group] = cur_group_entry
+
+    return conditional_proposals
+
+def conditional_birth_clutter_partition(remaining_meas_count_by_groups, params):
+    '''
+    get the value of the partition function of all birth/clutter associations over all measurement group types,
+    conditioned on the total remaining measurements of each group type
+    Inputs:
+    - remaining_meas_count_by_groups: dictioary, key = ImmutableSet(det_names in group), val=remaining measurement count of this 
+        measurement group type
+    '''
+    partition_val = 1.0
+    for meas_group, remaining_count in remaining_meas_count_by_groups.iteritems():
+        birth_lambda = params.birth_lambdas_by_group[meas_group]
+        clutter_lambda = params.clutter_lambdas_by_group[meas_group]
+
+        #use a small value if we never saw one of these groups in our training data            
+        if birth_lambda == 0:
+            birth_lambda = min(params.birth_lambdas_by_group.itervalues())/100000
+        if clutter_lambda == 0:
+            clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100000
+        cur_sum = 0
+        for b_c in range(remaining_count + 1): #we can have 0 to remaining_count births
+            c_c = remaining_count - b_c #the rest of the remaining measurements of this group type are then clutters
+            cur_sum += ((birth_lambda*params.p_birth_likelihood)**b_c)*((clutter_lambda*params.p_clutter_likelihood)**c_c)*nCr(remaining_count, b_c) #FIX ME, birth clutter likelihood!!!!!
+        partition_val *= cur_sum
+    return partition_val
+
+def associate_meas_min_cost_corrected(particle, meas_groups, total_target_count, p_target_deaths, params):
+
+    """
+    First sample measurement associations from a small set of min cost matchings, with different max costs,
+    marginalized over birth/clutter/death.  Then sample birth/death/clutter conditioned on measurement
+    target associations
+    Input:
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle     
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
+    - total_target_count: the number of living targets on the previous time instace
+    - p_target_deaths: a list of length len(total_target_count) where 
+        p_target_deaths[i] = the probability that target i has died between the last
+        time instance and the current time instance
+    - params: type Parameters, gives prior probabilities and other parameters we are using
+
+    Output:
+    - meas_targ_assoc: list of associations for each measurement group
+    - proposal_probability: proposal probability of the sampled deaths and associations
+        
+    """
+    # 1. sample measurment target associations marginalized over birth/clutter/unassociated death
+    (meas_grp_means4D, meas_grp_covs, marginal_meas_target_proposal_distr, proposal_measurement_target_associations) = \
+    unnormalized_marginal_meas_target_assoc(particle, meas_groups, total_target_count, p_target_deaths, params)
+
     marginal_meas_target_proposal_distr /= float(np.sum(marginal_meas_target_proposal_distr))
 
+    sampled_meas_targ_assoc_idx = np.random.choice(len(marginal_meas_target_proposal_distr),
+                                                        p=marginal_meas_target_proposal_distr)
 
-    return(meas_grp_means4D, meas_grp_covs, marginal_meas_target_proposal_distr, proposal_measurement_target_associations)
-
-
-
-
-
+    proposal_probability = marginal_meas_target_proposal_distr[sampled_meas_targ_assoc_idx]
+    meas_targ_assoc = proposal_measurement_target_associations[sampled_meas_targ_assoc_idx]
 
 
+    #get a list of all possible measurement groups, length (2^#measurement sources)-1, each detection source can be in the set
+    #or out of the set, but we can't have the empty set
+    detection_groups = params.get_all_possible_measurement_groups()
+    remaining_meas_count_by_groups = defaultdict(int)
+    unassociated_meas_indices_by_groups = defaultdict(list)
+    #count remaining measurements by measurement sources present in the group
+    for (index, meas_group) in enumerate(meas_groups):
+        if meas_targ_assoc[index] == -1:
+            remaining_meas_count_by_groups[get_immutable_set_meas_names(meas_group)] += 1
+            unassociated_meas_indices_by_groups[get_immutable_set_meas_names(meas_group)].append(index)
+    total_birth_count = 0
+    total_clutter_count = 0
+    conditional_proposals = conditional_birth_clutter_distribution(remaining_meas_count_by_groups, params)
+    for meas_group, proposal_info in conditional_proposals.iteritems():
+        # 2. sample # of births and clutter conditioned on 1. or each measurement group type
+        sampled_birth_count_idx = np.random.choice(len(proposal_info['proposal_distribution']),
+                                                    p=proposal_info['proposal_distribution'])
+        sampled_birth_count = proposal_info['birth_counts'][sampled_birth_count_idx]
+        sampled_clutter_count = remaining_meas_count_by_groups[meas_group] - sampled_birth_count
+        total_birth_count += sampled_birth_count
+        total_clutter_count += sampled_clutter_count
+        birth_count_proposal_prob = proposal_info['proposal_distribution'][sampled_birth_count_idx]
+        proposal_probability *= birth_count_proposal_prob
 
+        # 3. uniformly sample which unassociated measurements are birth/clutter according to the counts from 2.
+        unassociated_measurements = unassociated_meas_indices_by_groups[meas_group]
+        proposal_probability *= nCr(len(unassociated_measurements), sampled_birth_count)
+        for b_c_idx in range(sampled_birth_count):
+            sampled_birth_idx = np.random.choice(len(unassociated_measurements))
+            meas_targ_assoc[unassociated_measurements[sampled_birth_idx]] = total_target_count #set to birth val
+            del unassociated_measurements[sampled_birth_idx]
+ 
+    assert(meas_targ_assoc.count(total_target_count) == total_birth_count)
+    assert(meas_targ_assoc.count(-1) == total_clutter_count)
 
-
-
+    return(meas_targ_assoc, meas_grp_means4D, meas_grp_covs, proposal_probability)
 
 
 def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_deaths, params):
 
     """
-    Try sampling associations with each measurement sequentially
     Input:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle     
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
@@ -1627,7 +1781,7 @@ def associate_measurements_sequentially(particle, meas_groups, total_target_coun
         #compute target association proposal probabilities
         proposal_distribution_list = []
 
-        #create set of the names of detection sources preset in this detection group
+        #create set of the names of detection sources present in this detection group
         group_det_names = []
         for det_name, det in detection_group.iteritems():
             group_det_names.append(det_name)
