@@ -1668,7 +1668,7 @@ def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths,
         #calc importance weight
         living_target_indices = []
         unassociated_target_indices = []
-        for i in range(particle.targets.living_count):
+        for i in range(new_particle.targets.living_count):
             if(not i in targets_to_kill):
                 living_target_indices.append(i)
             ####DONE DEBUGGING#######
@@ -1678,7 +1678,7 @@ def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths,
             if(not i in sampled_assoc):
                 unassociated_target_indices.append(i)
 
-        assert(unassociated_target_indices == unassociated_targets)
+        assert(unassociated_target_indices == unassociated_targets), (unassociated_target_indices, unassociated_targets, new_particle.targets.living_count, new_particle.targets.living_targets)
 
         # a list containing the number of measurements detected by each source
         # used in prior calculation to count the number of ordered vectors given
