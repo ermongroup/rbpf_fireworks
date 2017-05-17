@@ -19,7 +19,7 @@ PRIOR_EPSILON = .000000001
 
 class Parameters:
     def __init__(self, det_names, target_groupEmission_priors, clutter_grpCountByFrame_priors,\
-                 clutter_group_priors, birth_count_priors, posOnly_covariance_blocks, \
+                 clutter_group_priors, clutter_lambdas_by_group, birth_count_priors, birth_lambdas_by_group, posOnly_covariance_blocks, \
                  meas_noise_mean, posAndSize_inv_covariance_blocks, R_default, H,\
                  USE_PYTHON_GAUSSIAN, USE_CONSTANT_R, score_intervals,\
                  p_birth_likelihood, p_clutter_likelihood, CHECK_K_NEAREST_TARGETS,
@@ -40,10 +40,24 @@ class Parameters:
 
         #dictionary where target_groupEmission_priors[det_set] is the prior probability
         #that a ground truth object will emit the set of measurements specified by the immutable set det_set.
-        self.target_groupEmission_priors = target_groupEmission_priors 
+        self.target_groupEmission_priors = target_groupEmission_priors
+
         self.clutter_grpCountByFrame_priors = clutter_grpCountByFrame_priors
         self.clutter_group_priors = clutter_group_priors
+
+        #dictionary where clutter_by_group_count[det_set] is the MLE estimate of the
+        #    poisson parameter lambda for clutter emissions of this detection set.  This is used for a different
+        #    clutter model than the above two.  Now we model clutter as occurring as indendent poisson distributions
+        #    for every detection set.
+        self.clutter_lambdas_by_group = clutter_lambdas_by_group
+
         self.birth_count_priors = birth_count_priors #dictionary, where birth_count_priors[n] is the prior probability of observing n births in a frame.
+
+        #birth_lambdas_by_group: dictionary where birth_lambdas_by_group[det_set] is the MLE estimate of the
+        #    poisson parameter lambda for births of this detection set.  This is used for a different
+        #     model than birth_count_priors.  Now we model births as occurring as indendent poisson distributions
+        #    for every detection set.
+        self.birth_lambdas_by_group = birth_lambdas_by_group
 
         self.posOnly_covariance_blocks = posOnly_covariance_blocks #posOnly_covariance_blocks[(det_name1, det_name2)] = posOnly_cov_block_12
 
@@ -98,6 +112,20 @@ class Parameters:
         #print "posOnly_covariance_blocks: ", self.posOnly_covariance_blocks
         #print "meas_noise_mean: ", self.meas_noise_mean
         #print "posAndSize_inv_covariance_blocks: ", self.posAndSize_inv_covariance_blocks
+
+    def get_all_possible_measurement_groups():
+        '''
+        Outputs: 
+        - all_measurement_groups: list of ImmutableSet objects with length ((2^#measurement sources)-1).  All possible groups
+            of measurements are enumerated in the list.
+        '''
+        all_measurement_groups = []
+        for group_size in range(1, len(self.det_names) + 1):
+            cur_det_combos = combinations(self.det_names, group_size)
+            for det_combo in cur_det_combos:
+                all_measurement_groups.append(ImmutableSet(det_combo))
+        assert(len(all_measurement_groups) == 2**len(self.det_names) - 1)
+        return all_measurement_groups
 
     def birth_groupCount_prior(self, group_count):
         if self.birth_clutter_model == "training_counts":
@@ -519,6 +547,7 @@ def min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_as
     # build cost matrix
     cost_matrix = []
     this_ids = [[],[]]
+
 
     for cur_detection in meas_grp_means4D:
         cost_row = []
@@ -1240,6 +1269,103 @@ def enumerate_measurement_associations(target_count, measurement_count):
 
 
 
+def marginal_distr_meas_target_assoc_min_cost(particle, meas_groups, total_target_count, p_target_deaths, params):
+
+    """
+    Sample measurement target associations marginalized over birth association, clutter associations, and
+    unassociated target death.
+    Input:
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle     
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
+    - total_target_count: the number of living targets on the previous time instace
+    - p_target_deaths: a list of length len(total_target_count) where 
+        p_target_deaths[i] = the probability that target i has died between the last
+        time instance and the current time instance
+    - params: type Parameters, gives prior probabilities and other parameters we are using
+
+    Output:
+    - meas_grp_means4D
+    - meas_grp_covs
+    - marginal_meas_target_proposal_distr: numpy array, proposal distribution over 3 measurement-target associations,
+    marginalized over birth/clutter/life/death
+    - proposal_measurement_target_associations        
+    """
+    marginal_meas_target_proposal_distr = []
+    proposal_measurement_target_associations = []
+    #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+    #of the position of meas_groups[i]
+    meas_grp_covs = []   
+    meas_grp_means2D = []
+    meas_grp_means4D = []
+    for (index, detection_group) in enumerate(meas_groups):
+        (combined_meas_mean, combined_covariance) = combine_arbitrary_number_measurements_4d(params.posAndSize_inv_covariance_blocks, 
+                            params.meas_noise_mean, detection_group)
+        combined_meas_pos = combined_meas_mean[0:2]
+        meas_grp_means2D.append(combined_meas_pos)
+        meas_grp_means4D.append(combined_meas_mean)
+        meas_grp_covs.append(combined_covariance)
+
+
+    #get list of target bounding boxes  
+    target_pos4D = []
+    for target_index in range(total_target_count):
+        target = particle.targets.living_targets[target_index]            
+        target_location = np.squeeze(np.dot(params.H, target.x)) 
+        target_pos4D.append(np.array([target_location[0], target_location[1], target.width, target.height]))
+
+    meas_target_association_possibilities = []
+    marginal_association_probs = []
+#    for idx, max_assoc_cost in enumerate(params.SPEC['target_detection_max_dists']):
+
+
+    if params.SPEC['targ_meas_assoc_metric'] == 'distance':
+        max_costs = params.SPEC['target_detection_max_dists']
+    else:
+        assert(params.SPEC['targ_meas_assoc_metric'] == 'box_overlap')
+        max_costs = params.SPEC['target_detection_max_overlaps']
+
+    for max_assoc_cost in max_costs:
+        list_of_measurement_associations = min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_assoc_cost)
+
+        proposal_probability = probability of target associations !!!!!WRITE ME!!!!!!!
+
+        #get a list of all possible measurement groups, length (2^#measurement sources)-1, each detection source can be in the set
+        #or out of the set, but we can't have the empty set
+        detection_groups = params.get_all_possible_measurement_groups()
+        remaining_meas_count_by_groups = defaultdict(int)
+        #count remaining measurements by measurement sources present in the group
+        for (index, meas_group) in enumerate(meas_groups):
+            if list_of_measurement_associations[index] == -1:
+                remaining_meas_count_by_groups[meas_group] += 1
+
+        b_c_prob_factor = 1.0 #we multiply the proposal probability by this to marginalize over possible births and clutter associations
+        for meas_group, remaining_count in remaining_meas_count_by_groups.iteritems():
+            birth_lambda = params.birth_lambdas_by_group[meas_group]
+            clutter_lambda = params.clutter_lambdas_by_group[meas_group]
+
+            #use a small value if we never saw one of these groups in our training data            
+            if birth_lambda == 0:
+                birth_lambda = min(params.birth_lambdas_by_group.itervalues())/100000
+            if clutter_lambda == 0:
+                clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100000
+            cur_sum = 0
+            for b_c in range(remaining_count + 1): #we can have 0 to remaining_count births
+                c_c = remaining_count - b_c #the rest of the remaining measurements of this group type are then clutters
+                cur_sum += (birth_lambda**b_c)*(clutter_lambda**c_c)
+            b_c_prob_factor *= cur_sum
+
+        proposal_probability *= b_c_prob_factor #now we have the marginal probability of these measurement associations
+        marginal_meas_target_proposal_distr.append(proposal_probability)
+        proposal_measurement_target_associations.append(list_of_measurement_associations)
+
+
+    marginal_meas_target_proposal_distr = np.asarray(marginal_meas_target_proposal_distr)
+    assert(np.sum(marginal_meas_target_proposal_distr) != 0.0)
+    marginal_meas_target_proposal_distr /= float(np.sum(marginal_meas_target_proposal_distr))
+
+
+    return(meas_grp_means4D, meas_grp_covs, marginal_meas_target_proposal_distr, proposal_measurement_target_associations)
 
 
 
@@ -1302,8 +1428,13 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
     complete_association_possibilities = []
     complete_association_probs = []
 #    for idx, max_assoc_cost in enumerate(params.SPEC['target_detection_max_dists']):
-    for idx in range(3):
-        max_assoc_cost = params.SPEC['coord_ascent_params']['target_detection_max_dists_%d'%idx][0]
+    if params.SPEC['targ_meas_assoc_metric'] == 'distance':
+        max_costs = params.SPEC['target_detection_max_dists']
+    else:
+        assert(params.SPEC['targ_meas_assoc_metric'] == 'box_overlap')
+        max_costs = params.SPEC['target_detection_max_overlaps']
+
+    for max_assoc_cost in max_costs:
         list_of_measurement_associations = min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_assoc_cost)
         proposal_probability = 1.0
 

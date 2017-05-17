@@ -41,8 +41,8 @@ from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
 from learn_params1 import get_meas_target_sets_2sources_general
 from learn_params1 import get_meas_target_sets_1sources_general
 
-#from learn_params1 import get_meas_target_sets_general
-from learn_params1_local import get_meas_target_sets_general
+from learn_params1 import get_meas_target_sets_general
+#from learn_params1_local import get_meas_target_sets_general
 
 from get_test_targetSets import get_meas_target_sets_test
 from generate_data import KITTI_detection_file_to_TargetSet
@@ -96,7 +96,7 @@ if LSTM_MOTION:
 DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
 
 
-PROFILE = False
+PROFILE = True
 USE_GENERATED_DATA = False
 
 PLOT_TARGET_LOCATIONS = False
@@ -2314,8 +2314,8 @@ class RunRBPF(FireTaskBase):
                 for det_name in det_names:
                     SCORE_INTERVALS_DET_USED[det_name] = score_interval_dict_all_det[det_name]
 
-                (measurementTargetSetsBySequence, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, 
-                birth_count_priors, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES, 
+                (measurementTargetSetsBySequence, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group,
+                birth_count_priors, birth_lambdas_by_group, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES, 
                 posAndSize_inv_covariance_blocks, meas_noise_mean, posOnly_covariance_blocks,
                 clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize) =\
                             get_meas_target_sets_general(training_sequences, SCORE_INTERVALS_DET_USED, det_names, \
@@ -2327,7 +2327,7 @@ class RunRBPF(FireTaskBase):
                 print "NOT_BORDER_DEATH_PROBABILITIES: ", NOT_BORDER_DEATH_PROBABILITIES
 
                 params = Parameters(det_names, target_groupEmission_priors, clutter_grpCountByFrame_priors,\
-                         clutter_group_priors, birth_count_priors, posOnly_covariance_blocks, \
+                         clutter_group_priors, clutter_lambdas_by_group, birth_count_priors, birth_lambdas_by_group, posOnly_covariance_blocks, \
                          meas_noise_mean, posAndSize_inv_covariance_blocks, SPEC['R'], H,\
                          USE_PYTHON_GAUSSIAN, SPEC['USE_CONSTANT_R'], SCORE_INTERVALS,\
                          p_birth_likelihood, p_clutter_likelihood, SPEC['CHECK_K_NEAREST_TARGETS'],

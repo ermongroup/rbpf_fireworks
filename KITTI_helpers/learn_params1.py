@@ -2981,6 +2981,12 @@ class MultiDetections_many:
         - clutter_group_priors: dictionary where clutter_group_priors[det_set] is the prior probability
         that a clutter object will emit the set of measurements specified by the immutable set det_set.
         Calculated as: (#clutter objects that emitted det_set in training data)/(#clutter objects in training data)
+
+        - clutter_lambdas_by_group: dictionary where clutter_lambdas_by_group[det_set] is the MLE estimate of the
+            poisson parameter lambda for clutter emissions of this detection set.  This is used for a different
+            clutter model than the above two.  Now we model clutter as occurring as indendent poisson distributions
+            for every detection set.
+
         """
 
         #self.clutter_detections[seq_idx][frame_idx], clutter_groups for the specified sequence and frame
@@ -2995,6 +3001,7 @@ class MultiDetections_many:
         #sources associated together in one group
         clutter_grpCountByFrame_count = defaultdict(int)
         clutter_by_group_count = defaultdict(int)
+
         for seq_idx in range(len(self.clutter_detections)):
             for frame_idx in range(len(self.clutter_detections[seq_idx])):
                 total_frame_count += 1
@@ -3017,6 +3024,10 @@ class MultiDetections_many:
         for det_set, count in clutter_by_group_count.iteritems():
             clutter_group_priors[det_set] = float(count)/total_clutter_group_count    
 
+        clutter_lambdas_by_group = {}
+        for det_set, count in clutter_by_group_count.iteritems():
+            clutter_lambdas_by_group[det_set] = float(count)/total_frame_count    
+
         total_prob = 0.0
         for group_count, prob in clutter_grpCountByFrame_priors.iteritems():
             total_prob += prob
@@ -3027,7 +3038,7 @@ class MultiDetections_many:
             total_prob += prob
         assert(abs(1.0-total_prob) < .0000001), total_prob
 
-        return (clutter_grpCountByFrame_priors, clutter_group_priors)
+        return (clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group)
 
 
     def get_target_groupEmission_priors(self):
@@ -3072,16 +3083,29 @@ class MultiDetections_many:
             Calculated as:
             (number of frames containing n birth gt objects)/(total number of frames)
             where a "birth gt object" is a gt object with id that did not appear in the previous frame
+
+        - birth_lambdas_by_group: dictionary where birth_lambdas_by_group[det_set] is the MLE estimate of the
+            poisson parameter lambda for births of this detection set.  This is used for a different
+             model than birth_count_priors.  Now we model births as occurring as indendent poisson distributions
+            for every detection set.
         """
 
         total_frame_count = 0
         #birth_count_count[5] = 18 means that 18 frames contain 5 birth measurements
         birth_count_count = defaultdict(int)
+        birth_by_group_count = defaultdict(int)
         for seq_idx, frames in enumerate(self.gt_objects):
             for frame_idx, gt_objects_in_frame in enumerate(frames):
                 total_frame_count += 1
                 if frame_idx == 0:
                     birth_count_count[len(gt_objects_in_frame)] += 1
+                    for gt_obj_idx, gt_obj in enumerate(gt_objects_in_frame):
+                        detection_sources_emitted = []                        
+                        for det_name, detection in gt_obj.assoc_dets.iteritems():
+                            detection_sources_emitted.append(det_name)
+                        det_srcs_set = ImmutableSet(detection_sources_emitted)
+                        birth_by_group_count[det_srcs_set] += 1
+
                 else:
                     birth_count_this_frame = 0
                     gt_ids_last_frame = []
@@ -3090,18 +3114,27 @@ class MultiDetections_many:
                     for gt_obj_idx, gt_obj in enumerate(gt_objects_in_frame):
                         if not (gt_obj.track_id in gt_ids_last_frame):
                             birth_count_this_frame+=1
+                            detection_sources_emitted = []                        
+                            for det_name, detection in gt_obj.assoc_dets.iteritems():
+                                detection_sources_emitted.append(det_name)
+                            det_srcs_set = ImmutableSet(detection_sources_emitted)
+                            birth_by_group_count[det_srcs_set] += 1
                     birth_count_count[birth_count_this_frame] += 1
 
         birth_count_priors = {}
         for birth_count, count in birth_count_count.iteritems():
             birth_count_priors[birth_count] = float(count)/total_frame_count
 
+        birth_lambdas_by_group = {}
+        for det_set, count in clutter_by_group_count.iteritems():
+            birth_lambdas_by_group[det_set] = float(count)/total_frame_count    
+
         total_prob = 0.0
         for birth_count, prob in birth_count_priors.iteritems():
             total_prob += prob
         assert(abs(1.0-total_prob) < .0000001)
 
-        return birth_count_priors
+        return (birth_count_priors, birth_lambdas_by_group)
 
 
 
@@ -3459,9 +3492,9 @@ def get_meas_target_sets_general(training_sequences, score_intervals, detection_
     all_detections.check_detection_groups()
 #    sleep(2)
 
-    (clutter_grpCountByFrame_priors, clutter_group_priors) = all_detections.get_clutter_priors()
+    (clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group) = all_detections.get_clutter_priors()
     target_groupEmission_priors = all_detections.get_target_groupEmission_priors()
-    birth_count_priors = all_detections.get_birth_priors()
+    (birth_count_priors, birth_lambdas_by_group) = all_detections.get_birth_priors()
 
     (death_probs_near_border, death_counts_near_border, living_counts_near_border) = all_detections.get_death_probs(near_border = True)
     (death_probs_not_near_border, death_counts_not_near_border, living_counts_not_near_border) = all_detections.get_death_probs(near_border = False)
@@ -3495,15 +3528,15 @@ def get_meas_target_sets_general(training_sequences, score_intervals, detection_
     #BIRTH AND CLUTTER PROBS ARE NOT DOCTORED, NEED TO DO LATER, e.g. replace any missing dictionary entry with epsilon when called
 
     if return_bb_size_info:
-        return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, 
-            birth_count_priors, death_probs_near_border, death_probs_not_near_border, 
+        return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group,
+            birth_count_priors, birth_lambdas_by_group, death_probs_near_border, death_probs_not_near_border, 
             posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks,
             clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize, 
             gt_bounding_box_mean_size, clutter_bounding_box_mean_size, gt_bb_size_var, clutter_bb_size_var)
 
     else:
-        return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, 
-            birth_count_priors, death_probs_near_border, death_probs_not_near_border, 
+        return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group,
+            birth_count_priors, birth_lambdas_by_group, death_probs_near_border, death_probs_not_near_border, 
             posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks,
             clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize)
 

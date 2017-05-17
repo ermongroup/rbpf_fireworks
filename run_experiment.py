@@ -418,8 +418,13 @@ if __name__ == "__main__":
                                                             #target association assignment                             
                                                             'targ_meas_assoc_metric': targ_meas_assoc_metric,
                                                             #propose target measurement association with these distances as the 
-                                                            #maximum allowed distance when finding minimum cost assignment                                     
+                                                            #maximum allowed distance when finding minimum cost assignment  
+                                                            #and 'targ_meas_assoc_metric' = 'distance'                                 
                                                             'target_detection_max_dists': [15, 50, 150],
+                                                            #propose target measurement association with these box overlaps as the 
+                                                            #maximum allowed box overlap when finding minimum cost assignment  
+                                                            #and 'targ_meas_assoc_metric' = 'box_overlap'                                 
+                                                            'target_detection_max_overlaps': [.25, .5, .75],
                                                             'coord_ascent_params':{ #first entry in each list is the parameter value, second is the parameter's alpha value
                                                                 'birth_proposal_prior_const': [1.0, 2.0],
                                                                 'clutter_proposal_prior_const': [1.0, 2.0],
