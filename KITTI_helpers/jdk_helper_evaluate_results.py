@@ -1168,18 +1168,18 @@ class RunEval(FireTaskBase):
             else:
                 return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics_with_%s"%mod_dir: metric_medians}}])
         else:
-######## Switch to this if running compare_proposals_synth_data.py for easier results viewing in database #########
-#            if use_corrected_eval:
-#                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics%s%s"%(fw_spec['proposal_distr'], fw_spec['K_NEAREST_TARGETS']) : metric_medians}}])
-#            else:
-#                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics%s%s"%(fw_spec['proposal_distr'], fw_spec['K_NEAREST_TARGETS']) : metric_medians}}])
-
+####### Switch to this if running compare_proposals_synth_data.py for easier results viewing in database #########
             if use_corrected_eval:
-                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics" : metric_medians,
-                                                                                "number_resamplings": fw_spec['number_resamplings']}}])
+                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics%s%s"%(fw_spec['proposal_distr'], fw_spec['K_NEAREST_TARGETS']) : metric_medians}}])
             else:
-                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics" : metric_medians,
-                                                                                "number_resamplings": fw_spec['number_resamplings']}}])
+                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics%s%s"%(fw_spec['proposal_distr'], fw_spec['K_NEAREST_TARGETS']) : metric_medians}}])
+
+#            if use_corrected_eval:
+#                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics" : metric_medians,
+#                                                                                "number_resamplings": fw_spec['number_resamplings']}}])
+#            else:
+#                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics" : metric_medians,
+#                                                                                "number_resamplings": fw_spec['number_resamplings']}}])
 
 
 @explicit_serialize

@@ -87,13 +87,13 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-SEQUENCES_TO_PROCESS = [i for i in range(21)]
+#SEQUENCES_TO_PROCESS = [i for i in range(21)]
 #SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [11]
 #SEQUENCES_TO_PROCESS = [13,14,15]
-#SEQUENCES_TO_PROCESS = [13]
+SEQUENCES_TO_PROCESS = [13]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
-NUM_PARTICLES_TO_TEST = [25, 100]
+NUM_PARTICLES_TO_TEST = [25]
 
 
 ###################################### Experiment Organization ######################################
@@ -257,8 +257,8 @@ if __name__ == "__main__":
 
 #             ('sequential', None, True),
 #             ('sequential', None, False)]:
-#                for det_names in [['regionlets']]:
-                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
+                for det_names in [['regionlets']]:
+#                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
 #                    for det_names in [['regionlets']]:
 #                        for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
                     for num_particles in NUM_PARTICLES_TO_TEST:

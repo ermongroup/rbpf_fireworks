@@ -61,9 +61,9 @@ from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 
 #local:
-#from fireworks.core.rocket_launcher import rapidfire
+from fireworks.core.rocket_launcher import rapidfire
 #remote:
-from fireworks.queue.queue_launcher import rapidfire
+#from fireworks.queue.queue_launcher import rapidfire
 
 from fireworks.user_objects.queue_adapters.common_adapter import CommonAdapter
 from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
@@ -321,10 +321,10 @@ if __name__ == "__main__":
 
 
 
-#            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False), ('traditional_SIR_gumbel', False), ('optimal', False)]:
+            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False), ('traditional_SIR_gumbel', False), ('optimal', False)]:
 #            for (proposal_distr, check_k_nearest) in [('modified_SIS_gumbel', False), ('traditional_SIR_gumbel', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
 #            for (proposal_distr, check_k_nearest) in [('traditional_SIR_gumbel', False), ('optimal', False), ('min_cost', False), ('sequential', False), ('sequential', True)]:
-            for (proposal_distr, check_k_nearest) in [('sequential', True)]:
+#            for (proposal_distr, check_k_nearest) in [('sequential', True)]:
                 results_folder_name = '%d_particles' % (num_particles)
                 results_folder = '%s/%s_proposal_distr=%s,check_k=%s' % \
                     (data_folder, results_folder_name, proposal_distr, check_k_nearest)
@@ -430,14 +430,14 @@ if __name__ == "__main__":
     # store workflow and launch it
     workflow = Workflow(all_fireworks, firework_dependencies)
     #local
-#    launchpad.add_wf(workflow)
-#    rapidfire(launchpad, FWorker())
-    #remote
     launchpad.add_wf(workflow)
-    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
-    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
-                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
-                  fill_mode=False)
+    rapidfire(launchpad, FWorker())
+    #remote
+#    launchpad.add_wf(workflow)
+#    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
+#    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
+#                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
+#                  fill_mode=False)
 
 
 
