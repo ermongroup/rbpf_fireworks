@@ -41,8 +41,8 @@ from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
 from learn_params1 import get_meas_target_sets_2sources_general
 from learn_params1 import get_meas_target_sets_1sources_general
 
-#from learn_params1 import get_meas_target_sets_general
-from learn_params1_local import get_meas_target_sets_general
+from learn_params1 import get_meas_target_sets_general
+#from learn_params1_local import get_meas_target_sets_general
 
 from get_test_targetSets import get_meas_target_sets_test
 from generate_data import KITTI_detection_file_to_TargetSet
@@ -1488,7 +1488,7 @@ def modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, c
             (meas_associations, dead_target_indices, max_log_prob) = \
                 solve_perturbed_max_gumbel(particle, meas_groups, len(particle.targets.living_targets), 
                 p_target_deaths, params)
-#                solve_perturbed_max_gumbel(particle, meas_groups, len(particle.targets.living_targets), 
+#                solve_perturbed_max_gumbel_exact(particle, meas_groups, len(particle.targets.living_targets), 
 #                p_target_deaths, params)
 
             #add log(p_hat(x_1:k-1|y_1:k-1)) to max(log(p(x_k, y_k | x_1:k-1, y_1:k-1))) 

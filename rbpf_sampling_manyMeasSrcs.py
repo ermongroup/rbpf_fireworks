@@ -462,9 +462,9 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
     assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost', 'min_cost_corrected', 'optimal', 'traditional_SIR_gumbel'])
     if params.SPEC['proposal_distr'] == 'traditional_SIR_gumbel':
         (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, targets_to_kill) = \
-            associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_deaths, params)        
-#            associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params,\
-#            meas_counts_by_source)
+            associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params,\
+            meas_counts_by_source)
+#            associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params)        
 
         unassociated_target_death_probs = []
         for i in range(total_target_count):
