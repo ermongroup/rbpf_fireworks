@@ -89,13 +89,13 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-SEQUENCES_TO_PROCESS = [i for i in range(21)]
+#SEQUENCES_TO_PROCESS = [i for i in range(21)]
 #SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [11]
 #SEQUENCES_TO_PROCESS = [13,14,15]
-#SEQUENCES_TO_PROCESS = [13]
+SEQUENCES_TO_PROCESS = [13]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
-NUM_PARTICLES_TO_TEST = [100]
+NUM_PARTICLES_TO_TEST = [5, 10, 50]
 
 
 ###################################### Experiment Organization ######################################
@@ -245,10 +245,16 @@ if __name__ == "__main__":
     birth_clutter_model = 'poisson'
     birth_clutter_likelihood = 'aprox1'
     scale_prior_by_meas_orderings = 'count_multi_src_orderings'
+
+    targ_meas_assoc_metric = None
+    check_k_nearest = None
     for train_test in ['train']:
         for online_delay in [0]:
-            for (proposal_distr, targ_meas_assoc_metric, check_k_nearest) in \
-            [('modified_SIS_gumbel', 'distance', None)]:  
+            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .5), \
+            ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 2), ('modified_SIS_gumbel', 3), ('modified_SIS_gumbel', 5), \
+             ('modified_SIS_gumbel', .25)]:
+#            for (proposal_distr, targ_meas_assoc_metric, check_k_nearest) in \
+#            [('modified_SIS_gumbel', 'distance', None)]:  
 #            [('modified_SIS_min_cost', 'distance', None),
 #             ('min_cost', 'distance', None),
 #             ('min_cost_corrected', 'distance', None)]:   
@@ -271,9 +277,9 @@ if __name__ == "__main__":
                         description_of_run = get_description_of_run_gen_detections(include_ignored_gt, include_dontcare_in_gt,
                                         sort_dets_on_intervals, det_names)
                         results_folder_name = '%s/%d_particles' % (description_of_run, num_particles)
-                        results_folder = '%s/%s/%s_onine_delay=%d,proposal_distr=%s,targ_meas_assoc_metric=%s,check_k_nearest=%s' % \
+                        results_folder = '%s/%s/%s_onine_delay=%d,proposal_distr=%s,targ_meas_assoc_metric=%s,check_k_nearest=%s,gumbel_scale=%f' % \
                             (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name, online_delay,
-                            proposal_distr,targ_meas_assoc_metric,check_k_nearest)
+                            proposal_distr,targ_meas_assoc_metric,check_k_nearest, gumbel_scale)
                                                                         
                         setup_results_folder(results_folder)
                         run_rbpf_fireworks = []            
@@ -345,7 +351,8 @@ if __name__ == "__main__":
                                 'birth_clutter_model':birth_clutter_model,
                                 #the number of samples we will use to compute the expected value of the partition function 
                                 #using an approximation to the Gumbel max trick
-                                'num_gumbel_partition_samples': 20 }                                                    
+                                'num_gumbel_partition_samples': 20,
+                                'gumbel_scale': gumbel_scale }                                                    
                                 cur_firework = Firework(RunRBPF(), spec=cur_spec)
         #                       cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
 
