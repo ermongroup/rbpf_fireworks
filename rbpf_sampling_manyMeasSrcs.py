@@ -19,7 +19,7 @@ PRIOR_EPSILON = .000000001
 
 class Parameters:
     def __init__(self, det_names, target_groupEmission_priors, clutter_grpCountByFrame_priors,\
-                 clutter_group_priors, birth_count_priors, posOnly_covariance_blocks, \
+                 clutter_group_priors, clutter_lambdas_by_group, birth_count_priors, birth_lambdas_by_group, posOnly_covariance_blocks, \
                  meas_noise_mean, posAndSize_inv_covariance_blocks, R_default, H,\
                  USE_PYTHON_GAUSSIAN, USE_CONSTANT_R, score_intervals,\
                  p_birth_likelihood, p_clutter_likelihood, CHECK_K_NEAREST_TARGETS,
@@ -40,10 +40,29 @@ class Parameters:
 
         #dictionary where target_groupEmission_priors[det_set] is the prior probability
         #that a ground truth object will emit the set of measurements specified by the immutable set det_set.
-        self.target_groupEmission_priors = target_groupEmission_priors 
+        self.target_groupEmission_priors = target_groupEmission_priors
+        check_prior_emission_distr = 0.0
+        for grp, prob in self.target_groupEmission_priors.iteritems():
+            check_prior_emission_distr+=prob
+        assert(np.isclose(check_prior_emission_distr, 1.0, rtol=1e-04, atol=1e-04))
+
+
         self.clutter_grpCountByFrame_priors = clutter_grpCountByFrame_priors
         self.clutter_group_priors = clutter_group_priors
+
+        #dictionary where clutter_by_group_count[det_set] is the MLE estimate of the
+        #    poisson parameter lambda for clutter emissions of this detection set.  This is used for a different
+        #    clutter model than the above two.  Now we model clutter as occurring as indendent poisson distributions
+        #    for every detection set.
+        self.clutter_lambdas_by_group = clutter_lambdas_by_group
+
         self.birth_count_priors = birth_count_priors #dictionary, where birth_count_priors[n] is the prior probability of observing n births in a frame.
+
+        #birth_lambdas_by_group: dictionary where birth_lambdas_by_group[det_set] is the MLE estimate of the
+        #    poisson parameter lambda for births of this detection set.  This is used for a different
+        #     model than birth_count_priors.  Now we model births as occurring as indendent poisson distributions
+        #    for every detection set.
+        self.birth_lambdas_by_group = birth_lambdas_by_group
 
         self.posOnly_covariance_blocks = posOnly_covariance_blocks #posOnly_covariance_blocks[(det_name1, det_name2)] = posOnly_cov_block_12
 
@@ -98,6 +117,20 @@ class Parameters:
         #print "posOnly_covariance_blocks: ", self.posOnly_covariance_blocks
         #print "meas_noise_mean: ", self.meas_noise_mean
         #print "posAndSize_inv_covariance_blocks: ", self.posAndSize_inv_covariance_blocks
+
+    def get_all_possible_measurement_groups(self):
+        '''
+        Outputs: 
+        - all_measurement_groups: list of ImmutableSet objects with length ((2^#measurement sources)-1).  All possible groups
+            of measurements are enumerated in the list.
+        '''
+        all_measurement_groups = []
+        for group_size in range(1, len(self.det_names) + 1):
+            cur_det_combos = combinations(self.det_names, group_size)
+            for det_combo in cur_det_combos:
+                all_measurement_groups.append(ImmutableSet(det_combo))
+        assert(len(all_measurement_groups) == 2**len(self.det_names) - 1)
+        return all_measurement_groups
 
     def birth_groupCount_prior(self, group_count):
         if self.birth_clutter_model == "training_counts":
@@ -426,12 +459,12 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
 #    FIXME measurement_associations, proposal_probability
 ############################################################################################################
     #New implementation
-    assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost', 'optimal', 'traditional_SIR_gumbel'])
+    assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost', 'min_cost_corrected', 'optimal', 'traditional_SIR_gumbel'])
     if params.SPEC['proposal_distr'] == 'traditional_SIR_gumbel':
         (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, targets_to_kill) = \
-            associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_deaths, params)        
-#            associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params,\
-#            meas_counts_by_source)
+            associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params,\
+            meas_counts_by_source)
+#            associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params)        
 
         unassociated_target_death_probs = []
         for i in range(total_target_count):
@@ -456,6 +489,11 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
             (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
             associate_meas_min_cost(particle, meas_groups, total_target_count, \
             p_target_deaths, params)
+
+        elif params.SPEC['proposal_distr'] == 'min_cost_corrected':
+            (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
+            associate_meas_min_cost_corrected(particle, meas_groups, total_target_count, \
+            p_target_deaths, params)        
 
         else: 
             assert(params.SPEC['proposal_distr'] == 'optimal')
@@ -519,9 +557,6 @@ def min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_as
     # build cost matrix
     cost_matrix = []
     this_ids = [[],[]]
-
-    if params.SPEC['targ_meas_assoc_metric'] == 'box_overlap':
-        max_assoc_cost = .5 #following KITTI evaluation criteria for overlap
 
     for cur_detection in meas_grp_means4D:
         cost_row = []
@@ -704,7 +739,7 @@ def solve_gumbel_perturbed_assignment(log_probs, ubc_count):
 
     #solve convex optimization problem
     A = cvx.Variable(log_probs.shape[0], log_probs.shape[1])
-    objective = cvx.Maximize(cvx.trace((log_probs)*(A.T)) + cvx.trace(G*(A.T))/number_of_assignments)
+    objective = cvx.Maximize(cvx.trace((log_probs)*(A.T)) + cvx.trace(G*(A.T))/number_of_assignments*5) #SUPER HACKYISH
     constraints = [A>=0]                   
     for i in range(log_probs.shape[0]-2):
         constraints.append(cvx.sum_entries(A[i, :]) == 1)
@@ -799,50 +834,6 @@ def associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_de
 
     return(meas_associations, meas_grp_means4D, meas_grp_covs, proposal_probability, dead_target_indices)
 
-
-
-def convert_assignment_matrix(assignment_matrix):
-    '''
-    Inputs:
-    - assignment_matrix: numpy arrays with dimensions (measurement_count+2, target_count+2).
-        representing a state of measurement associations and whether each unobserved target
-        is alive or dead.
-
-    Outputs:
-    - meas_associations: list of integers, the measurement associations represented by assignment_matrix.
-        where meas_associations[j] is an integer representing the association of the jth measurement with:
-            clutter = -1
-            target association = [0,target_count-1]
-            birth = target_count
-    - dead_target_indices: list of integers, of length #dead targets.  if target_idx = i in [0,target_count-1]
-        is in the list dead_target_indices, target i died.
-    
-    '''
-    meas_associations = []
-    measurement_count = assignment_matrix.shape[0] - 2
-    target_count = assignment_matrix.shape[1] - 2
-    dies_row_idx = measurement_count + 1
-
-    #read off assignments
-    for m_idx in range(measurement_count):
-        for assign_idx in range(target_count+2):
-            if (np.isclose(assignment_matrix[m_idx,assign_idx], 1, rtol=1e-04, atol=1e-04)):
-                if assign_idx < target_count: #target association
-                    meas_associations.append(assign_idx)
-                elif assign_idx == target_count: #clutter
-                    meas_associations.append(-1)
-                else: #birth
-                    meas_associations.append(target_count)
-    assert(len(meas_associations) == measurement_count)
-
-    #read off target deaths
-    dead_target_indices = []
-    for target_idx in range(target_count):
-        if (np.isclose(assignment_matrix[dies_row_idx,target_idx], 1, rtol=1e-04, atol=1e-04)):
-            dead_target_indices.append(target_idx)    
-
-    return(meas_associations, dead_target_indices)
-
 def construct_log_probs_matrix(particle, meas_groups, total_target_count, p_target_deaths, params):
     '''
     ONLY WORKS WITH 1 measurement source
@@ -906,6 +897,485 @@ def construct_log_probs_matrix(particle, meas_groups, total_target_count, p_targ
             math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
    
     return log_probs
+
+
+def convert_assignment_matrix(assignment_matrix):
+    '''
+    use along with construct_log_probs_matrix()
+    Inputs:
+    - assignment_matrix: numpy arrays with dimensions (measurement_count+2, target_count+2).
+        representing a state of measurement associations and whether each unobserved target
+        is alive or dead.
+
+    Outputs:
+    - meas_associations: list of integers, the measurement associations represented by assignment_matrix.
+        where meas_associations[j] is an integer representing the association of the jth measurement with:
+            clutter = -1
+            target association = [0,target_count-1]
+            birth = target_count
+    - dead_target_indices: list of integers, of length #dead targets.  if target_idx = i in [0,target_count-1]
+        is in the list dead_target_indices, target i died.
+    
+    '''
+    meas_associations = []
+    measurement_count = assignment_matrix.shape[0] - 2
+    target_count = assignment_matrix.shape[1] - 2
+    dies_row_idx = measurement_count + 1
+
+    #read off assignments
+    for m_idx in range(measurement_count):
+        for assign_idx in range(target_count+2):
+            if (np.isclose(assignment_matrix[m_idx,assign_idx], 1, rtol=5e-02, atol=5e-02)):
+                if assign_idx < target_count: #target association
+                    meas_associations.append(assign_idx)
+                elif assign_idx == target_count: #clutter
+                    meas_associations.append(-1)
+                else: #birth
+                    meas_associations.append(target_count)
+    assert(len(meas_associations) == measurement_count), (assignment_matrix, meas_associations)
+
+    #read off target deaths
+    dead_target_indices = []
+    for target_idx in range(target_count):
+        if (np.isclose(assignment_matrix[dies_row_idx,target_idx], 1, rtol=1e-04, atol=1e-04)):
+            dead_target_indices.append(target_idx)    
+
+    return(meas_associations, dead_target_indices)
+
+def construct_log_probs_matrix2(particle, meas_groups, total_target_count, p_target_deaths, params):
+    '''
+    M = #measurements
+    T = #targets
+
+    Inputs:
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle         
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
+    - total_target_count: the number of living targets on the previous time instace
+    - p_target_deaths: a list of length len(total_target_count) where 
+        p_target_deaths[i] = the probability that target i has died between the last
+        time instance and the current time instance
+    - params: type Parameters, gives prior probabilities and other parameters we are using
+
+    Outputs:
+    - log_probs: numpy matrix with dimensions (M+2T)x(T+2M) of log probabilities.
+        np.trace(np.dot(log_probs,A.T) will be the log probability of an assignment A, given our
+        Inputs.  (Where an assignment defines measurement associations to targets, and is marginalized
+    '''
+    #construct a (M+2T)x(T+2M) matrix of log probabilities
+    M = len(meas_groups)
+    T = total_target_count
+    log_probs = -1*np.ones((M + 2*T, T + 2*M))
+    log_probs *= 99999999999 #setting all entries to very negative value
+
+    p_target_does_not_emit = params.target_groupEmission_priors[ImmutableSet([])]
+
+    print 'log_probs1:'
+    print log_probs
+
+    #calculate log probs for target association entries in the log-prob matrix
+
+    for t_idx in range(T):
+        for m_idx in range(M):
+        #calculate log probs for measurement-target association entries in the log-prob matrix
+            likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
+            assert(likelihood >= 0.0), likelihood
+            if likelihood > 0.0:
+                cur_prob = math.log(likelihood)
+            else:
+                cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
+            cur_prob += math.log(params.target_groupEmission_priors[get_immutable_set_meas_names(meas_groups[m_idx])]) 
+            log_probs[m_idx][t_idx] = cur_prob
+
+        #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
+        lives_row_idx = M + 2*t_idx
+        dies_row_idx = M + 1 + 2*t_idx
+        #would probably be better to kill offscreen targets before association
+        if(particle.targets.living_targets[t_idx].offscreen == True):
+            cur_death_prob = .999999999999 #sloppy should define an epsilon or something
+        else:
+            cur_death_prob = particle.targets.living_targets[t_idx].death_prob
+        if cur_death_prob == 1.0:
+            log_probs[lives_row_idx][t_idx] = -999
+        else:
+            log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
+            log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
+
+    print 'log_probs2:'
+    print log_probs
+
+    #add birth/clutter measurement association entries to the log-prob matrix
+    for m_idx in range(M):
+        print 'log_probs3:'
+        print log_probs
+
+        clutter_col = T + 2*m_idx
+        birth_col = T + 1 + 2*m_idx
+        assert(params.SPEC['birth_clutter_likelihood'] == 'aprox1')
+        log_probs[m_idx][clutter_col] = math.log(params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
+            math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
+        log_probs[m_idx][birth_col] = math.log(params.birth_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
+            math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
+    print 'log_probs4:'
+    print log_probs
+
+    #set bottom right quadrant to 0's
+    for row_idx in range(M, M+2*T):
+        for col_idx in range(T, T+2*M):
+            log_probs[row_idx][col_idx] = 0.0
+    print 'log_probs5:'
+    print log_probs
+
+    return log_probs
+
+def convert_assignment_matrix2(assignment_matrix, M, T):
+    '''  
+    use along with construct_log_probs_matrix2()
+    Inputs:
+    - assignment_matrix: numpy arrays with dimensions (measurement_count+2, target_count+2).
+        representing a state of measurement associations and whether each unobserved target
+        is alive or dead.
+    - M: #measurements (int)
+    - T: #targets (int)
+
+    Outputs:
+    - meas_associations: list of integers, the measurement associations represented by assignment_matrix.
+        where meas_associations[j] is an integer representing the association of the jth measurement with:
+            clutter = -1
+            target association = [0,target_count-1]
+            birth = target_count
+    - dead_target_indices: list of integers, of length #dead targets.  if target_idx = i in [0,target_count-1]
+        is in the list dead_target_indices, target i died.
+    
+    '''
+    meas_associations = []
+
+    #read off assignments
+    for m_idx in range(M):
+        cur_meas_assoc = None
+        clutter_col = T + 2*m_idx
+        birth_col = T + 1 + 2*m_idx
+        for t_idx in range(T):
+            if (np.isclose(assignment_matrix[m_idx,t_idx], 1, rtol=1e-02, atol=1e-02)):
+                cur_meas_assoc = t_idx
+        #clutter
+        if cur_meas_assoc == None and np.isclose(assignment_matrix[m_idx,clutter_col], 1, rtol=1e-02, atol=1e-02):
+            cur_meas_assoc = -1
+        #birth
+        if cur_meas_assoc == None:
+            assert(np.isclose(assignment_matrix[m_idx,birth_col], 1, rtol=1e-02, atol=1e-02)), (assignment_matrix, M, T, m_idx, birth_col, assignment_matrix[m_idx,birth_col])
+            cur_meas_assoc = T
+        meas_associations.append(cur_meas_assoc)
+
+    assert(len(meas_associations) == M)
+
+    #read off target deaths
+    dead_target_indices = []
+    for t_idx in range(T):
+        #target is unassociated
+        if not t_idx in meas_associations:
+            lives_row_idx = M + 2*t_idx
+            dies_row_idx = M + 1 + 2*t_idx
+            if (np.isclose(assignment_matrix[dies_row_idx,t_idx], 1, rtol=1e-02, atol=1e-02)):
+                dead_target_indices.append(t_idx)
+            else:
+                assert(np.isclose(assignment_matrix[lives_row_idx,t_idx], 1, rtol=1e-02, atol=1e-02))
+
+    return(meas_associations, dead_target_indices)
+
+def solve_gumbel_perturbed_assignment2(log_probs, M, T):
+    '''
+    use along with construct_log_probs_matrix2()
+
+
+    BELOW WASN"T CHECKED FROM COPYING FROM solve_gumbel_perturbed_assignment  
+    We would like to sample from the optimal proposal distribution p(x_k|y_1:k, x_1:k-1),
+    the normalization constant is intractable to compute.  We can compute p(y_k, x_k|y_1:k-1, x_1:k-1),
+    which is proporitional to p(x_k|y_1:k, x_1:k-1).  Max(p(y_k, x_k|y_1:k-1, x_1:k-1)) can be
+    found by solving a linear program given a matrix log probabilities.  We approximate adding gumbel 
+    noise to every possible assignment(which would require a combinatorial number of Gumbels), 
+    by adding a Gumbel to each entry of the log_probs matrix.  Instead of taking the maximum of 
+    each of these Gumbels (which would make the problem nonconvex) we further approximate by summing them.
+
+    Inputs:
+    - log_probs: numpy matrix with dimensions (#measurements + 2, #targets + 2)
+    - M: #measurements (int)
+    - T: #targets (int)
+
+    Outpus:
+    - assigment: numpy matrix with same dimensions as log_probs, this is the assignment that results
+        the largest log probability after perturbing log_probs with Gumbel noise
+
+    - max_log_prob: this is the value of trace((log_probs+Gumbel_Noise)*assignment.T)
+
+    '''
+    #sample a Gumbel matrix
+    G = numpy.random.gumbel(loc=0.0, scale=1.0, size=(log_probs.shape[0], log_probs.shape[1]))
+
+    number_of_assignments = M + T
+
+    #solve convex optimization problem
+    A = cvx.Variable(log_probs.shape[0], log_probs.shape[1])
+    objective = cvx.Maximize(cvx.trace((log_probs)*(A.T)) + cvx.trace(G*(A.T))/number_of_assignments) 
+    constraints = [A>=0]                   
+    for row_idx in range(M):
+        constraints.append(cvx.sum_entries(A[row_idx, :]) == 1)
+    for col_idx in range(T):
+        constraints.append(cvx.sum_entries(A[:, col_idx]) == 1)
+
+    for row_idx in range(M, M+2*T, 2):
+        constraints.append(cvx.sum_entries(A[row_idx, :])
+                         + cvx.sum_entries(A[row_idx+1, :]) == 1)
+    for col_idx in range(T, T+2*M, 2):
+        constraints.append(cvx.sum_entries(A[:, col_idx])
+                         + cvx.sum_entries(A[:, col_idx+1]) == 1)
+
+#    for idx, cur_solver in enumerate([cvx.CVXOPT, cvx.ECOS_BB, cvx.SCS, cvx.ECOS]):
+    for idx, cur_solver in enumerate([cvx.SCS, cvx.ECOS]):
+        prob = cvx.Problem(objective, constraints)
+        print idx
+        prob.solve(solver=cur_solver)
+        assignment = A.value
+        max_log_prob = prob.value
+        print "assignment:", assignment
+        print "max_log_prob:", assignment
+
+    assert(np.isclose(np.sum(assignment), number_of_assignments, rtol=1e-02, atol=1e-02))
+    return(assignment, max_log_prob)
+
+
+
+
+
+
+
+
+
+def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_target_deaths, params):
+    '''
+    M = #measurements
+    T = #targets
+
+    Inputs:
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle         
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
+    - total_target_count: the number of living targets on the previous time instace
+    - p_target_deaths: a list of length len(total_target_count) where 
+        p_target_deaths[i] = the probability that target i has died between the last
+        time instance and the current time instance
+    - params: type Parameters, gives prior probabilities and other parameters we are using
+
+    Outputs:
+    - log_probs: numpy matrix with dimensions (2*M+2*T)x(2*M+2*T) of log probabilities.
+        np.trace(np.dot(log_probs,A.T) will be the log probability of an assignment A, given our
+        Inputs.  (Where an assignment defines measurement associations to targets, and is marginalized
+    '''
+    #construct a (2*M+2*T)x(2*M+2*T) matrix of log probabilities
+    M = len(meas_groups)
+    T = total_target_count
+    log_probs = np.ones((2*M + 2*T, 2*T + 2*M))
+    log_probs *= -99999999999 #setting all entries to very negative value
+
+    p_target_does_not_emit = params.target_groupEmission_priors[ImmutableSet([])]
+
+#    print 'log_probs1:'
+#    print log_probs
+
+    #calculate log probs for target association entries in the log-prob matrix
+
+    for t_idx in range(T):
+        for m_idx in range(M):
+        #calculate log probs for measurement-target association entries in the log-prob matrix
+            likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
+            assert(likelihood >= 0.0), likelihood
+            if likelihood > 0.0:
+                cur_prob = math.log(likelihood)
+            else:
+                cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
+            cur_prob += math.log(params.target_groupEmission_priors[get_immutable_set_meas_names(meas_groups[m_idx])]) 
+            log_probs[m_idx][t_idx] = cur_prob
+
+        #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
+        lives_row_idx = M + 2*t_idx
+        dies_row_idx = M + 1 + 2*t_idx
+        #would probably be better to kill offscreen targets before association
+        if(particle.targets.living_targets[t_idx].offscreen == True):
+            cur_death_prob = .999999999999 #sloppy should define an epsilon or something
+        else:
+            cur_death_prob = particle.targets.living_targets[t_idx].death_prob
+        if(cur_death_prob == 1.0):
+            cur_death_prob = .99999999999 #still getting an error with domain error, trying this
+        assert(p_target_does_not_emit > 0)
+        log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
+        log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
+
+#    print 'log_probs2:'
+#    print log_probs
+
+    #add birth/clutter measurement association entries to the log-prob matrix
+    for m_idx in range(M):
+#        print 'log_probs3:'
+#        print log_probs
+
+        clutter_col = T + 2*m_idx
+        birth_col = T + 1 + 2*m_idx
+        assert(params.SPEC['birth_clutter_likelihood'] == 'aprox1')
+
+        if get_immutable_set_meas_names(meas_groups[m_idx]) in params.birth_lambdas_by_group:
+            birth_lambda = params.birth_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]
+        if not get_immutable_set_meas_names(meas_groups[m_idx]) in params.birth_lambdas_by_group or birth_lambda == 0:
+            #use a small value if we never saw one of these groups in our training data            
+            birth_lambda = min(params.birth_lambdas_by_group.itervalues())/100
+
+        if get_immutable_set_meas_names(meas_groups[m_idx]) in params.clutter_lambdas_by_group:
+            clutter_lambda = params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]
+        if not get_immutable_set_meas_names(meas_groups[m_idx]) in params.clutter_lambdas_by_group or clutter_lambda == 0:
+            clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100
+
+
+        log_probs[m_idx][clutter_col] = math.log(clutter_lambda) + \
+            math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
+        log_probs[m_idx][birth_col] = math.log(birth_lambda) + \
+            math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
+        #HACKING BELOW!!!
+#        log_probs[m_idx][birth_col] = math.log(params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
+#            math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
+#    print 'log_probs4:'
+#    print log_probs
+
+    #set bottom right quadrant to 0's
+    for row_idx in range(M, 2*M+2*T):
+        for col_idx in range(T, 2*T+2*M):
+            log_probs[row_idx][col_idx] = 0.0
+#    print 'log_probs5:'
+#    print log_probs
+
+    return log_probs
+
+def convert_assignment_matrix3(assignment_matrix, M, T):
+    '''  
+
+    M = #measurements
+    T = #targets
+    use along with construct_log_probs_matrix3()
+    Inputs:
+    - assignment_matrix: numpy arrays with dimensions (2*M+2*T)x(2*M+2*T).
+        representing a state of measurement associations and whether each unobserved target
+        is alive or dead.
+    - M: #measurements (int)
+    - T: #targets (int)
+
+    Outputs:
+    - meas_associations: list of integers, the measurement associations represented by assignment_matrix.
+        where meas_associations[j] is an integer representing the association of the jth measurement with:
+            clutter = -1
+            target association = [0,target_count-1]
+            birth = target_count
+    - dead_target_indices: list of integers, of length #dead targets.  if target_idx = i in [0,target_count-1]
+        is in the list dead_target_indices, target i died.
+    
+    '''
+    meas_associations = []
+
+    #read off assignments
+    for m_idx in range(M):
+        cur_meas_assoc = None
+        clutter_col = T + 2*m_idx
+        birth_col = T + 1 + 2*m_idx
+        for t_idx in range(T):
+            if (np.isclose(assignment_matrix[m_idx,t_idx], 1, rtol=1e-02, atol=1e-02)):
+                cur_meas_assoc = t_idx
+        #clutter
+        if cur_meas_assoc == None and np.isclose(assignment_matrix[m_idx,clutter_col], 1, rtol=1e-02, atol=1e-02):
+            cur_meas_assoc = -1
+        #birth
+        if cur_meas_assoc == None:
+            assert(np.isclose(assignment_matrix[m_idx,birth_col], 1, rtol=1e-02, atol=1e-02)), (assignment_matrix, M, T, m_idx, birth_col, assignment_matrix[m_idx,birth_col])
+            cur_meas_assoc = T
+        meas_associations.append(cur_meas_assoc)
+
+    assert(len(meas_associations) == M)
+
+    #read off target deaths
+    dead_target_indices = []
+    for t_idx in range(T):
+        #target is unassociated
+        if not t_idx in meas_associations:
+            lives_row_idx = M + 2*t_idx
+            dies_row_idx = M + 1 + 2*t_idx
+            if (np.isclose(assignment_matrix[dies_row_idx,t_idx], 1, rtol=1e-02, atol=1e-02)):
+                dead_target_indices.append(t_idx)
+            else:
+                assert(np.isclose(assignment_matrix[lives_row_idx,t_idx], 1, rtol=1e-02, atol=1e-02))
+
+    return(meas_associations, dead_target_indices)
+
+def solve_gumbel_perturbed_assignment3(log_probs, M, T):
+    '''
+    use along with construct_log_probs_matrix3()
+
+
+    BELOW DESCRIPTION WASN"T CHECKED FROM COPYING FROM solve_gumbel_perturbed_assignment  
+    We would like to sample from the optimal proposal distribution p(x_k|y_1:k, x_1:k-1),
+    the normalization constant is intractable to compute.  We can compute p(y_k, x_k|y_1:k-1, x_1:k-1),
+    which is proporitional to p(x_k|y_1:k, x_1:k-1).  Max(p(y_k, x_k|y_1:k-1, x_1:k-1)) can be
+    found by solving a linear program given a matrix log probabilities.  We approximate adding gumbel 
+    noise to every possible assignment(which would require a combinatorial number of Gumbels), 
+    by adding a Gumbel to each entry of the log_probs matrix.  Instead of taking the maximum of 
+    each of these Gumbels (which would make the problem nonconvex) we further approximate by summing them.
+
+    Inputs:
+    - log_probs: numpy matrix with dimensions (#measurements + 2, #targets + 2)
+    - M: #measurements (int)
+    - T: #targets (int)
+
+    Outpus:
+    - assigment: numpy matrix with same dimensions as log_probs, this is the assignment that results
+        the largest log probability after perturbing log_probs with Gumbel noise
+
+    - max_log_prob: this is the value of trace((log_probs+Gumbel_Noise)*assignment.T)
+
+    '''
+    number_of_assignments = 2*(M + T)
+
+    #sample a Gumbel matrix
+    G = numpy.random.gumbel(loc=0.0, scale=1.0, size=(log_probs.shape[0], log_probs.shape[1]))
+    G /= number_of_assignments
+
+    #solve convex optimization problem
+    A = cvx.Variable(log_probs.shape[0], log_probs.shape[1])
+    objective = cvx.Maximize(cvx.trace((log_probs)*(A.T)) + cvx.trace(G*(A.T))/number_of_assignments) 
+    constraints = [A>=0]                   
+    for row_idx in range(2*(M + T)):
+        constraints.append(cvx.sum_entries(A[row_idx, :]) == 1)
+    for col_idx in range(2*(M + T)):
+        constraints.append(cvx.sum_entries(A[:, col_idx]) == 1)
+
+######    for idx, cur_solver in enumerate([cvx.CVXOPT, cvx.ECOS_BB, cvx.SCS, cvx.ECOS]):
+#####    for idx, cur_solver in enumerate([cvx.SCS, cvx.ECOS]):
+#####        prob = cvx.Problem(objective, constraints)
+#####        print idx
+#####        prob.solve(solver=cur_solver)
+#####        assignment = A.value
+#####        max_log_prob = prob.value
+#####        print "assignment:", assignment
+#####        print "max_log_prob:", assignment
+
+    prob = cvx.Problem(objective, constraints)
+    prob.solve(solver=cvx.SCS)
+    assignment = A.value
+    max_log_prob = prob.value
+
+    assert(np.isclose(np.sum(assignment), number_of_assignments, rtol=1e-02, atol=1e-02))
+    return(assignment, max_log_prob)
+
+
+
+
+
+
+
 
 
 def associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params, meas_counts_by_source):
@@ -1032,26 +1502,50 @@ def solve_perturbed_max_gumbel(particle, meas_groups, total_target_count, p_targ
 
 
     '''
-    log_probs = construct_log_probs_matrix(particle, meas_groups, total_target_count, p_target_deaths, params)
+    USE_LOG_PROBS_3 = False
 
-    #solve a perturbed assignment problem where the number of unobserved targets, clutter measurements
-    #and birth measurements must sum to ubc_count for every possible value that ubc_count can take
-    assignment = None
-    max_log_prob = None
-    for ubc_count in range(np.abs(len(meas_groups) - total_target_count), len(meas_groups) + total_target_count + 1, 2):
-        (cur_assignment, cur_max_log_prob) = solve_gumbel_perturbed_assignment(log_probs, ubc_count)
-        if max_log_prob == None or cur_max_log_prob > max_log_prob:
-            assignment = cur_assignment
-            max_log_prob = cur_max_log_prob
+    if USE_LOG_PROBS_3:
+        log_probs = construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_target_deaths, params)
 
-#not used here, but should probably combine this function with where used in traditional SIR gumbel
-#    unnormalized_log_proposal_probability = np.trace(np.dot(log_probs, assignment.T))
-#    unnormalized_proposal_probability = np.exp(unnormalized_log_proposal_probability)
+        #solve a perturbed assignment problem 
+        (assignment, max_log_prob) = solve_gumbel_perturbed_assignment3(log_probs, len(meas_groups), total_target_count)
+        print 'log_probs:',
+        print log_probs
 
-    (meas_associations, dead_target_indices) = convert_assignment_matrix(assignment)
+        print 'assignment:',
+        print assignment
+
+        print 'max_log_prob:', max_log_prob
+
+    #not used here, but should probably combine this function with where used in traditional SIR gumbel
+    #    unnormalized_log_proposal_probability = np.trace(np.dot(log_probs, assignment.T))
+    #    unnormalized_proposal_probability = np.exp(unnormalized_log_proposal_probability)
+
+        (meas_associations, dead_target_indices) = convert_assignment_matrix3(assignment, len(meas_groups), total_target_count)
 
 
-    return(meas_associations, dead_target_indices, max_log_prob)
+        return(meas_associations, dead_target_indices, max_log_prob)
+    else:
+        log_probs = construct_log_probs_matrix(particle, meas_groups, total_target_count, p_target_deaths, params)
+
+        #solve a perturbed assignment problem where the number of unobserved targets, clutter measurements
+        #and birth measurements must sum to ubc_count for every possible value that ubc_count can take
+        assignment = None
+        max_log_prob = None
+        for ubc_count in range(np.abs(len(meas_groups) - total_target_count), len(meas_groups) + total_target_count + 1, 2):
+            (cur_assignment, cur_max_log_prob) = solve_gumbel_perturbed_assignment(log_probs, ubc_count)
+            if max_log_prob == None or cur_max_log_prob > max_log_prob:
+                assignment = cur_assignment
+                max_log_prob = cur_max_log_prob
+
+    #not used here, but should probably combine this function with where used in traditional SIR gumbel
+    #    unnormalized_log_proposal_probability = np.trace(np.dot(log_probs, assignment.T))
+    #    unnormalized_proposal_probability = np.exp(unnormalized_log_proposal_probability)
+
+        (meas_associations, dead_target_indices) = convert_assignment_matrix(assignment)
+
+
+        return(meas_associations, dead_target_indices, max_log_prob)
 
 
 def solve_perturbed_max_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params):
@@ -1237,29 +1731,276 @@ def enumerate_measurement_associations(target_count, measurement_count):
 
 
 
+def get_immutable_set_meas_names(meas_group):
+    '''
+    Inputs:
+    - meas_group: a dictionary of detections, key='det_name', value=detection
+
+    Outputs:
+    - meas_names_set: an ImmutableSet of the det_names in this group (all the keys in meas_group)
+    '''
+    #create set of the names of detection sources present in this detection group
+    group_meas_names = []
+    for meas_name, meas in meas_group.iteritems():
+        group_meas_names.append(meas_name)
+    meas_names_set = ImmutableSet(group_meas_names)        
+    return meas_names_set        
+
+
+def unnormalized_marginal_meas_target_assoc(particle, meas_groups, total_target_count, params):
+
+    """
+    Sample measurement target associations marginalized over birth association, clutter associations, and
+    unassociated target death.
+    Input:
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle     
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
+    - total_target_count: the number of living targets on the previous time instace
+    - params: type Parameters, gives prior probabilities and other parameters we are using
+
+    Output:
+    - meas_grp_means4D
+    - meas_grp_covs
+    - marginal_meas_target_proposal_distr: numpy array, UNNORMALIZED proposal distribution over 3 measurement-target associations,
+    marginalized over birth/clutter/life/death (important for modified SIS)
+    - proposal_measurement_target_associations: list of lists of integers, proposal_measurement_target_associations[i]
+        is the measurement association proposed with probability marginal_meas_target_proposal_distr[i].  Elements
+        of association are integers with values:
+            [0, total_target_count-1]: target association
+            -1: birth OR clutter association
+    """
+    marginal_meas_target_proposal_distr = []
+    proposal_measurement_target_associations = []
+    #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+    #of the position of meas_groups[i]
+    meas_grp_covs = []   
+    meas_grp_means2D = []
+    meas_grp_means4D = []
+    for (index, detection_group) in enumerate(meas_groups):
+        (combined_meas_mean, combined_covariance) = combine_arbitrary_number_measurements_4d(params.posAndSize_inv_covariance_blocks, 
+                            params.meas_noise_mean, detection_group)
+        combined_meas_pos = combined_meas_mean[0:2]
+        meas_grp_means2D.append(combined_meas_pos)
+        meas_grp_means4D.append(combined_meas_mean)
+        meas_grp_covs.append(combined_covariance)
+
+
+    #get list of target bounding boxes  
+    target_pos4D = []
+    for target_index in range(total_target_count):
+        target = particle.targets.living_targets[target_index]            
+        target_location = np.squeeze(np.dot(params.H, target.x)) 
+        target_pos4D.append(np.array([target_location[0], target_location[1], target.width, target.height]))
+
+    meas_target_association_possibilities = []
+    marginal_association_probs = []
+#    for idx, max_assoc_cost in enumerate(params.SPEC['target_detection_max_dists']):
+
+
+    if params.SPEC['targ_meas_assoc_metric'] == 'distance':
+        max_costs = params.SPEC['target_detection_max_dists']
+    else:
+        assert(params.SPEC['targ_meas_assoc_metric'] == 'box_overlap')
+        max_costs = params.SPEC['target_detection_max_overlaps']
+
+    for max_assoc_cost in max_costs:
+        list_of_measurement_associations = min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_assoc_cost)
+
+        proposal_probability = 1.0
+        observed_target_count = 0
+        for m_idx in range(len(meas_groups)):
+            t_idx = list_of_measurement_associations[m_idx]
+            if t_idx != -1: #target association
+                likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
+                assert(likelihood >= 0.0), likelihood
+                if likelihood == 0:
+                    likelihood = .000000000000000001 #something small, probably should make this nicer
+                p_emission = params.target_groupEmission_priors[get_immutable_set_meas_names(meas_groups[m_idx])]
+                proposal_probability *= likelihood*p_emission
+                observed_target_count+=1
+
+        unobserved_target_count = total_target_count - observed_target_count
+        assert(unobserved_target_count >= 0)
+        proposal_probability *= (params.target_groupEmission_priors[ImmutableSet([])])**unobserved_target_count
+
+
+        #get a list of all possible measurement groups, length (2^#measurement sources)-1, each detection source can be in the set
+        #or out of the set, but we can't have the empty set
+        detection_groups = params.get_all_possible_measurement_groups()
+        remaining_meas_count_by_groups = defaultdict(int)
+        #count remaining measurements by measurement sources present in the group
+        for (index, meas_group) in enumerate(meas_groups):
+            if list_of_measurement_associations[index] == -1:
+                remaining_meas_count_by_groups[get_immutable_set_meas_names(meas_group)] += 1
+
+        #we multiply the proposal probability by this to marginalize over possible births and clutter associations
+        b_c_prob_factor = conditional_birth_clutter_partition(remaining_meas_count_by_groups, params)
+
+        proposal_probability *= b_c_prob_factor #now we have the marginal probability of these measurement associations
+        marginal_meas_target_proposal_distr.append(proposal_probability)
+        proposal_measurement_target_associations.append(list_of_measurement_associations)
+
+
+    marginal_meas_target_proposal_distr = np.asarray(marginal_meas_target_proposal_distr)
+    assert(np.sum(marginal_meas_target_proposal_distr) != 0.0)
+
+
+    return (meas_grp_means4D, meas_grp_covs, marginal_meas_target_proposal_distr, proposal_measurement_target_associations)
 
 
 
+def conditional_birth_clutter_distribution(remaining_meas_count_by_groups, params):
+    '''
+    Inputs:
+    - remaining_meas_count_by_groups: dictioary, key = ImmutableSet(det_names in group), val=remaining measurement count of this 
+        measurement group type
+
+    Outputs 
+    - conditional_proposals: dictionary with
+        key = ImmutableSet(det_names in group)
+        val = dictionary = 
+           'proposal_distribution': numpy array, proposal distribution of birth/clutter counts for det_names groups
+           'birth_counts': list of integers, same length as proposal_distribution, ith element contains birth count
+                           for the ith proposal probability, clutter count = remaining_meas_count - birth_count
+    '''
+
+    conditional_proposals = {}
+    partition_val = conditional_birth_clutter_partition(remaining_meas_count_by_groups, params)
+
+    for meas_group, remaining_count in remaining_meas_count_by_groups.iteritems():
+        if meas_group in params.birth_lambdas_by_group:
+            birth_lambda = params.birth_lambdas_by_group[meas_group]
+        if not meas_group in params.birth_lambdas_by_group or birth_lambda == 0:
+            #use a small value if we never saw one of these groups in our training data            
+            birth_lambda = min(params.birth_lambdas_by_group.itervalues())/100000
+
+        if meas_group in params.clutter_lambdas_by_group:
+            clutter_lambda = params.clutter_lambdas_by_group[meas_group]
+        if not meas_group in params.clutter_lambdas_by_group or clutter_lambda == 0:
+            clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100000
+                
+        #calculate proposal for this measurement group type
+        cur_group_proposal = []
+        cur_group_birth_counts = []
+        for b_c in range(remaining_count + 1): #we can have 0 to remaining_count births
+            c_c = remaining_count - b_c #the rest of the remaining measurements of this group type are then clutters
+            cur_prob = ((birth_lambda*params.p_birth_likelihood)**b_c)*((clutter_lambda*params.p_clutter_likelihood)**c_c)*nCr(remaining_count, b_c) #FIX ME, birth clutter likelihood!!!!!
+            cur_group_proposal.append(cur_prob)
+            cur_group_birth_counts.append(b_c)
+
+        cur_group_proposal = np.asarray(cur_group_proposal)
+        assert(np.sum(cur_group_proposal) != 0.0)
+        cur_group_proposal /= float(np.sum(cur_group_proposal))
+        cur_group_entry = {'proposal_distribution': cur_group_proposal,
+                           'birth_counts': cur_group_birth_counts}
+        conditional_proposals[meas_group] = cur_group_entry
+
+    return conditional_proposals
+
+def conditional_birth_clutter_partition(remaining_meas_count_by_groups, params):
+    '''
+    get the value of the partition function of all birth/clutter associations over all measurement group types,
+    conditioned on the total remaining measurements of each group type
+    Inputs:
+    - remaining_meas_count_by_groups: dictioary, key = ImmutableSet(det_names in group), val=remaining measurement count of this 
+        measurement group type
+    '''
+    partition_val = 1.0
+    for meas_group, remaining_count in remaining_meas_count_by_groups.iteritems():
+        if meas_group in params.birth_lambdas_by_group:
+            birth_lambda = params.birth_lambdas_by_group[meas_group]
+        if not meas_group in params.birth_lambdas_by_group or birth_lambda == 0:
+            #use a small value if we never saw one of these groups in our training data            
+            birth_lambda = min(params.birth_lambdas_by_group.itervalues())/100000
+
+        if meas_group in params.clutter_lambdas_by_group:
+            clutter_lambda = params.clutter_lambdas_by_group[meas_group]
+        if not meas_group in params.clutter_lambdas_by_group or clutter_lambda == 0:
+            clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100000
+
+        cur_sum = 0
+        for b_c in range(remaining_count + 1): #we can have 0 to remaining_count births
+            c_c = remaining_count - b_c #the rest of the remaining measurements of this group type are then clutters
+            cur_sum += ((birth_lambda*params.p_birth_likelihood)**b_c)*((clutter_lambda*params.p_clutter_likelihood)**c_c)*nCr(remaining_count, b_c) #FIX ME, birth clutter likelihood!!!!!
+        partition_val *= cur_sum
+    return partition_val
+
+def associate_meas_min_cost_corrected(particle, meas_groups, total_target_count, p_target_deaths, params):
+
+    """
+    First sample measurement associations from a small set of min cost matchings, with different max costs,
+    marginalized over birth/clutter/death.  Then sample birth/death/clutter conditioned on measurement
+    target associations
+    Input:
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle     
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection
+    - total_target_count: the number of living targets on the previous time instace
+    - p_target_deaths: a list of length len(total_target_count) where 
+        p_target_deaths[i] = the probability that target i has died between the last
+        time instance and the current time instance
+    - params: type Parameters, gives prior probabilities and other parameters we are using
+
+    Output:
+    - meas_targ_assoc: list of associations for each measurement group
+    - proposal_probability: proposal probability of the sampled deaths and associations
+        
+    """
+    # 1. sample measurment target associations marginalized over birth/clutter/unassociated death
+    (meas_grp_means4D, meas_grp_covs, marginal_meas_target_proposal_distr, proposal_measurement_target_associations) = \
+    unnormalized_marginal_meas_target_assoc(particle, meas_groups, total_target_count, params)
+
+    marginal_meas_target_proposal_distr /= float(np.sum(marginal_meas_target_proposal_distr))
+
+    sampled_meas_targ_assoc_idx = np.random.choice(len(marginal_meas_target_proposal_distr),
+                                                        p=marginal_meas_target_proposal_distr)
+
+    proposal_probability = marginal_meas_target_proposal_distr[sampled_meas_targ_assoc_idx]
+    meas_targ_assoc = proposal_measurement_target_associations[sampled_meas_targ_assoc_idx]
 
 
+    #get a list of all possible measurement groups, length (2^#measurement sources)-1, each detection source can be in the set
+    #or out of the set, but we can't have the empty set
+    detection_groups = params.get_all_possible_measurement_groups()
+    remaining_meas_count_by_groups = defaultdict(int)
+    unassociated_meas_indices_by_groups = defaultdict(list)
+    #count remaining measurements by measurement sources present in the group
+    for (index, meas_group) in enumerate(meas_groups):
+        if meas_targ_assoc[index] == -1:
+            remaining_meas_count_by_groups[get_immutable_set_meas_names(meas_group)] += 1
+            unassociated_meas_indices_by_groups[get_immutable_set_meas_names(meas_group)].append(index)
+    total_birth_count = 0
+    total_clutter_count = 0
+    conditional_proposals = conditional_birth_clutter_distribution(remaining_meas_count_by_groups, params)
+    for meas_group, proposal_info in conditional_proposals.iteritems():
+        # 2. sample # of births and clutter conditioned on 1. or each measurement group type
+        sampled_birth_count_idx = np.random.choice(len(proposal_info['proposal_distribution']),
+                                                    p=proposal_info['proposal_distribution'])
+        sampled_birth_count = proposal_info['birth_counts'][sampled_birth_count_idx]
+        sampled_clutter_count = remaining_meas_count_by_groups[meas_group] - sampled_birth_count
+        total_birth_count += sampled_birth_count
+        total_clutter_count += sampled_clutter_count
+        birth_count_proposal_prob = proposal_info['proposal_distribution'][sampled_birth_count_idx]
+        proposal_probability *= birth_count_proposal_prob
 
+        # 3. uniformly sample which unassociated measurements are birth/clutter according to the counts from 2.
+        unassociated_measurements = unassociated_meas_indices_by_groups[meas_group]
+        proposal_probability *= nCr(len(unassociated_measurements), sampled_birth_count)
+        for b_c_idx in range(sampled_birth_count):
+            sampled_birth_idx = np.random.choice(len(unassociated_measurements))
+            meas_targ_assoc[unassociated_measurements[sampled_birth_idx]] = total_target_count #set to birth val
+            del unassociated_measurements[sampled_birth_idx]
+ 
+    assert(meas_targ_assoc.count(total_target_count) == total_birth_count)
+    assert(meas_targ_assoc.count(-1) == total_clutter_count)
 
-
-
-
-
-
-
-
-
-
-
+    return(meas_targ_assoc, meas_grp_means4D, meas_grp_covs, proposal_probability)
 
 
 def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_deaths, params):
 
     """
-    Try sampling associations with each measurement sequentially
     Input:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle     
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
@@ -1305,8 +2046,13 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
     complete_association_possibilities = []
     complete_association_probs = []
 #    for idx, max_assoc_cost in enumerate(params.SPEC['target_detection_max_dists']):
-    for idx in range(3):
-        max_assoc_cost = params.SPEC['coord_ascent_params']['target_detection_max_dists_%d'%idx][0]
+    if params.SPEC['targ_meas_assoc_metric'] == 'distance':
+        max_costs = params.SPEC['target_detection_max_dists']
+    else:
+        assert(params.SPEC['targ_meas_assoc_metric'] == 'box_overlap')
+        max_costs = params.SPEC['target_detection_max_overlaps']
+
+    for max_assoc_cost in max_costs:
         list_of_measurement_associations = min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_assoc_cost)
         proposal_probability = 1.0
 
@@ -1500,7 +2246,7 @@ def associate_measurements_sequentially(particle, meas_groups, total_target_coun
         #compute target association proposal probabilities
         proposal_distribution_list = []
 
-        #create set of the names of detection sources preset in this detection group
+        #create set of the names of detection sources present in this detection group
         group_det_names = []
         for det_name, det in detection_group.iteritems():
             group_det_names.append(det_name)
@@ -1665,6 +2411,7 @@ def sample_target_deaths(particle, unassociated_targets, cur_time):
         #kill offscreen targets with probability 1.0
         if(particle.targets.living_targets[target_idx].offscreen == True):
             targets_to_kill.append(target_idx)
+            assert(particle.targets.living_targets[target_idx].death_prob == 1.0)
         elif(target_idx in unassociated_targets):
             cur_death_prob = particle.targets.living_targets[target_idx].death_prob
             if(random.random() < cur_death_prob):
@@ -1699,7 +2446,7 @@ def calc_death_prior(living_target_indices, p_target_deaths, unassociated_target
         for (cur_target_index, cur_target_death_prob) in enumerate(p_target_deaths):
             if not(cur_target_index in living_target_indices):
                 death_prior *= cur_target_death_prob
-                assert((cur_target_death_prob) != 0.0), cur_target_death_prob        
+                assert((cur_target_death_prob) != 0.0), (cur_target_death_prob, p_target_deaths)
             elif cur_target_index in unassociated_target_indices:
                 death_prior *= (1.0 - cur_target_death_prob)
                 assert((1.0 - cur_target_death_prob) != 0.0), cur_target_death_prob
