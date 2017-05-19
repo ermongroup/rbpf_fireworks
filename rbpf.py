@@ -64,7 +64,11 @@ from rbpf_sampling_manyMeasSrcs import unnormalized_marginal_meas_target_assoc
 from rbpf_sampling_manyMeasSrcs import get_immutable_set_meas_names
 from rbpf_sampling_manyMeasSrcs import conditional_birth_clutter_distribution
 from rbpf_sampling_manyMeasSrcs import nCr
-
+from rbpf_sampling_manyMeasSrcs import construct_log_probs_matrix3
+from rbpf_sampling_manyMeasSrcs import convert_assignment_matrix3
+sys.path.insert(0, "%smht_helpers" % RBPF_HOME_DIRECTORY)
+from k_best_assign_birth_clutter_death_matrix import k_best_assign_mult_cost_matrices
+#from k_best_assignment import k_best_assign_mult_cost_matrices
 #from run_experiment import DIRECTORY_OF_ALL_RESULTS
 #from run_experiment import CUR_EXPERIMENT_BATCH_NAME
 #from run_experiment import SEQUENCES_TO_PROCESS
@@ -1564,6 +1568,184 @@ def modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, c
     return new_particle_set
 
 
+def convert_assignment_pairs_to_matrix(assignment_pairs, M, T):
+    '''  
+    Inputs:
+    - assignment_pairs: list of pairs where each pair represents an association in the assignment (1's in assignment matrix)
+    - M: #measurements (int)
+    - T: #targets (int)
+
+    Outputs:
+    - assignment_matrix: numpy array with dimensions (2*M+2*T)x(2*M+2*T).    
+    
+    '''
+    assignment_matrix = np.zeros(((2*M+2*T), (2*M+2*T)))
+
+    for (row_idx, col_idx) in assignment_pairs:
+        assignment_matrix[row_idx, col_idx] = 1
+
+    return assignment_matrix
+
+def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, heights, cur_time, params):
+    '''
+    Very similar to modified_SIS_gumbel_step, but we sample new particles w/o replacement.  Also
+    params.SPEC['gumbel_scale'] should exist.  When params.SPEC['gumbel_scale'] = 0, we get MHT back.
+    When params.SPEC['gumbel_scale'] != 1, we are taking the mean (instead of max) of gumbel perturbations
+    to assignment cost matrix and multiplying it by params.SPEC['gumbel_scale'].
+    '''
+    (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'])
+    #housekeeping, should make this nicer somehow
+    meas_groups = []
+    for det_idx, det_name in enumerate(SPEC['det_names']):
+        group_detections(meas_groups, det_name, measurement_lists[det_idx], widths[det_idx], heights[det_idx], params)
+
+    M = len(meas_groups) #number of measurement groups
+    #now that we have estimates of p(x_1:k-1|y_1:k-1), perform modified SIS step
+    new_particle_set = []
+    particle_group_log_probs = {}
+#    for idx in range(N_PARTICLES): 
+
+    perturbed_cost_matrices = [] #list of negative perturbed log prob matrices for each particle group
+    log_prob_matrices = [] #list of log prob matrices for each particle group
+    ordered_particle_groups = [] #list of particle groups in the same order as perturbed_cost_matrices
+    particle_neg_log_probs = [] # negative log probabilities + 2*(M+T) of the min_cost for each particle group to pass along when solving minimum cost assignments
+    #we need all entries of all cost matrices to be positive, so we keep track of the smallest value
+    min_cost = 0.0
+
+    zero_assignments = [] #particle group(s) exist with zero targets and we have zero measurements
+    for p_key, particle in particle_groups.iteritems():
+        T = len(particle.targets.living_targets)
+        print "T =", T
+        assert(T == particle.targets.living_count)
+        #should clean this up
+        p_target_deaths = []
+        for target in particle.targets.living_targets:
+            p_target_deaths.append(target.death_prob)
+            assert(p_target_deaths[len(p_target_deaths) - 1] >= 0 and p_target_deaths[len(p_target_deaths) - 1] <= 1)
+
+
+        #1. construct log probs matrix for  particle GROUP
+        cur_log_probs = construct_log_probs_matrix3(particle, meas_groups, T, p_target_deaths, params)
+        log_prob_matrices.append(cur_log_probs) #store to calculate probabilities later
+        assert((cur_log_probs <= .000001).all()), (cur_log_probs)
+
+        #3. add gumbel matrix to log probs matrix, scaled by params.SPEC['gumbel_scale']/(number of assignments)
+        G = np.random.gumbel(loc=0.0, scale=1.0, size=(cur_log_probs.shape[0], cur_log_probs.shape[1]))
+        number_of_assignments = 2*(M + T)
+        G = G*params.SPEC['gumbel_scale']/number_of_assignments
+        cur_log_probs += G
+        cur_cost_matrix = -1*cur_log_probs #k_best_assign_mult_cost_matrices is set up to find minimum cost, not max log prob
+        
+        if cur_cost_matrix.size > 0:
+            cur_min_cost = np.min(cur_cost_matrix)
+        else:
+            cur_min_cost = 0.0
+
+        if cur_min_cost < min_cost:
+            min_cost = cur_min_cost
+
+        perturbed_cost_matrices.append(cur_cost_matrix)
+        ordered_particle_groups.append(particle)
+        #add min_cost*2*(M+T) term because T varies between particle groups and we subtract min_cost from all entries in the perturbed cost matrix
+        particle_neg_log_probs.append(-1*np.log(particle_group_probs[p_key]) + min_cost*2*(M+T))
+
+
+    #make all entries of all cost matrices positive
+    for idx in range(len(perturbed_cost_matrices)):
+        perturbed_cost_matrices[idx] = perturbed_cost_matrices[idx] - min_cost + 1.0
+        assert((perturbed_cost_matrices[idx] >= .000001).all()), (perturbed_cost_matrices[idx])
+
+    #4. find N_PARTICLES most likely assignments among all assignments in log probs matrices of ALL particle GROUPS
+
+    #best_assignments: (list of triplets) best_assignments[i][0] is the cost of the ith best
+    #assignment.  best_assignments[i][1] is the ith best assignment, which is a list of pairs
+    #where each pair represents an association in the assignment (1's in assignment matrix),
+    #best_assignments[i][2] is the index in the input cost_matrices of the cost matrix used
+    #for the ith best assignment
+
+    print 'M =', M
+
+
+    best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices, particle_neg_log_probs, M, T)
+#    best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices)
+
+
+    #5. For each of the most likely assignments, create a new particle that is a copy of its particle GROUP, 
+    # and associate measurements / kill targets according to assignment.
+
+    for (cur_cost, cur_assignment, cur_particle_idx) in best_assignments:
+        if cur_cost > 1000000000:
+            break #invalid assignment, we've exhausted all valid assignments
+        #3. create a new particle that is a copy of the max group, and associate measurements / kill
+        #targets according to the max x_k from 2.
+        assert(SPEC['use_general_num_dets'])
+        new_particle = ordered_particle_groups[cur_particle_idx].create_child()
+        birth_value = new_particle.targets.living_count
+
+        T = len(new_particle.targets.living_targets)
+        assert(T == new_particle.targets.living_count)
+
+        cur_assignment_matrix = convert_assignment_pairs_to_matrix(cur_assignment, M, T)
+        assert(SPEC['normalize_log_importance_weights'] == True)
+        #set to log of importance weight
+        #new_particle.importance_weight = -cur_cost
+        assignment_log_prob = np.trace(np.dot(log_prob_matrices[cur_particle_idx], cur_assignment_matrix.T))
+        new_particle.importance_weight = assignment_log_prob - particle_neg_log_probs[cur_particle_idx] #log prob
+
+        print "just set importance weight for new particle to:", new_particle.importance_weight
+
+        print 'M =', M
+        print 'T =', T
+        print 'cur_cost:', cur_cost
+        print 'cur_assignment:', cur_assignment
+        print 'perturbed_cost_matrices[cur_particle_idx]:', perturbed_cost_matrices[cur_particle_idx]
+        print 'unperturbed log_prob_matrix:', log_prob_matrices
+        print 'parent_particle idx:', cur_particle_idx
+        (meas_grp_associations, dead_target_indices) = convert_assignment_matrix3(cur_assignment_matrix, M, T)
+        print 'meas_grp_associations: ', meas_grp_associations
+        print 'dead_target_indices: ', dead_target_indices
+    ############ MESSY ############
+        #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+        #of the position of meas_groups[i]
+        meas_grp_covs = []   
+        meas_grp_means2D = []
+        meas_grp_means = []
+        for (index, detection_group) in enumerate(meas_groups):
+            (combined_meas_mean, combined_covariance) = combine_4d_detections(params.posAndSize_inv_covariance_blocks, 
+                                params.meas_noise_mean, detection_group)
+            combined_meas_pos = combined_meas_mean[0:2]
+            meas_grp_means2D.append(combined_meas_pos)
+            meas_grp_means.append(combined_meas_mean)
+            meas_grp_covs.append(combined_covariance)
+    ############ END MESSY ############
+
+
+        new_particle.all_measurement_associations.append(meas_grp_associations)
+        new_particle.all_dead_targets.append(dead_target_indices)  
+        assert(len(meas_grp_associations) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
+        for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
+            new_particle.process_meas_grp_assoc(birth_value, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx], cur_time)
+
+        #process target deaths
+        #double check dead_target_indices is sorted
+        assert(all([dead_target_indices[i] <= dead_target_indices[i+1] for i in xrange(len(dead_target_indices)-1)]))
+        #important to delete larger indices first to preserve values of the remaining indices
+        for index in reversed(dead_target_indices):
+            new_particle.targets.kill_target(index)
+
+        #checking if something funny is happening
+        original_num_targets = birth_value
+        num_targets_born = 0
+        num_targets_born = meas_grp_associations.count(birth_value)
+        num_targets_killed = len(dead_target_indices)
+        assert(new_particle.targets.living_count == original_num_targets + num_targets_born - num_targets_killed)
+        #done checking if something funny is happening
+        new_particle_set.append(new_particle)
+        assert(new_particle.parent_particle != None)
+
+    return new_particle_set
+
+
 def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths, heights, cur_time, params):
     (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'])
     #housekeeping, should make this nicer somehow
@@ -1854,7 +2036,10 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
         pIdxDebugInfo = 0
 
         if params.SPEC['proposal_distr'] == 'modified_SIS_gumbel':
-            particle_set = modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
+            particle_set = modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
+            #Using MHT sampling with replacement, we care about importance weights, normalize so they don't get too small
+            normalize_importance_weights(particle_set) 
+#            particle_set = modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
         elif params.SPEC['proposal_distr'] == 'modified_SIS_min_cost':
             particle_set = modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
         else:
@@ -1942,10 +2127,20 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                                      prv_max_weight_particle.targets.living_targets)
                     #replace associated target IDs with the IDs from the previous maximum importance weight
                     #particle for ID conistency in the online results we output
+#                    for cur_target in cur_max_weight_target_set.living_targets:
+#                        if cur_target.id_ in target_associations:
+#                            cur_target.id_ = target_associations[cur_target.id_]                   
+                    for q_idx in range(SPEC['ONLINE_DELAY'] + 1):
+                        for cur_target in cur_max_weight_target_set.living_targets_q[q_idx][1]:
+                            if cur_target.id_ in duplicate_ids:
+                                cur_target.id_ = duplicate_ids[cur_target.id_]
+                            if cur_target.id_ in target_associations:
+                                cur_target.id_ = target_associations[cur_target.id_]
                     for cur_target in cur_max_weight_target_set.living_targets:
+                        if cur_target.id_ in duplicate_ids:
+                            cur_target.id_ = duplicate_ids[cur_target.id_]                      
                         if cur_target.id_ in target_associations:
-                            cur_target.id_ = target_associations[cur_target.id_]                   
-
+                            cur_target.id_ = target_associations[cur_target.id_]
 
             else:
 #                if prv_max_weight_particle != None:
@@ -2006,7 +2201,9 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
             for particle in particle_set:
                 particle.targets.living_targets_q.append((time_instance_index, copy.deepcopy(particle.targets.living_targets)))
         
-        if (get_eff_num_particles(particle_set) < N_PARTICLES/RESAMPLE_RATIO):
+        #Using modified_SIS_MHT_gumbel, sampling with replacement, importance weights may vary but DON'T resample because sampling
+        #was done without replacement
+        if (params.SPEC['proposal_distr'] != 'modified_SIS_gumbel' and get_eff_num_particles(particle_set) < N_PARTICLES/RESAMPLE_RATIO):
 
             perform_resampling(particle_set)
             print "resampled on iter: ", iter
@@ -2023,6 +2220,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 cur_max_imprt_weight = particle.importance_weight
         particle_count_with_max_imprt_weight = 0
         for particle in particle_set:
+            print "checking importance weights, cur importance_weight:", particle.importance_weight
             if(particle.importance_weight == cur_max_imprt_weight):
                 particle.max_importance_weight = True
                 particle_count_with_max_imprt_weight += 1
