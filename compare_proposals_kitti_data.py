@@ -89,13 +89,13 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-#SEQUENCES_TO_PROCESS = [i for i in range(21)]
+SEQUENCES_TO_PROCESS = [i for i in range(21)]
 #SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [11]
 #SEQUENCES_TO_PROCESS = [13,14,15]
-SEQUENCES_TO_PROCESS = [13]
+#SEQUENCES_TO_PROCESS = [13]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
-NUM_PARTICLES_TO_TEST = [5, 10, 50]
+NUM_PARTICLES_TO_TEST = [5, 10, 20]
 
 
 ###################################### Experiment Organization ######################################
@@ -250,9 +250,8 @@ if __name__ == "__main__":
     check_k_nearest = None
     for train_test in ['train']:
         for online_delay in [0]:
-            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .5), \
-            ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 2), ('modified_SIS_gumbel', 3), ('modified_SIS_gumbel', 5), \
-             ('modified_SIS_gumbel', .25)]:
+            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), \
+            ('modified_SIS_gumbel', .5), ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 2), ('modified_SIS_gumbel', 4)]:
 #            for (proposal_distr, targ_meas_assoc_metric, check_k_nearest) in \
 #            [('modified_SIS_gumbel', 'distance', None)]:  
 #            [('modified_SIS_min_cost', 'distance', None),
@@ -269,7 +268,7 @@ if __name__ == "__main__":
 #
 #             ('sequential', None, True),
 #             ('sequential', None, False)]:
-                for det_names in [['regionlets'], ['mscnn'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
+                for det_names in [['regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
 #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
 #                    for det_names in [['regionlets']]:
 #                        for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
