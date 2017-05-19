@@ -739,7 +739,7 @@ def solve_gumbel_perturbed_assignment(log_probs, ubc_count):
 
     #solve convex optimization problem
     A = cvx.Variable(log_probs.shape[0], log_probs.shape[1])
-    objective = cvx.Maximize(cvx.trace((log_probs)*(A.T)) + cvx.trace(G*(A.T))/number_of_assignments)
+    objective = cvx.Maximize(cvx.trace((log_probs)*(A.T)) + cvx.trace(G*(A.T))/number_of_assignments*5) #SUPER HACKYISH
     constraints = [A>=0]                   
     for i in range(log_probs.shape[0]-2):
         constraints.append(cvx.sum_entries(A[i, :]) == 1)
@@ -861,14 +861,14 @@ def convert_assignment_matrix(assignment_matrix):
     #read off assignments
     for m_idx in range(measurement_count):
         for assign_idx in range(target_count+2):
-            if (np.isclose(assignment_matrix[m_idx,assign_idx], 1, rtol=1e-04, atol=1e-04)):
+            if (np.isclose(assignment_matrix[m_idx,assign_idx], 1, rtol=5e-02, atol=5e-02)):
                 if assign_idx < target_count: #target association
                     meas_associations.append(assign_idx)
                 elif assign_idx == target_count: #clutter
                     meas_associations.append(-1)
                 else: #birth
                     meas_associations.append(target_count)
-    assert(len(meas_associations) == measurement_count)
+    assert(len(meas_associations) == measurement_count), (assignment_matrix, meas_associations)
 
     #read off target deaths
     dead_target_indices = []
@@ -925,8 +925,11 @@ def construct_log_probs_matrix(particle, meas_groups, total_target_count, p_targ
             cur_death_prob = .999999999999 #sloppy should define an epsilon or something
         else:
             cur_death_prob = particle.targets.living_targets[t_idx].death_prob
-        log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
-        log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
+        if cur_death_prob == 1.0:
+            log_probs[lives_row_idx][t_idx] = -999
+        else:
+            log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
+            log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
 
     #add birth/clutter measurement association entries to the log-prob matrix
     clutter_col = total_target_count
