@@ -1221,9 +1221,22 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
         clutter_col = T + 2*m_idx
         birth_col = T + 1 + 2*m_idx
         assert(params.SPEC['birth_clutter_likelihood'] == 'aprox1')
-        log_probs[m_idx][clutter_col] = math.log(params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
+
+        if get_immutable_set_meas_names(meas_groups[m_idx]) in params.birth_lambdas_by_group:
+            birth_lambda = params.birth_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]
+        if not get_immutable_set_meas_names(meas_groups[m_idx]) in params.birth_lambdas_by_group or birth_lambda == 0:
+            #use a small value if we never saw one of these groups in our training data            
+            birth_lambda = min(params.birth_lambdas_by_group.itervalues())/100
+
+        if get_immutable_set_meas_names(meas_groups[m_idx]) in params.clutter_lambdas_by_group:
+            clutter_lambda = params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]
+        if not get_immutable_set_meas_names(meas_groups[m_idx]) in params.clutter_lambdas_by_group or clutter_lambda == 0:
+            clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100
+
+
+        log_probs[m_idx][clutter_col] = math.log(clutter_lambda) + \
             math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
-        log_probs[m_idx][birth_col] = math.log(params.birth_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
+        log_probs[m_idx][birth_col] = math.log(birth_lambda) + \
             math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
         #HACKING BELOW!!!
 #        log_probs[m_idx][birth_col] = math.log(params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
