@@ -3,6 +3,8 @@
 #
 #
 #Note, on Atlas before this script:
+# $ export PATH=/opt/rh/python27/root/usr/bin:$PATH
+# $ export LD_LIBRARY_PATH=/opt/rh/python27/root/usr/lib64/:$LD_LIBRARY_PATH
 # $ PACKAGE_DIR=/atlas/u/jkuck/software
 # $ export PATH=$PACKAGE_DIR/anaconda2/bin:$PATH
 # $ export LD_LIBRARY_PATH=$PACKAGE_DIR/anaconda2/local:$LD_LIBRARY_PATH
@@ -87,10 +89,10 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-NUM_SEQUENCES_TO_GENERATE = 1
-NUM_TIME_STEPS = 20 #time steps per sequence
+NUM_SEQUENCES_TO_GENERATE = 20
+NUM_TIME_STEPS = 40 #time steps per sequence
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
-NUM_PARTICLES_TO_TEST = [5]
+NUM_PARTICLES_TO_TEST = [5, 10, 20, 40]
 
 
 ###################################### Experiment Organization ######################################
@@ -233,8 +235,6 @@ if __name__ == "__main__":
                      logdir=None, strm_lvl='INFO', user_indices=None, wf_user_indices=None, ssl_ca_file=None)
     launchpad.reset('', require_password=False)
 
-    det1_name = 'mscnn'
-    det2_name = 'regionlets'
     include_ignored_gt=False
     include_dontcare_in_gt=False
     sort_dets_on_intervals=True
@@ -242,13 +242,13 @@ if __name__ == "__main__":
     all_fireworks = []
     firework_dependencies = {}
 
-    train_test = 'generated_data'
-    targ_meas_assoc_metric = 'distance'
+    train_test = 'train'
     online_delay = 0
     birth_clutter_likelihood = 'aprox1'
     birth_clutter_model = 'poisson'# 'poisson' or 'training_counts'
     scale_prior_by_meas_orderings = 'count_multi_src_orderings'
     use_general_num_dets = True
+
     max_1_meas_update_local = True
     update_simul_local = False
     check_k_nearest = False
@@ -269,11 +269,11 @@ if __name__ == "__main__":
 #         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE),
 #         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV*8, BB_SIZE*3),
 #         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE),
-#         (Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3)]):
-        [(Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE)]):
-######         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE*3),
-######         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE),
-######         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE*3)]):
+#         [(Q_DEFAULT, R_DEFAULT, INIT_VEL_COV, BB_SIZE*3)]):
+        [(Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE),
+         (Q_DEFAULT*8, R_DEFAULT*4, INIT_VEL_COV*4, BB_SIZE),
+         (Q_DEFAULT*4, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE),
+         (Q_DEFAULT*8, R_DEFAULT*4, INIT_VEL_COV, BB_SIZE)]):
         data_folder = "%s/%sgen_idx=%d" % (GENERATED_DATA_DIR, CUR_GEN_NAME, gen_idx)
         data_generation_spec = \
             {#if True calculate data generation parameters on KITTI training data with measurements of type
@@ -319,7 +319,6 @@ if __name__ == "__main__":
             store_results_spec['num_particles'] = num_particles 
             storeResultsFW = Firework(StoreResultsInDatabase(), spec=store_results_spec)
             all_fireworks.append(storeResultsFW)
-
             for fix_group_cost in ['True', 'False']:
     #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('traditional_SIR_gumbel', 0), \
                 for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .5), \

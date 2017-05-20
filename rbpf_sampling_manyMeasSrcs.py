@@ -925,14 +925,14 @@ def convert_assignment_matrix(assignment_matrix):
     #read off assignments
     for m_idx in range(measurement_count):
         for assign_idx in range(target_count+2):
-            if (np.isclose(assignment_matrix[m_idx,assign_idx], 1, rtol=1e-04, atol=1e-04)):
+            if (np.isclose(assignment_matrix[m_idx,assign_idx], 1, rtol=5e-02, atol=5e-02)):
                 if assign_idx < target_count: #target association
                     meas_associations.append(assign_idx)
                 elif assign_idx == target_count: #clutter
                     meas_associations.append(-1)
                 else: #birth
                     meas_associations.append(target_count)
-    assert(len(meas_associations) == measurement_count)
+    assert(len(meas_associations) == measurement_count), (assignment_matrix, meas_associations)
 
     #read off target deaths
     dead_target_indices = []
@@ -995,8 +995,11 @@ def construct_log_probs_matrix2(particle, meas_groups, total_target_count, p_tar
             cur_death_prob = .999999999999 #sloppy should define an epsilon or something
         else:
             cur_death_prob = particle.targets.living_targets[t_idx].death_prob
-        log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
-        log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
+        if cur_death_prob == 1.0:
+            log_probs[lives_row_idx][t_idx] = -999
+        else:
+            log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
+            log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
 
     print 'log_probs2:'
     print log_probs
@@ -1218,9 +1221,22 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
         clutter_col = T + 2*m_idx
         birth_col = T + 1 + 2*m_idx
         assert(params.SPEC['birth_clutter_likelihood'] == 'aprox1')
-        log_probs[m_idx][clutter_col] = math.log(params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
+
+        if get_immutable_set_meas_names(meas_groups[m_idx]) in params.birth_lambdas_by_group:
+            birth_lambda = params.birth_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]
+        if not get_immutable_set_meas_names(meas_groups[m_idx]) in params.birth_lambdas_by_group or birth_lambda == 0:
+            #use a small value if we never saw one of these groups in our training data            
+            birth_lambda = min(params.birth_lambdas_by_group.itervalues())/100
+
+        if get_immutable_set_meas_names(meas_groups[m_idx]) in params.clutter_lambdas_by_group:
+            clutter_lambda = params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]
+        if not get_immutable_set_meas_names(meas_groups[m_idx]) in params.clutter_lambdas_by_group or clutter_lambda == 0:
+            clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100
+
+
+        log_probs[m_idx][clutter_col] = math.log(clutter_lambda) + \
             math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
-        log_probs[m_idx][birth_col] = math.log(params.birth_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
+        log_probs[m_idx][birth_col] = math.log(birth_lambda) + \
             math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
         #HACKING BELOW!!!
 #        log_probs[m_idx][birth_col] = math.log(params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \

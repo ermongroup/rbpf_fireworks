@@ -15,7 +15,7 @@ import filterpy
 
 #import matplotlib.cm as cmx
 #import matplotlib.colors as colors
-from scipy.stats import multivariate_normal
+#from scipy.stats import multivariate_normal
 from scipy.stats import gamma
 from scipy.special import gdtrc
 import random
@@ -1505,7 +1505,7 @@ def modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, c
                  'dead_target_indices': dead_target_indices}
 
         #2. find the particle group with the maximum log probability
-        maximum_log_prob = -99
+        maximum_log_prob = -999999999999999999999999
         maximum_log_prob_p_key = None
         for p_key, assoc_dict in particle_group_log_probs.iteritems():
             if assoc_dict['max_log_prob'] > maximum_log_prob:

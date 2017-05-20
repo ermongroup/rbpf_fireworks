@@ -1145,7 +1145,7 @@ def find_and_eval_results(directory_to_search, seq_idx_to_eval=[i for i in range
 class RunEval(FireTaskBase):   
  #   _fw_name = "Run RBPF Task"
     def run_task(self, fw_spec):
-        print fw_spec
+        print 'fw_spec, atlas:', fw_spec
         results_folder = fw_spec['results_folder']
         use_corrected_eval = fw_spec['use_corrected_eval']
         seq_idx_to_eval = fw_spec['seq_idx_to_eval']
@@ -1168,11 +1168,17 @@ class RunEval(FireTaskBase):
             else:
                 return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics_with_%s"%mod_dir: metric_medians}}])
         else:
+
 ####### Switch to this if running compare_proposals_synth_data.py for easier results viewing in database #########
 #            if use_corrected_eval:
 #                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics%s%s"%(fw_spec['proposal_distr'], fw_spec['gumbel_scale']) : metric_medians}}])
 #            else:
 #                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics%s%d"%(fw_spec['proposal_distr'], int(10*fw_spec['gumbel_scale'])) : metric_medians}}])
+
+#            if use_corrected_eval:
+#                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics%s%s"%(fw_spec['proposal_distr'], fw_spec['K_NEAREST_TARGETS']) : metric_medians}}])
+#            else:
+#                return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"OLD_eval_metrics%s%s"%(fw_spec['proposal_distr'], fw_spec['K_NEAREST_TARGETS']) : metric_medians}}])
 
             if use_corrected_eval:
                 return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {"NEW_eval_metrics" : metric_medians,
