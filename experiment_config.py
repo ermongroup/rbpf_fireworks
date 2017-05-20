@@ -10,9 +10,9 @@
 #MONGODB_PORT = 53609
 #MONGODB_NAME = 'atlas_mult_meas'
 
-#MONGODB_HOST = 'ds153179.mlab.com'
-#MONGODB_PORT = 53179
-#MONGODB_NAME = 'local_testing'
+MONGODB_HOST = 'ds153179.mlab.com'
+MONGODB_PORT = 53179
+MONGODB_NAME = 'local_testing'
 
 #MONGODB_HOST = 'ds145355.mlab.com'
 #MONGODB_PORT = 45355
@@ -30,9 +30,9 @@
 #MONGODB_PORT = 11940
 #MONGODB_NAME = 'post_icml'
 
-MONGODB_HOST = 'ds133291.mlab.com'
-MONGODB_PORT = 33291
-MONGODB_NAME = 'nips_prep'
+#MONGODB_HOST = 'ds133291.mlab.com'
+#MONGODB_PORT = 33291
+#MONGODB_NAME = 'nips_prep'
 
 
 #MONGODB_HOST = 'ds139761.mlab.com'
