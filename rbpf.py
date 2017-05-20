@@ -66,6 +66,8 @@ from rbpf_sampling_manyMeasSrcs import conditional_birth_clutter_distribution
 from rbpf_sampling_manyMeasSrcs import nCr
 from rbpf_sampling_manyMeasSrcs import construct_log_probs_matrix3
 from rbpf_sampling_manyMeasSrcs import convert_assignment_matrix3
+from rbpf_sampling_manyMeasSrcs import convert_assignment_pairs_to_matrix3
+
 sys.path.insert(0, "%smht_helpers" % RBPF_HOME_DIRECTORY)
 from k_best_assign_birth_clutter_death_matrix import k_best_assign_mult_cost_matrices
 #from k_best_assignment import k_best_assign_mult_cost_matrices
@@ -1568,23 +1570,7 @@ def modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, c
     return new_particle_set
 
 
-def convert_assignment_pairs_to_matrix(assignment_pairs, M, T):
-    '''  
-    Inputs:
-    - assignment_pairs: list of pairs where each pair represents an association in the assignment (1's in assignment matrix)
-    - M: #measurements (int)
-    - T: #targets (int)
 
-    Outputs:
-    - assignment_matrix: numpy array with dimensions (2*M+2*T)x(2*M+2*T).    
-    
-    '''
-    assignment_matrix = np.zeros(((2*M+2*T), (2*M+2*T)))
-
-    for (row_idx, col_idx) in assignment_pairs:
-        assignment_matrix[row_idx, col_idx] = 1
-
-    return assignment_matrix
 
 def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, heights, cur_time, params):
     '''
@@ -1666,7 +1652,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     print 'M =', M
 
 
-    best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices, particle_neg_log_probs, M, T)
+    best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices, particle_neg_log_probs, M)
 #    best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices)
 
 
@@ -1685,7 +1671,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         T = len(new_particle.targets.living_targets)
         assert(T == new_particle.targets.living_count)
 
-        cur_assignment_matrix = convert_assignment_pairs_to_matrix(cur_assignment, M, T)
+        cur_assignment_matrix = convert_assignment_pairs_to_matrix3(cur_assignment, M, T)
         assert(SPEC['normalize_log_importance_weights'] == True)
         #set to log of importance weight
         #new_particle.importance_weight = -cur_cost
