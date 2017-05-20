@@ -3366,7 +3366,7 @@ class MultiDetections_many:
         living_counts = []
         print '#'*80
         print "get_death_probs info: "
-        for i in range(2):
+        for i in range(death_prob_markov_order):
             death_count = float(self.get_death_count(i, near_border))
             living_count = float(self.get_living_count(i, near_border))
             death_count1 = float(self.get_death_count1(i, near_border))
@@ -3500,8 +3500,8 @@ def get_meas_target_sets_general(training_sequences, score_intervals, detection_
     target_groupEmission_priors = all_detections.get_target_groupEmission_priors()
     (birth_count_priors, birth_lambdas_by_group) = all_detections.get_birth_priors()
 
-    (death_probs_near_border, death_counts_near_border, living_counts_near_border) = all_detections.get_death_probs(near_border = True, death_prob_markov_order = death_prob_markov_order)
-    (death_probs_not_near_border, death_counts_not_near_border, living_counts_not_near_border) = all_detections.get_death_probs(near_border = False, death_prob_markov_order, death_prob_markov_order)
+    (death_probs_near_border, death_counts_near_border, living_counts_near_border) = all_detections.get_death_probs(near_border = True, death_prob_markov_order=death_prob_markov_order)
+    (death_probs_not_near_border, death_counts_not_near_border, living_counts_not_near_border) = all_detections.get_death_probs(near_border = False, death_prob_markov_order=death_prob_markov_order)
 
 ##############################################################################
 
