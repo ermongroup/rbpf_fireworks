@@ -4,6 +4,13 @@ import sys
 import itertools
 import math
 from operator import itemgetter
+sys.path.insert(0, "../")
+from rbpf_sampling_manyMeasSrcs import convert_assignment_matrix3
+from rbpf_sampling_manyMeasSrcs import convert_assignment_pairs_to_matrix3
+
+#if True, check that we don't return two assignment matrices that correspond
+#to the same associations and deaths, due to filler entries in matrix
+CHECK_NO_DUPLICATES = False
 
 DEBUG = False
 DEBUG1 = False
@@ -30,7 +37,7 @@ def k_best_assignments(k, cost_matrix, M, T):
     - k: (integer) 
     - cost_matrix: (numpy array)  
     - M: number of measurements 
-    - T: number of targets 
+    - T: number of targets and may differ
     cost_matrix has dimensions (2*M + 2*T)x(2*M + 2*T) 
 
     Output:
@@ -109,7 +116,7 @@ def k_best_assignments(k, cost_matrix, M, T):
     return best_assignments
 
 
-def k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M, T):
+def k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M):
     '''
     Find the k lowest cost assignments for any of the cost matrices.  That is, the lowest cost will
     be the lowest cost assignment with costs specified by ANY of the cost matrices.  This is 
@@ -126,8 +133,10 @@ def k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M, T):
     - matrix_costs: (list of floats) same length as cost_matrices.  add this to every assignment cost for the corresponding matrix
         in cost_matrices
     - M: number of measurements 
-    - T: number of targets 
-    cost_matrices have dimensions (2*M + 2*T)x(2*M + 2*T) 
+
+    cost_matrices have dimensions (2*M + 2*T)x(2*M + 2*T), where T = number of targets and may differ
+    between cost_matrices
+
 
     Output:
     - best_assignments: (list of triplets) best_assignments[i][0] is the cost of the ith best
@@ -137,12 +146,16 @@ def k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M, T):
         for the ith best assignment
     '''
     for cur_cost_matrix in cost_matrices:
+#        assert(cur_cost_matrix.shape == (2*M + 2*T, 2*M + 2*T)), (cur_cost_matrix.shape, M, T)
+        assert(cur_cost_matrix.shape[0] == cur_cost_matrix.shape[1]), (cur_cost_matrix.shape, M)
         for i in range(cur_cost_matrix.shape[0]):
             for j in range(cur_cost_matrix.shape[1]):
                 assert(sys.maxint > cur_cost_matrix[i][j])
     best_assignments = []
     cur_partition = []
     for (idx, cur_cost_matrix) in enumerate(cost_matrices):
+        T = cur_cost_matrix.shape[0]/2 - M
+        assert(cur_cost_matrix.shape == (2*M + 2*T, 2*M + 2*T)), (cur_cost_matrix.shape, M, T)        
         cur_partition.append(Node(cur_cost_matrix, [], [], idx, M, T, matrix_costs[idx]))
 
     for itr in range(0, k):
@@ -208,7 +221,26 @@ def k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M, T):
             del cur_partition[min_cost_idx]
         else: #out of assignments early
             break
+
+    if CHECK_NO_DUPLICATES:
+        check_for_duplicates(best_assignments, M, cost_matrices[0])
+
     return best_assignments
+
+def check_for_duplicates(best_assignments, M, cost_matrix_example):
+    '''
+    Check the assignments differ in entries that are meaningful
+    '''
+    print(cost_matrix_example.shape, cost_matrix_example)
+    unique_assignments = []
+    for assignment in best_assignments:
+        T = len(assignment[1])/2 - M
+        assert(len(assignment[1]) == 2*M + 2*T), (len(assignment[1]), M, T)                
+        cur_assignment_matrix = convert_assignment_pairs_to_matrix3(assignment[1], M, T)
+        (meas_grp_associations, dead_target_indices) = convert_assignment_matrix3(cur_assignment_matrix, M, T)
+        cur_tuple = (tuple(meas_grp_associations), tuple(dead_target_indices), assignment[0])
+        assert(not cur_tuple in unique_assignments), (assignment, best_assignments, unique_assignments)
+        unique_assignments.append(cur_tuple)
 
 #def check_assignments_differ(assignA, assignB, M, T):
 #    '''

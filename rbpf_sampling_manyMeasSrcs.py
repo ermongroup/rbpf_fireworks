@@ -1311,6 +1311,26 @@ def convert_assignment_matrix3(assignment_matrix, M, T):
 
     return(meas_associations, dead_target_indices)
 
+def convert_assignment_pairs_to_matrix3(assignment_pairs, M, T):
+    '''  
+    Inputs:
+    - assignment_pairs: list of pairs where each pair represents an association in the assignment (1's in assignment matrix)
+    - M: #measurements (int)
+    - T: #targets (int)
+
+    Outputs:
+    - assignment_matrix: numpy array with dimensions (2*M+2*T)x(2*M+2*T).    
+    
+    '''
+    assert(len(assignment_pairs) == (2*M+2*T)), (assignment_pairs, M, T)
+
+    assignment_matrix = np.zeros(((2*M+2*T), (2*M+2*T)))
+    for (row_idx, col_idx) in assignment_pairs:
+        assignment_matrix[row_idx, col_idx] = 1
+
+    return assignment_matrix
+
+
 def solve_gumbel_perturbed_assignment3(log_probs, M, T):
     '''
     use along with construct_log_probs_matrix3()
