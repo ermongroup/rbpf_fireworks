@@ -354,7 +354,11 @@ if __name__ == "__main__":
                                 #the number of samples we will use to compute the expected value of the partition function 
                                 #using an approximation to the Gumbel max trick
                                 'num_gumbel_partition_samples': 20,
-                                'gumbel_scale': gumbel_scale }                                                    
+                                'gumbel_scale': gumbel_scale,
+                                #compute death probabilities for targets that have been unassociated
+                                #for up to death_prob_markov_order time instances, we will assume death probability is unchanged after
+                                #this number of time instances in our model                                
+                                'death_prob_markov_order' }                                                    
                                 cur_firework = Firework(RunRBPF(), spec=cur_spec)
         #                       cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
 

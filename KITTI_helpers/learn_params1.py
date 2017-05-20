@@ -3352,18 +3352,21 @@ class MultiDetections_many:
                         count += 1
         return count        
 
-    def get_death_probs(self, near_border):
+    def get_death_probs(self, near_border, death_prob_markov_order):
         """
         Input:
         - near_border: boolean, death probabilities for ground truth obects near the border on
             their last time instance alive or not near the border?
+        - death_prob_markov_order: integer, compute death probabilities for targets that have been unassociated
+            for up to death_prob_markov_order time instances, we will assume death probability is unchanged after
+            this number of time instances in our model
         """
         death_probs = [-99]
         death_counts = []
         living_counts = []
         print '#'*80
         print "get_death_probs info: "
-        for i in range(3):
+        for i in range(2):
             death_count = float(self.get_death_count(i, near_border))
             living_count = float(self.get_living_count(i, near_border))
             death_count1 = float(self.get_death_count1(i, near_border))
@@ -3387,7 +3390,8 @@ class MultiDetections_many:
 #WHEN WORKING delete get_meas_target_sets above
 def get_meas_target_sets_general(training_sequences, score_intervals, detection_names, \
     obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True, include_ignored_gt = False, \
-    include_dontcare_in_gt = False, include_ignored_detections = True, return_bb_size_info = False):
+    include_dontcare_in_gt = False, include_ignored_detections = True, return_bb_size_info = False,
+    death_prob_markov_order = 2):
     """
     Input:
     - score_intervals: dictionary, where score_intervals['det_name'] contains score intervals for the
@@ -3496,8 +3500,8 @@ def get_meas_target_sets_general(training_sequences, score_intervals, detection_
     target_groupEmission_priors = all_detections.get_target_groupEmission_priors()
     (birth_count_priors, birth_lambdas_by_group) = all_detections.get_birth_priors()
 
-    (death_probs_near_border, death_counts_near_border, living_counts_near_border) = all_detections.get_death_probs(near_border = True)
-    (death_probs_not_near_border, death_counts_not_near_border, living_counts_not_near_border) = all_detections.get_death_probs(near_border = False)
+    (death_probs_near_border, death_counts_near_border, living_counts_near_border) = all_detections.get_death_probs(near_border = True, death_prob_markov_order = death_prob_markov_order)
+    (death_probs_not_near_border, death_counts_not_near_border, living_counts_not_near_border) = all_detections.get_death_probs(near_border = False, death_prob_markov_order, death_prob_markov_order)
 
 ##############################################################################
 
