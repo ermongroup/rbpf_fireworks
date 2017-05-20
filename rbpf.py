@@ -41,8 +41,8 @@ from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
 from learn_params1 import get_meas_target_sets_2sources_general
 from learn_params1 import get_meas_target_sets_1sources_general
 
-from learn_params1 import get_meas_target_sets_general
-#from learn_params1_local import get_meas_target_sets_general
+#from learn_params1 import get_meas_target_sets_general
+from learn_params1_local import get_meas_target_sets_general
 
 from get_test_targetSets import get_meas_target_sets_test
 from generate_data import KITTI_detection_file_to_TargetSet
@@ -2716,7 +2716,7 @@ class RunRBPF(FireTaskBase):
                             get_meas_target_sets_general(training_sequences, SCORE_INTERVALS_DET_USED, det_names, \
                             obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
                             include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
-                            include_ignored_detections = include_ignored_detections)
+                            include_ignored_detections = include_ignored_detections, death_prob_markov_order = SPEC['death_prob_markov_order'])
 
                 print "BORDER_DEATH_PROBABILITIES: ", BORDER_DEATH_PROBABILITIES
                 print "NOT_BORDER_DEATH_PROBABILITIES: ", NOT_BORDER_DEATH_PROBABILITIES

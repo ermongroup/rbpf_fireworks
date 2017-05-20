@@ -453,7 +453,6 @@ if __name__ == "__main__":
                                                     run_rbpf_fireworks.append(cur_firework)
 
 
-                        #                   seq_idx_to_eval = [i for i in range(21)]
                                             seq_idx_to_eval = SEQUENCES_TO_PROCESS
                                             eval_old_spec = copy.deepcopy(cur_spec)
                                             eval_old_spec['seq_idx_to_eval'] = seq_idx_to_eval 

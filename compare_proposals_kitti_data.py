@@ -252,9 +252,9 @@ if __name__ == "__main__":
     check_k_nearest = None
     for train_test in ['train']:
         for online_delay in [0]:
-            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), ('modified_SIS_gumbel', 1)]:
-#            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), \
-#            ('modified_SIS_gumbel', .5), ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 2), ('modified_SIS_gumbel', 4)]:
+#            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), ('modified_SIS_gumbel', 1)]:
+            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), \
+            ('modified_SIS_gumbel', .5), ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 2), ('modified_SIS_gumbel', 4)]:
 #            for (proposal_distr, targ_meas_assoc_metric, check_k_nearest) in \
 #            [('modified_SIS_gumbel', 'distance', None)]:  
 #            [('modified_SIS_min_cost', 'distance', None),
@@ -355,7 +355,11 @@ if __name__ == "__main__":
                                 #the number of samples we will use to compute the expected value of the partition function 
                                 #using an approximation to the Gumbel max trick
                                 'num_gumbel_partition_samples': 20,
-                                'gumbel_scale': gumbel_scale }                                                    
+                                'gumbel_scale': gumbel_scale,
+                                #compute death probabilities for targets that have been unassociated
+                                #for up to death_prob_markov_order time instances, we will assume death probability is unchanged after
+                                #this number of time instances in our model                                
+                                'death_prob_markov_order' }                                                    
                                 cur_firework = Firework(RunRBPF(), spec=cur_spec)
         #                       cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
 
