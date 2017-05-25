@@ -1,11 +1,14 @@
 import numpy as np
 import sys
+import cProfile
 
 from munkres import Munkres, print_matrix
-#from scipy.optimize import linear_sum_assignment
+from scipy.optimize import linear_sum_assignment
 #use edited version of scipy
 sys.path.insert(0, "/Users/jkuck/tracking_research/scipy/scipy/optimize")
-from _hungarian import linear_sum_assignment
+#from _hungarian import linear_sum_assignment
+
+from pymatgen.optimization import linear_assignment
 
 import itertools
 import math
@@ -20,11 +23,17 @@ np.random.seed(1)
 random.seed(1)
 #if True, check that we don't return two assignment matrices that correspond
 #to the same associations and deaths, due to filler entries in matrix
-CHECK_NO_DUPLICATES = True
-USE_MUNKRES = False
+CHECK_NO_DUPLICATES = False
+
+#if true use Munkres from munkres to solve the assignment problem
+#if false use linear_sum_assignment from scipy to solve the assignment problem (generally faster)
+
+#pick from ['munkres', 'scipy', 'pymatgen'], 'pymatgen' should be fastest
+ASSIGNMENT_SOLVER = 'pymatgen'
 DEBUG = False
 DEBUG1 = False
 DEBUG2 = False
+PROFILE = False
 #This is different that the implementation in k_best_assignment in that when we are finding
 #the k_best assignments for a measurement association/target death matrix, the bottom right
 #portion of the matrix is filled with zeros and we do not care about getting multiple assignments
@@ -83,7 +92,7 @@ def k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M):
     for (idx, cur_cost_matrix) in enumerate(cost_matrices):
         T = cur_cost_matrix.shape[0]/2 - M
         assert(cur_cost_matrix.shape == (2*M + 2*T, 2*M + 2*T)), (cur_cost_matrix.shape, M, T)        
-        cur_partition.append(Node(cur_cost_matrix, cur_cost_matrix, [], [], idx, M, T, matrix_costs[idx]))
+        cur_partition.append(Node(cur_cost_matrix, [], [], idx, M, T, matrix_costs[idx]))
 
     for itr in range(0, k):
         if DEBUG2:
@@ -190,7 +199,7 @@ def check_for_duplicates(best_assignments, M, cost_matrix_example):
 #    for ()
 
 class Node:
-    def __init__(self, orig_cost_matrix, transformed_cost_matrix, required_cells, excluded_cells, orig_cost_matrix_index, M, T, matrix_cost):
+    def __init__(self, orig_cost_matrix, required_cells, excluded_cells, orig_cost_matrix_index, M, T, matrix_cost):
         '''
         Following the terminology used by [1], a node is defined to be a nonempty subset of possible
         assignments to a cost matrix.  Every assignment in node N is required to contain
@@ -198,7 +207,6 @@ class Node:
 
         Inputs:
         - orig_cost_matrix: (2d numpy array) the original cost matrix
-        - transformed_cost_matrix: (2d numpy array) cost matrix, after hungarian algorithm transformations
         - required_cells: (list of pairs) where each pair represents a (zero indexed) location
             in the assignment matrix that must be a 1
         - excluded_cells: list of pairs) where each pair represents a (zero indexed) location
@@ -213,7 +221,6 @@ class Node:
 
         '''
         self.orig_cost_matrix = np.array(orig_cost_matrix, copy=True)
-        self.transformed_cost_matrix = np.array(transformed_cost_matrix, copy=True)
         self.required_cells = required_cells[:]
         self.excluded_cells = excluded_cells[:]
         self.orig_cost_matrix_index = orig_cost_matrix_index
@@ -230,18 +237,22 @@ class Node:
         if orig_cost_matrix.size > 0:
             #we will transform the cost matrix into the "remaining cost matrix" as described in [1]
             self.remaining_cost_matrix = self.construct_remaining_cost_matrix()
-#            assert((self.remaining_cost_matrix > 0).all()), self.remaining_cost_matrix
+            assert((self.remaining_cost_matrix > 0).all()), self.remaining_cost_matrix
             #solve the assignment problem for the remaining cost matrix
-            if USE_MUNKRES:
+            if ASSIGNMENT_SOLVER == 'munkres':
                 hm = Munkres()
                 # we get a list of (row, col) associations, or 1's in the minimum assignment matrix
                 association_list = hm.compute(self.remaining_cost_matrix.tolist())
-            else:
-                (row_ind, col_ind, transformed_cost_matrix) = linear_sum_assignment(self.remaining_cost_matrix)
+            elif ASSIGNMENT_SOLVER == 'scipy':
+                row_ind, col_ind = linear_sum_assignment(self.remaining_cost_matrix)
                 assert(len(row_ind) == len(col_ind))
                 association_list = zip(row_ind, col_ind)
-                if(self.orig_cost_matrix.shape == transformed_cost_matrix.shape):
-                    self.transformed_cost_matrix = transformed_cost_matrix
+            else:
+                assert(ASSIGNMENT_SOLVER == 'pymatgen')
+                lin_assign = linear_assignment.LinearAssignment(self.remaining_cost_matrix)
+                solution = lin_assign.solution
+                association_list = zip([i for i in range(len(solution))], solution)
+
             if DEBUG:
                 print "remaining cost matrix:"
                 print self.remaining_cost_matrix
@@ -322,7 +333,7 @@ class Node:
                             assert(cur_required_cells[i][0] != cur_required_cells[j][0] and
                                    cur_required_cells[i][1] != cur_required_cells[j][1])
                                     
-                partition.append(Node(self.orig_cost_matrix, self.transformed_cost_matrix, cur_required_cells, cur_excluded_cells,
+                partition.append(Node(self.orig_cost_matrix, cur_required_cells, cur_excluded_cells,
                                       self.orig_cost_matrix_index, self.M, self.T, self.matrix_cost))
                 cur_required_cells.append(cur_assoc)
 
@@ -333,7 +344,7 @@ class Node:
 
     #transform the cost matrix into the "remaining cost matrix" as described in [1]
     def construct_remaining_cost_matrix(self):
-        remaining_cost_matrix = np.array(self.transformed_cost_matrix, copy=True)
+        remaining_cost_matrix = np.array(self.orig_cost_matrix, copy=True)
       
         #replace excluded_cell locations with infinity in the remaining cost matrix
         for (row, col) in self.excluded_cells:
@@ -633,13 +644,19 @@ def speed_test(M,k,num_cost_matrices,iters):
 
 
 if __name__ == "__main__":
-#    M = 1 # number of measurements in cost matrices of size 
+#    M = 0 # number of measurements in cost matrices of size 
 #    k = 5 # find k lowest cost solutions
 #    num_cost_matrices = 10
 #    test_against_brute_force(M,k,num_cost_matrices,100)
 
-    M = 10 # number of measurements in cost matrices of size 
-    k = 10 # find k lowest cost solutions
-    num_cost_matrices = 10    
-    speed_test(M,k,num_cost_matrices,1)
+    M = 15 # number of measurements in cost matrices of size 
+    k = 1000 # find k lowest cost solutions
+    num_cost_matrices = 10
+    iters = 1
+    if PROFILE:
+        cProfile.runctx('speed_test(M,k,num_cost_matrices,iters)', {'M': M, 'k': k,
+            'num_cost_matrices':num_cost_matrices, 'iters':iters, 'speed_test':speed_test}, {})
+
+    else:
+        speed_test(M,k,num_cost_matrices,iters)
 
