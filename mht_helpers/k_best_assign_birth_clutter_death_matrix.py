@@ -1,19 +1,30 @@
 import numpy as np
-from munkres import Munkres, print_matrix
 import sys
+
+from munkres import Munkres, print_matrix
+#from scipy.optimize import linear_sum_assignment
+#use edited version of scipy
+sys.path.insert(0, "/Users/jkuck/tracking_research/scipy/scipy/optimize")
+from _hungarian import linear_sum_assignment
+
 import itertools
 import math
+import random
+import time
 from operator import itemgetter
 sys.path.insert(0, "../")
 from rbpf_sampling_manyMeasSrcs import convert_assignment_matrix3
 from rbpf_sampling_manyMeasSrcs import convert_assignment_pairs_to_matrix3
 
+np.random.seed(1)
+random.seed(1)
 #if True, check that we don't return two assignment matrices that correspond
 #to the same associations and deaths, due to filler entries in matrix
-CHECK_NO_DUPLICATES = False
-
+CHECK_NO_DUPLICATES = True
+USE_MUNKRES = False
 DEBUG = False
 DEBUG1 = False
+DEBUG2 = False
 #This is different that the implementation in k_best_assignment in that when we are finding
 #the k_best assignments for a measurement association/target death matrix, the bottom right
 #portion of the matrix is filled with zeros and we do not care about getting multiple assignments
@@ -29,93 +40,9 @@ DEBUG1 = False
 #     tracking and motion correspondence," IEEE Trans. Aerosp. Electron. Syst., vol. 31, no. 1, pp.
 #     486-489, Jan. 1995.
 
-def k_best_assignments(k, cost_matrix, M, T):
-    '''
-    Find the k best assignments for the given cost matrix
-
-    Inputs:
-    - k: (integer) 
-    - cost_matrix: (numpy array)  
-    - M: number of measurements 
-    - T: number of targets and may differ
-    cost_matrix has dimensions (2*M + 2*T)x(2*M + 2*T) 
-
-    Output:
-    - best_assignments: (list of pairs) best_assignments[i][0] is the cost of the ith best
-        assignment.  best_assignments[i][1] is the ith best assignment, which is a list of pairs
-        where each pair represents an association in the assignment (1's in assignment matrix)
-    '''
-    for i in range(cost_matrix.shape[0]):
-        for j in range(cost_matrix.shape[1]):
-            assert(sys.maxint > cost_matrix[i][j])
-
-    init_node = Node(cost_matrix, [], [], 0, M, T)
-    best_assignments = [init_node.get_min_cost_assignment()]
-    cur_partition = init_node.partition()
-    for itr in range(1, k):
-        min_cost = sys.maxint
-        min_cost_idx = -1
-        np.set_printoptions(linewidth=300)
-
-        if DEBUG1:
-            print len(cur_partition), "nodes in partition with remaing cost matrices:"
-        for cur_idx, cur_node in enumerate(cur_partition):
-            if DEBUG1:
-                print cur_node.minimum_cost
-                print cur_node.remaining_cost_matrix   
-                print       
-            if cur_node.minimum_cost < min_cost:
-                min_cost = cur_node.minimum_cost
-                min_cost_idx = cur_idx
-        if DEBUG1:            
-            print '$'*80
-
-        if DEBUG1:
-            debug_total_assign_count = 0
-            for cur_idx, cur_node in enumerate(cur_partition):
-                rcm = cur_node.remaining_cost_matrix
-                assert(rcm.shape[0] == rcm.shape[1])
-                rmc_assign_count = 0
-                for row in range(rcm.shape[0]):
-                    if row == 0: #count excluded cells
-                        excluded_cell_count = 0
-                        for col in range(rcm.shape[1]):
-                            if rcm[(row, col)] == sys.maxint:
-                                excluded_cell_count += 1
-                        rmc_assign_count = rcm.shape[0] - excluded_cell_count
-                    else:
-                        excluded_cell_count = 0
-                        for col in range(rcm.shape[1]):
-                            if rcm[(row, col)] == sys.maxint:
-                                excluded_cell_count += 1
-                        assert(excluded_cell_count == 0)
-                rmc_assign_count *= math.factorial(rcm.shape[0] - 1)
-                debug_total_assign_count += rmc_assign_count                        
-            print "we've kept track of assignments:", (itr + debug_total_assign_count)
-            print '&'*80
-            print
-            print
-
-        best_assignments.append(cur_partition[min_cost_idx].get_min_cost_assignment())
-        if DEBUG:
-            print "iter", itr, "-"*80
-            print "best assignment: ", best_assignments[-1]
-        cur_partition.extend(cur_partition[min_cost_idx].partition())
-
-        if DEBUG:
-            print "all assignment costs in partition: ",
-            for node in cur_partition:
-                node_min_cost_assign = node.get_min_cost_assignment()
-                print node_min_cost_assign[0],
-            print
-            print "required_cells: ", cur_partition[min_cost_idx].required_cells
-            print "min_cost_associations: ", cur_partition[min_cost_idx].min_cost_associations
-            print
-
-        del cur_partition[min_cost_idx]
-    return best_assignments
 
 
+#BRUTE FORCE TEST ME WITH RANDOM MATRICES
 def k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M):
     '''
     Find the k lowest cost assignments for any of the cost matrices.  That is, the lowest cost will
@@ -128,7 +55,7 @@ def k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M):
     The cost of an assignment is given by the assignment to the specified cost matrix PLUS the
     cost for the matrix given in matrix_costs
     Inputs:
-    - k: (integer) 
+    - k: (integer), find top k best assignments   
     - cost_matrices: (list of numpy arrays)  
     - matrix_costs: (list of floats) same length as cost_matrices.  add this to every assignment cost for the corresponding matrix
         in cost_matrices
@@ -156,9 +83,21 @@ def k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M):
     for (idx, cur_cost_matrix) in enumerate(cost_matrices):
         T = cur_cost_matrix.shape[0]/2 - M
         assert(cur_cost_matrix.shape == (2*M + 2*T, 2*M + 2*T)), (cur_cost_matrix.shape, M, T)        
-        cur_partition.append(Node(cur_cost_matrix, [], [], idx, M, T, matrix_costs[idx]))
+        cur_partition.append(Node(cur_cost_matrix, cur_cost_matrix, [], [], idx, M, T, matrix_costs[idx]))
 
     for itr in range(0, k):
+        if DEBUG2:
+            print '-'*80
+            print 'iteration:', itr
+            print "best assignments:"
+            for best_assign in best_assignments:
+                print 'total cost =', best_assign[0], 'cost_matrix_index =', best_assign[2]
+            print "partition:"
+            for node in cur_partition:
+                print 'matrix cost =', node.matrix_cost, ', total cost =', node.minimum_cost
+
+
+
         min_cost = sys.maxint
         min_cost_idx = -1
         np.set_printoptions(linewidth=300)
@@ -231,6 +170,7 @@ def check_for_duplicates(best_assignments, M, cost_matrix_example):
     '''
     Check the assignments differ in entries that are meaningful
     '''
+    print 'checking for duplicates'
     print(cost_matrix_example.shape, cost_matrix_example)
     unique_assignments = []
     for assignment in best_assignments:
@@ -250,7 +190,7 @@ def check_for_duplicates(best_assignments, M, cost_matrix_example):
 #    for ()
 
 class Node:
-    def __init__(self, orig_cost_matrix, required_cells, excluded_cells, orig_cost_matrix_index, M, T, matrix_cost):
+    def __init__(self, orig_cost_matrix, transformed_cost_matrix, required_cells, excluded_cells, orig_cost_matrix_index, M, T, matrix_cost):
         '''
         Following the terminology used by [1], a node is defined to be a nonempty subset of possible
         assignments to a cost matrix.  Every assignment in node N is required to contain
@@ -258,6 +198,7 @@ class Node:
 
         Inputs:
         - orig_cost_matrix: (2d numpy array) the original cost matrix
+        - transformed_cost_matrix: (2d numpy array) cost matrix, after hungarian algorithm transformations
         - required_cells: (list of pairs) where each pair represents a (zero indexed) location
             in the assignment matrix that must be a 1
         - excluded_cells: list of pairs) where each pair represents a (zero indexed) location
@@ -272,6 +213,7 @@ class Node:
 
         '''
         self.orig_cost_matrix = np.array(orig_cost_matrix, copy=True)
+        self.transformed_cost_matrix = np.array(transformed_cost_matrix, copy=True)
         self.required_cells = required_cells[:]
         self.excluded_cells = excluded_cells[:]
         self.orig_cost_matrix_index = orig_cost_matrix_index
@@ -288,11 +230,18 @@ class Node:
         if orig_cost_matrix.size > 0:
             #we will transform the cost matrix into the "remaining cost matrix" as described in [1]
             self.remaining_cost_matrix = self.construct_remaining_cost_matrix()
-            assert((self.remaining_cost_matrix > 0).all()), self.remaining_cost_matrix
+#            assert((self.remaining_cost_matrix > 0).all()), self.remaining_cost_matrix
             #solve the assignment problem for the remaining cost matrix
-            hm = Munkres()
-            # we get a list of (row, col) associations, or 1's in the minimum assignment matrix
-            association_list = hm.compute(self.remaining_cost_matrix.tolist())
+            if USE_MUNKRES:
+                hm = Munkres()
+                # we get a list of (row, col) associations, or 1's in the minimum assignment matrix
+                association_list = hm.compute(self.remaining_cost_matrix.tolist())
+            else:
+                (row_ind, col_ind, transformed_cost_matrix) = linear_sum_assignment(self.remaining_cost_matrix)
+                assert(len(row_ind) == len(col_ind))
+                association_list = zip(row_ind, col_ind)
+                if(self.orig_cost_matrix.shape == transformed_cost_matrix.shape):
+                    self.transformed_cost_matrix = transformed_cost_matrix
             if DEBUG:
                 print "remaining cost matrix:"
                 print self.remaining_cost_matrix
@@ -345,11 +294,17 @@ class Node:
             print '!'*40, 'Debug partition()', '!'*40
             print len(self.min_cost_associations) - 1
 
-        for idx in range(len(self.min_cost_associations)  - 1):
+        if DEBUG2:
+            print 'partition called, len(self.min_cost_associations)  - 1 =', len(self.min_cost_associations)  - 1
+
+#        for idx in range(len(self.min_cost_associations)  - 1):
+        #this seems to be corret from testing, without -1, but seems like we might have two identical associations in the partition
+        #think about more some time
+        for idx in range(len(self.min_cost_associations)):
             cur_assoc = self.min_cost_associations[idx]
             row_idx = cur_assoc[0]
             col_idx = cur_assoc[1]
-            #only partition by celss that will result in a different assignment
+            #only partition by cells that will result in a different assignment
             if((row_idx < self.M+2*self.T and col_idx < self.T) or (row_idx < self.M and col_idx < self.T+2*self.M)):
                 cur_excluded_cells = self.excluded_cells[:]
                 cur_excluded_cells.append(cur_assoc)
@@ -367,16 +322,18 @@ class Node:
                             assert(cur_required_cells[i][0] != cur_required_cells[j][0] and
                                    cur_required_cells[i][1] != cur_required_cells[j][1])
                                     
-                partition.append(Node(self.orig_cost_matrix, cur_required_cells, cur_excluded_cells,
+                partition.append(Node(self.orig_cost_matrix, self.transformed_cost_matrix, cur_required_cells, cur_excluded_cells,
                                       self.orig_cost_matrix_index, self.M, self.T, self.matrix_cost))
                 cur_required_cells.append(cur_assoc)
 
+            elif DEBUG2:
+                print "no need to partition by association", cur_assoc, ', M =', self.M, ', T =', self.T
 
         return partition
 
     #transform the cost matrix into the "remaining cost matrix" as described in [1]
     def construct_remaining_cost_matrix(self):
-        remaining_cost_matrix = np.array(self.orig_cost_matrix, copy=True)
+        remaining_cost_matrix = np.array(self.transformed_cost_matrix, copy=True)
       
         #replace excluded_cell locations with infinity in the remaining cost matrix
         for (row, col) in self.excluded_cells:
@@ -439,22 +396,70 @@ class Node:
 
         return orig_indices
 
-def brute_force_k_best_assignments(k, cost_matrix):
-    assert(cost_matrix.shape[0] == cost_matrix.shape[1])
-    n = cost_matrix.shape[0]
-    all_perm_mats = gen_permutation_matrices(n)
-    costs = []
-    for pm in all_perm_mats:
-        costs.append(np.trace(np.dot(pm, np.transpose(cost_matrix))))
 
-    min_costs = [] #list of triples (smallest k costs, corresponding permutation matrix, 0)
-    for i in range(k):
-        (min_key, min_cost) = min(enumerate(costs), key=itemgetter(1)) #find the next smallest cost
-        min_costs.append((min_cost, all_perm_mats[min_key], 0))
-        del all_perm_mats[min_key]
-        del costs[min_key]
+        T = len(assignment[1])/2 - M
+        assert(len(assignment[1]) == 2*M + 2*T), (len(assignment[1]), M, T)                
+        cur_assignment_matrix = convert_assignment_pairs_to_matrix3(assignment[1], M, T)
+        (meas_grp_associations, dead_target_indices) = convert_assignment_matrix3(cur_assignment_matrix, M, T)
+        cur_tuple = (tuple(meas_grp_associations), tuple(dead_target_indices), assignment[0])
 
-    return min_costs
+def brute_force_k_best_assignments(k, cost_matrices, matrix_costs, M):
+    '''
+    The cost of an assignment is given by the assignment to the specified cost matrix PLUS the
+    cost for the matrix given in matrix_costs
+    Inputs:
+    - k: (integer), find top k best assignments
+    - cost_matrices: (list of numpy arrays)  
+    - matrix_costs: (list of floats) same length as cost_matrices.  add this to every assignment cost for the corresponding matrix
+        in cost_matrices
+    - M: number of measurements 
+
+
+    Output:
+    - best_assignments: (list of triplets) best_assignments[i][0] is the cost of the ith best
+        assignment.  best_assignments[i][1] is the ith best assignment, which is a list of pairs
+        where each pair represents an association in the assignment (1's in assignment matrix),
+        best_assignments[i][2] is the index in the input cost_matrices of the cost matrix used
+        for the ith best assignment
+
+    '''
+    potential_best_assignments = [] 
+
+    for cm_idx, cost_matrix in enumerate(cost_matrices):
+        T = len(cost_matrix[1])/2 - M
+        assert(len(cost_matrix[1]) == 2*M + 2*T), (len(cost_matrix[1]), M, T)                
+        assert(cost_matrix.shape[0] == cost_matrix.shape[1])
+
+        n = cost_matrix.shape[0]
+        all_perm_mats = gen_permutation_matrices(n)
+        costs = []
+        for pm in all_perm_mats:
+            costs.append(matrix_costs[cm_idx]+np.trace(np.dot(pm, np.transpose(cost_matrix))))
+
+        cur_best_assignments = [] 
+        unique_assoc_deaths = []
+        while len(cur_best_assignments) < k and len(costs) > 0:
+            (min_key, min_cost) = min(enumerate(costs), key=itemgetter(1)) #find the next smallest cost
+            if min_cost < 9999999999999999: #invalid assignment
+                #check this assignment is new
+                (meas_grp_associations, dead_target_indices) = convert_assignment_matrix3(all_perm_mats[min_key], M, T)
+                cur_tuple = (tuple(meas_grp_associations), tuple(dead_target_indices))
+                if not cur_tuple in unique_assoc_deaths:
+                    unique_assoc_deaths.append(cur_tuple)
+                    cur_best_assignments.append((min_cost, convert_perm_array_to_list(all_perm_mats[min_key]), cm_idx))
+                    if DEBUG2:
+                        print 'found new potential assoc,', cur_tuple, ', M=', M, ', T=',T
+                del all_perm_mats[min_key]
+                del costs[min_key]
+            else:
+                break
+
+        potential_best_assignments.extend(cur_best_assignments)
+
+    best_assignments = sorted(potential_best_assignments, key=itemgetter(0))[0:k]
+
+
+    return best_assignments
 
 
 def convert_perm_list_to_array(list_):
@@ -493,9 +498,11 @@ def convert_perm_array_to_list(arr):
 
 def check_assignments_match(best_assignments1, best_assignments2):
     for (index, (cost, assignment_list, cost_matrix_index)) in enumerate(best_assignments1):
+        assert(len(best_assignments1) == len(best_assignments2)), (len(best_assignments1), len(best_assignments2), best_assignments1, best_assignments2)
         #assert(cost == best_assignments2[index][0]), (cost, best_assignments2[index][0])
-        np.testing.assert_allclose(cost, best_assignments2[index][0], rtol=1e-5, atol=0), (cost, best_assignments2[index][0])
-#        assert((convert_perm_list_to_array(assignment_list) == best_assignments2[index][1]).all), (assignment_list, best_assignments1[index][1])
+#        np.testing.assert_allclose(cost, best_assignments2[index][0], rtol=1e-5, atol=0), (cost, best_assignments2[index][0], best_assignments1, best_assignments2)
+        assert(np.abs(cost - best_assignments2[index][0]) < .00001), (cost, best_assignments2[index][0], best_assignments1, best_assignments2)
+        assert((convert_perm_list_to_array(assignment_list) == convert_perm_list_to_array(best_assignments2[index][1])).all), (assignment_list, best_assignments1[index][1])
         assert(cost_matrix_index == best_assignments2[index][2]), (cost_matrix_index, best_assignments2[index][2], cost, best_assignments2[index][0], convert_perm_list_to_array(assignment_list), best_assignments2[index][1])
 
 def gen_permutation_matrices(n):
@@ -511,25 +518,79 @@ def gen_permutation_matrices(n):
     return all_permutation_matrices
 
 
-def test_against_brute_force(N,k,iters):
+def construct_random_costs_matrix(M, T):
     '''
-    Test our implementation of Murty's algorithm to find the k best assignments for a given cost
-    matrix against a brute force approach.
     Inputs:
-    - N: use a random cost matrix of size (NxN)
+    - M: (int), #measurements
+    - T: (int), #targets
+
+    Outputs:
+    - cost_matrix: numpy matrix with dimensions (2*M+2*T)x(2*M+2*T) of costs
+    '''
+    #construct a (2*M+2*T)x(2*M+2*T) matrix of log probabilities
+    cost_matrix = np.ones((2*M + 2*T, 2*T + 2*M))
+    cost_matrix *= 9999999999999999
+
+    #generate random costs for target association entries in the cost matrix
+    for t_idx in range(T):
+        for m_idx in range(M):
+        #generate random costs for measurement-target association entries in the cost matrix
+            cost_matrix[m_idx][t_idx] = np.random.rand(1)[0]*10
+
+        #generate random costs for target doesn't emit and lives/dies entries in the cost matrix
+        lives_row_idx = M + 2*t_idx
+        dies_row_idx = M + 1 + 2*t_idx
+        cost_matrix[lives_row_idx][t_idx] = np.random.rand(1)[0]*10
+        cost_matrix[dies_row_idx][t_idx] = np.random.rand(1)[0]*10
+
+
+    #add birth/clutter measurement association entries to the cost matrix
+    for m_idx in range(M):
+        clutter_col = T + 2*m_idx
+        birth_col = T + 1 + 2*m_idx
+
+        cost_matrix[m_idx][clutter_col] = np.random.rand(1)[0]*10
+        cost_matrix[m_idx][birth_col] = np.random.rand(1)[0]*10
+
+    #set bottom right quadrant to 0's
+    for row_idx in range(M, 2*M+2*T):
+        for col_idx in range(T, 2*T+2*M):
+            cost_matrix[row_idx][col_idx] = 0.0
+
+    cost_matrix = cost_matrix + 2.0 #in Node we want all entries to be great than zero, not sure offhand why
+
+    return cost_matrix
+
+def test_against_brute_force(M,k,num_cost_matrices,iters):
+    '''
+    Test our implementation to find the k best assignments for a set of cost
+    matrices, each with an associated cost, against a brute force approach.
+    Inputs:
+    - M: use a random cost matrix of size (2*M + 2*T)x(2*M + 2*T) with this M and random 
+        T in range 0, M+1
     - k: find k best solutions
     - iters: number of random problems to solve and check
+    - num_cost_matrices: integer, the number of cost matrices to generate
     '''
     for test_iter in range(iters):
-        cost_matrix = np.random.rand(N,N)*1000
+        #create cost matrices and associated costs
+        cost_matrices = []
+        matrix_costs = []
+        for m_idx in range(num_cost_matrices):
+            T = random.randrange(M+1) + 1
+            cost_matrix = construct_random_costs_matrix(M, T)
+            matrix_cost = np.random.rand(1)[0]*1000
+            cost_matrices.append(cost_matrix)
+            matrix_costs.append(matrix_cost)
 
-        best_assignments = k_best_assignments(k, cost_matrix)
+        best_assignments = k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M)
+        print "calculated with Hungarian"        
         if DEBUG:
             for (idx, assignment) in enumerate(best_assignments):
                 print idx, ":   ", assignment
             print
-        print "calculated with Hungarian"
-        best_assignments_brute_force = brute_force_k_best_assignments(k, cost_matrix)
+
+        best_assignments_brute_force = brute_force_k_best_assignments(k, cost_matrices, matrix_costs, M)
         print "calculated with brute force"
 
         if DEBUG:
@@ -538,75 +599,47 @@ def test_against_brute_force(N,k,iters):
         check_assignments_match(best_assignments, best_assignments_brute_force)
         print "match!"
 
-def test_mult_cost_matrices(num_cost_matrices, N,k,iters):
+
+def speed_test(M,k,num_cost_matrices,iters):
     '''
+    Time our implementation to find the k best assignments for a set of cost
+    matrices, each with an associated cost
     Inputs:
-    - num_cost_matrices: number of cost matrices to use
-    - N: use a random cost matrices of size (NxN)
+    - M: use a random cost matrix of size (2*M + 2*T)x(2*M + 2*T) with this M and random 
+        T in range 0, M+1
     - k: find k best solutions
     - iters: number of random problems to solve and check
+    - num_cost_matrices: integer, the number of cost matrices to generate
     '''
+    cost_matrices = []
+    matrix_costs = []
+    for m_idx in range(num_cost_matrices):
+        T = M
+        cost_matrix = construct_random_costs_matrix(M, T)
+        matrix_cost = np.random.rand(1)[0]*1000
+        cost_matrices.append(cost_matrix)
+        matrix_costs.append(matrix_cost)
+
+    t1 = time.time()
+
     for test_iter in range(iters):
-        cost_matrices = []
-        for i in range(num_cost_matrices):
-            cost_matrices.append(np.random.rand(N,N))
+        #create cost matrices and associated costs
 
-        best_assignments_mult = k_best_assign_mult_cost_matrices(k, cost_matrices)
-#        print best_assignments_mult
-        print 'calculated'
-        #now try using k_best_assignments k times
-        best_assignments_naive = []
-        for (idx, cur_cost_matrix) in enumerate(cost_matrices):
-            cur_best_assignments = k_best_assignments(k, cur_cost_matrix)
-            for (idx1, cur_assignment) in enumerate(cur_best_assignments):
-                cur_best_assignments[idx1] = (cur_assignment[0], cur_assignment[1], idx)
-            best_assignments_naive.extend(cur_best_assignments)
-        best_assignments_naive.sort(key=itemgetter(0))
-        best_assignments_naive = best_assignments_naive[0:k]
-        print "calculated naive"
+        best_assignments = k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M)
 
-#        print
-#        print best_assignments_naive
-        check_assignments_match(best_assignments_mult, best_assignments_naive)
-        print 'match!'
-#        if DEBUG:
-#            for (idx, assignment) in enumerate(best_assignments):
-#                print idx, ":   ", assignment
-#            print
-#        print "calculated with Hungarian"
-#        best_assignments_brute_force = brute_force_k_best_assignments(k, cost_matrix)
-#        print "calculated with brute force"
-#
-#        if DEBUG:
-#            for (idx, (cost, perm)) in enumerate(best_assignments_brute_force):
-#                print idx, ":   ", (cost, convert_perm_array_to_list(perm))
-#        check_assignments_match(best_assignments, best_assignments_brute_force)
-#        print "match!"
+    t2 = time.time()
 
-
-
-
+    print "calculation took", t2-t1, "seconds"
 
 
 if __name__ == "__main__":
-    N = 7 # cost matrices of size (NxN)
-    k = 50 # find k lowest cost solutions
-    num_cost_matrices = 10
-#    test_against_brute_force(N,k,100)
-#    test_mult_cost_matrices(num_cost_matrices, N, k, 100)
+#    M = 1 # number of measurements in cost matrices of size 
+#    k = 5 # find k lowest cost solutions
+#    num_cost_matrices = 10
+#    test_against_brute_force(M,k,num_cost_matrices,100)
 
-    cost_matrix = np.random.rand(N,N)*1000
-    best_assignments = k_best_assignments(k, cost_matrix)
-    if DEBUG:
-        for (idx, assignment) in enumerate(best_assignments):
-            print idx, ":   ", assignment
-        print
-    print "calculated with Hungarian"
-    best_assignments_brute_force = brute_force_k_best_assignments(k, cost_matrix)
-    print "calculated with brute force"
-    if DEBUG:
-        for (idx, (cost, perm)) in enumerate(best_assignments_brute_force):
-            print idx, ":   ", (cost, convert_perm_array_to_list(perm))
-    check_assignments_match(best_assignments, best_assignments_brute_force)
-    print "match!"
+    M = 10 # number of measurements in cost matrices of size 
+    k = 10 # find k lowest cost solutions
+    num_cost_matrices = 10    
+    speed_test(M,k,num_cost_matrices,1)
 
