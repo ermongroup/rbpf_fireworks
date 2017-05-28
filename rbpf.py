@@ -41,8 +41,8 @@ from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
 from learn_params1 import get_meas_target_sets_2sources_general
 from learn_params1 import get_meas_target_sets_1sources_general
 
-from learn_params1 import get_meas_target_sets_general
-#from learn_params1_local import get_meas_target_sets_general
+#from learn_params1 import get_meas_target_sets_general
+from learn_params1_local import get_meas_target_sets_general
 
 from get_test_targetSets import get_meas_target_sets_test
 from generate_data import KITTI_detection_file_to_TargetSet
@@ -111,7 +111,7 @@ if LSTM_MOTION:
 DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
 
 
-PROFILE = False
+PROFILE = True
 USE_GENERATED_DATA = False
 
 PLOT_TARGET_LOCATIONS = False
@@ -127,6 +127,8 @@ FIND_MAX_IMPRT_TIMES_LIKELIHOOD = False
 RESAMPLE_RATIO = 4.0 #resample when get_eff_num_particles < N_PARTICLES/RESAMPLE_RATIO
 
 DEBUG = False
+#print stuff for debugging, etc
+PRINT_INFO = False
 
 #if True, save the current max importance weight, whether this is the particles first time as
 #the max importance weight particle, and the number of living targets along with every
@@ -1677,19 +1679,20 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         #new_particle.importance_weight = -cur_cost
         assignment_log_prob = np.trace(np.dot(log_prob_matrices[cur_particle_idx], cur_assignment_matrix.T))
         new_particle.importance_weight = assignment_log_prob - particle_neg_log_probs[cur_particle_idx] #log prob
-
-        print "just set importance weight for new particle to:", new_particle.importance_weight
-
-        print 'M =', M
-        print 'T =', T
-        print 'cur_cost:', cur_cost
-        print 'cur_assignment:', cur_assignment
-        print 'perturbed_cost_matrices[cur_particle_idx]:', perturbed_cost_matrices[cur_particle_idx]
-        print 'unperturbed log_prob_matrix:', log_prob_matrices
-        print 'parent_particle idx:', cur_particle_idx
         (meas_grp_associations, dead_target_indices) = convert_assignment_matrix3(cur_assignment_matrix, M, T)
-        print 'meas_grp_associations: ', meas_grp_associations
-        print 'dead_target_indices: ', dead_target_indices
+
+
+        if PRINT_INFO:
+            print "just set importance weight for new particle to:", new_particle.importance_weight
+            print 'M =', M
+            print 'T =', T
+            print 'cur_cost:', cur_cost
+            print 'cur_assignment:', cur_assignment
+            print 'perturbed_cost_matrices[cur_particle_idx]:', perturbed_cost_matrices[cur_particle_idx]
+            print 'unperturbed log_prob_matrix:', log_prob_matrices
+            print 'parent_particle idx:', cur_particle_idx
+            print 'meas_grp_associations: ', meas_grp_associations
+            print 'dead_target_indices: ', dead_target_indices
     ############ MESSY ############
         #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
         #of the position of meas_groups[i]
@@ -2818,7 +2821,7 @@ class RunRBPF(FireTaskBase):
             else:       
                 if PROFILE:
                     cProfile.runctx('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)',
-                        {'measurementTargetSetsBySequence': measurementTargetSetsBySequence, 'seq_idx': seq_idx,
+                        {'sequenceMeasurementTargetSet': sequenceMeasurementTargetSet,
                         'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset}, {})
 #                    cProfile.run('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)')
                 else:

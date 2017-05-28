@@ -18,22 +18,32 @@ from operator import itemgetter
 sys.path.insert(0, "../")
 from rbpf_sampling_manyMeasSrcs import convert_assignment_matrix3
 from rbpf_sampling_manyMeasSrcs import convert_assignment_pairs_to_matrix3
-
+from rbpf_sampling_manyMeasSrcs import convert_assignment_pairs_to_associations3
 np.random.seed(1)
 random.seed(1)
 #if True, check that we don't return two assignment matrices that correspond
 #to the same associations and deaths, due to filler entries in matrix
-CHECK_NO_DUPLICATES = False
+CHECK_NO_DUPLICATES = True
 
 #if true use Munkres from munkres to solve the assignment problem
 #if false use linear_sum_assignment from scipy to solve the assignment problem (generally faster)
 
-#pick from ['munkres', 'scipy', 'pymatgen'], 'pymatgen' should be fastest
+#'pymatgen' should be fastest, significantly
+#pick from ['munkres', 'scipy', 'pymatgen'], 
 ASSIGNMENT_SOLVER = 'pymatgen'
 DEBUG = False
 DEBUG1 = False
 DEBUG2 = False
 PROFILE = False
+
+#if 'delete', delete required rows, WORKS :)
+#if 'fixed', keep the same size but set cost of required entry to .00000001, 
+#other entries in row/col to INFEASIBLE_COST, THIS DOESN"T WORK CURRENTLY
+#'copy' NOT IMPLEMENTED
+REMAINING_COST_MATRIX_CONSTRUNCTION = 'delete'
+#Set other entries in the same row/col as a required cell to this value, should be big
+#but don't want overflow issues when further transforming the matrix, more principled number?
+INFEASIBLE_COST = 9999999999999999
 #This is different that the implementation in k_best_assignment in that when we are finding
 #the k_best assignments for a measurement association/target death matrix, the bottom right
 #portion of the matrix is filled with zeros and we do not care about getting multiple assignments
@@ -185,8 +195,14 @@ def check_for_duplicates(best_assignments, M, cost_matrix_example):
     for assignment in best_assignments:
         T = len(assignment[1])/2 - M
         assert(len(assignment[1]) == 2*M + 2*T), (len(assignment[1]), M, T)                
-        cur_assignment_matrix = convert_assignment_pairs_to_matrix3(assignment[1], M, T)
-        (meas_grp_associations, dead_target_indices) = convert_assignment_matrix3(cur_assignment_matrix, M, T)
+
+        (meas_grp_associations, dead_target_indices) = convert_assignment_pairs_to_associations3(assignment[1], M, T)
+        
+#        cur_assignment_matrix = convert_assignment_pairs_to_matrix3(assignment[1], M, T)
+#        (meas_grp_associations1, dead_target_indices1) = convert_assignment_matrix3(cur_assignment_matrix, M, T)
+#        assert(meas_grp_associations == meas_grp_associations1)
+#        assert(dead_target_indices == dead_target_indices1)
+
         cur_tuple = (tuple(meas_grp_associations), tuple(dead_target_indices), assignment[0])
         assert(not cur_tuple in unique_assignments), (assignment, best_assignments, unique_assignments)
         unique_assignments.append(cur_tuple)
@@ -236,7 +252,13 @@ class Node:
 
         if orig_cost_matrix.size > 0:
             #we will transform the cost matrix into the "remaining cost matrix" as described in [1]
-            self.remaining_cost_matrix = self.construct_remaining_cost_matrix()
+            if REMAINING_COST_MATRIX_CONSTRUNCTION == 'fixed':
+                self.remaining_cost_matrix = self.construct_fixed_size_remaining_cost_matrix()
+            elif REMAINING_COST_MATRIX_CONSTRUNCTION == 'delete':
+                self.remaining_cost_matrix = self.construct_remaining_cost_matrix()
+            else:
+                self.remaining_cost_matrix = self.construct_remaining_cost_matrix()
+
             assert((self.remaining_cost_matrix > 0).all()), self.remaining_cost_matrix
             #solve the assignment problem for the remaining cost matrix
             if ASSIGNMENT_SOLVER == 'munkres':
@@ -252,6 +274,7 @@ class Node:
                 lin_assign = linear_assignment.LinearAssignment(self.remaining_cost_matrix)
                 solution = lin_assign.solution
                 association_list = zip([i for i in range(len(solution))], solution)
+#                association_list = [(i, i) for i in range(orig_cost_matrix.shape[0])]
 
             if DEBUG:
                 print "remaining cost matrix:"
@@ -259,19 +282,28 @@ class Node:
                 print "association_list"
                 print association_list
 
-            #compute the minimum cost assignment for the node
-            for (row,col) in association_list:
-    #            print 'a', self.minimum_cost, type(self.minimum_cost)
-    #            print 'b', self.remaining_cost_matrix[row][col], type(self.remaining_cost_matrix[row][col])
-    #            print 'c', self.minimum_cost +self.remaining_cost_matrix[row][col], type(self.minimum_cost +self.remaining_cost_matrix[row][col])
-                #np.asscalar important for avoiding overflow problems
-                self.minimum_cost += np.asscalar(self.remaining_cost_matrix[row][col])
-            for (row, col) in self.required_cells:
-                #np.asscalar important for avoiding overflow problems
-                self.minimum_cost += np.asscalar(orig_cost_matrix[row][col])
+            if REMAINING_COST_MATRIX_CONSTRUNCTION == 'fixed':
+                for (row,col) in association_list:
+                    self.minimum_cost += np.asscalar(self.orig_cost_matrix[row][col])
+            elif REMAINING_COST_MATRIX_CONSTRUNCTION == 'delete':
+                #compute the minimum cost assignment for the node
+                for (row,col) in association_list:
+        #            print 'a', self.minimum_cost, type(self.minimum_cost)
+        #            print 'b', self.remaining_cost_matrix[row][col], type(self.remaining_cost_matrix[row][col])
+        #            print 'c', self.minimum_cost +self.remaining_cost_matrix[row][col], type(self.minimum_cost +self.remaining_cost_matrix[row][col])
+                    #np.asscalar important for avoiding overflow problems
+                    self.minimum_cost += np.asscalar(self.remaining_cost_matrix[row][col])
+                for (row, col) in self.required_cells:
+                    #np.asscalar important for avoiding overflow problems
+                    self.minimum_cost += np.asscalar(orig_cost_matrix[row][col])
 
+            else:
+                implement_me = False
             #store the minimum cost associations with indices consistent with the original cost matrix
-            self.min_cost_associations = self.get_orig_indices(association_list)
+            if REMAINING_COST_MATRIX_CONSTRUNCTION == 'fixed':
+                self.min_cost_associations = association_list
+            else:
+                self.min_cost_associations = self.get_orig_indices(association_list)
 
         else:
             self.min_cost_associations = []
@@ -283,8 +315,11 @@ class Node:
             print
 
     def get_min_cost_assignment(self):
-        min_cost_assignment = self.required_cells[:]
-        min_cost_assignment.extend(self.min_cost_associations)
+        if REMAINING_COST_MATRIX_CONSTRUNCTION == 'fixed':
+            min_cost_assignment = self.min_cost_associations
+        else:
+            min_cost_assignment = self.required_cells[:]
+            min_cost_assignment.extend(self.min_cost_associations)
         if DEBUG:
             return (self.minimum_cost, min_cost_assignment, self.excluded_cells, self.required_cells[:], self.min_cost_associations)
         else:
@@ -370,6 +405,24 @@ class Node:
 
         return remaining_cost_matrix
 
+    #transform the cost matrix into the "remaining cost matrix" as described in [1]
+    def construct_fixed_size_remaining_cost_matrix(self):
+        remaining_cost_matrix = np.array(self.orig_cost_matrix, copy=True)
+      
+        #replace excluded_cell locations with infinity in the remaining cost matrix
+        for (row, col) in self.excluded_cells:
+            remaining_cost_matrix[row][col] = sys.maxint
+
+        rows_to_delete = []
+        cols_to_delete = []
+        for (row, col) in self.required_cells: #remove required rows and columns
+            remaining_cost_matrix[row, :] = INFEASIBLE_COST
+            remaining_cost_matrix[:, col] = INFEASIBLE_COST
+            remaining_cost_matrix[row, col] = .00000001
+
+        return remaining_cost_matrix
+
+
     def get_orig_indices(self, rcm_indices):
         '''
         Take a list of indices in the remaining cost matrix and transform them into indices
@@ -408,12 +461,6 @@ class Node:
         return orig_indices
 
 
-        T = len(assignment[1])/2 - M
-        assert(len(assignment[1]) == 2*M + 2*T), (len(assignment[1]), M, T)                
-        cur_assignment_matrix = convert_assignment_pairs_to_matrix3(assignment[1], M, T)
-        (meas_grp_associations, dead_target_indices) = convert_assignment_matrix3(cur_assignment_matrix, M, T)
-        cur_tuple = (tuple(meas_grp_associations), tuple(dead_target_indices), assignment[0])
-
 def brute_force_k_best_assignments(k, cost_matrices, matrix_costs, M):
     '''
     The cost of an assignment is given by the assignment to the specified cost matrix PLUS the
@@ -451,7 +498,7 @@ def brute_force_k_best_assignments(k, cost_matrices, matrix_costs, M):
         unique_assoc_deaths = []
         while len(cur_best_assignments) < k and len(costs) > 0:
             (min_key, min_cost) = min(enumerate(costs), key=itemgetter(1)) #find the next smallest cost
-            if min_cost < 9999999999999999: #invalid assignment
+            if min_cost < INFEASIBLE_COST: #invalid assignment
                 #check this assignment is new
                 (meas_grp_associations, dead_target_indices) = convert_assignment_matrix3(all_perm_mats[min_key], M, T)
                 cur_tuple = (tuple(meas_grp_associations), tuple(dead_target_indices))
@@ -540,7 +587,7 @@ def construct_random_costs_matrix(M, T):
     '''
     #construct a (2*M+2*T)x(2*M+2*T) matrix of log probabilities
     cost_matrix = np.ones((2*M + 2*T, 2*T + 2*M))
-    cost_matrix *= 9999999999999999
+    cost_matrix *= INFEASIBLE_COST
 
     #generate random costs for target association entries in the cost matrix
     for t_idx in range(T):
@@ -644,15 +691,15 @@ def speed_test(M,k,num_cost_matrices,iters):
 
 
 if __name__ == "__main__":
-#    M = 0 # number of measurements in cost matrices of size 
-#    k = 5 # find k lowest cost solutions
-#    num_cost_matrices = 10
-#    test_against_brute_force(M,k,num_cost_matrices,100)
+    M = 1 # number of measurements in cost matrices of size 
+    k = 5 # find k lowest cost solutions
+    num_cost_matrices = 10
+    test_against_brute_force(M,k,num_cost_matrices,100)
 
     M = 15 # number of measurements in cost matrices of size 
-    k = 1000 # find k lowest cost solutions
+    k = 100 # find k lowest cost solutions
     num_cost_matrices = 10
-    iters = 1
+    iters = 10
     if PROFILE:
         cProfile.runctx('speed_test(M,k,num_cost_matrices,iters)', {'M': M, 'k': k,
             'num_cost_matrices':num_cost_matrices, 'iters':iters, 'speed_test':speed_test}, {})

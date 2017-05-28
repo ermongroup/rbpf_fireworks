@@ -10,6 +10,8 @@ from munkres import Munkres
 from collections import defaultdict
 from itertools import combinations
 from itertools import permutations
+from operator import itemgetter
+
 import cvxpy as cvx
 
 import math
@@ -1310,6 +1312,64 @@ def convert_assignment_matrix3(assignment_matrix, M, T):
                 assert(np.isclose(assignment_matrix[lives_row_idx,t_idx], 1, rtol=1e-02, atol=1e-02))
 
     return(meas_associations, dead_target_indices)
+
+
+#TEST ME against convert_assignment_matrix3!!!
+def convert_assignment_pairs_to_associations3(assignment_pairs, M, T):
+    '''  
+    Same functionality as convert_assignment_matrix3, but takes in a list of pairs corresponding
+    to 1's in the assignment matrix.
+
+    M = #measurements
+    T = #targets
+    use along with construct_log_probs_matrix3()
+    Inputs:
+    - assignment_pairs: list of pairs where each pair represents an association in the assignment (1's in assignment matrix)
+    - M: #measurements (int)
+    - T: #targets (int)
+
+    Outputs:
+    - meas_associations: list of integers, the measurement associations represented by assignment_matrix.
+        where meas_associations[j] is an integer representing the association of the jth measurement with:
+            clutter = -1
+            target association = [0,target_count-1]
+            birth = target_count
+    - dead_target_indices: list of integers, of length #dead targets.  if target_idx = i in [0,target_count-1]
+        is in the list dead_target_indices, target i died.
+    
+    '''
+    assert(len(assignment_pairs) == 2*(M+T))
+    meas_associations = []
+
+    assignment_pairs = sorted(assignment_pairs, key=itemgetter(0)) #sort pairs by row_idx
+
+    for row_idx in range(M): #get all measurement associations
+        assert(assignment_pairs[row_idx][0] == row_idx)
+        assoc_idx = assignment_pairs[row_idx][1]
+        if assoc_idx < T: #measurement-target association
+            meas_associations.append(assoc_idx)
+        else: #birth/clutter association
+            clutter_col = T + 2*row_idx
+            birth_col = T + 1 + 2*row_idx
+            if assoc_idx == clutter_col: #clutter
+                meas_associations.append(-1)
+            else: #birth
+                assert(assoc_idx == birth_col)
+                meas_associations.append(T)
+
+    #get unassociated target deaths
+    dead_target_indices = []    
+    for row_idx in range(M, M+2*T): 
+        col_idx = assignment_pairs[row_idx][1]
+        if col_idx < T: #we have an unassociated target
+            dies_row_idx = M + 1 + 2*col_idx
+            if row_idx == dies_row_idx: #target dies
+                dead_target_indices.append(col_idx)
+
+
+
+    return(meas_associations, dead_target_indices)
+
 
 def convert_assignment_pairs_to_matrix3(assignment_pairs, M, T):
     '''  

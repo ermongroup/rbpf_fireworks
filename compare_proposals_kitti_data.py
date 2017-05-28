@@ -91,13 +91,13 @@ from generate_data import GenData
 NUM_RUNS=1
 #SEQUENCES_TO_PROCESS = [i for i in range(21)]
 #SEQUENCES_TO_PROCESS = [0,2,3,4,5,6,10]
-SEQUENCES_TO_PROCESS = [20]
+SEQUENCES_TO_PROCESS = [1]
 #SEQUENCES_TO_PROCESS = [11]
 #SEQUENCES_TO_PROCESS = [13,14,15]
 #SEQUENCES_TO_PROCESS = [13]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
 #NUM_PARTICLES_TO_TEST = [5, 10, 20]
-NUM_PARTICLES_TO_TEST = [5]
+NUM_PARTICLES_TO_TEST = [10]
 
 
 ###################################### Experiment Organization ######################################
@@ -252,9 +252,12 @@ if __name__ == "__main__":
     check_k_nearest = None
     for train_test in ['train']:
         for online_delay in [0]:
+#            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), \
+#            ('modified_SIS_gumbel', .5), ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 2), ('modified_SIS_gumbel', 4)]:
+            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 1)]:
+
+
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), ('modified_SIS_gumbel', 1)]:
-            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), \
-            ('modified_SIS_gumbel', .5), ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 2), ('modified_SIS_gumbel', 4)]:
 #            for (proposal_distr, targ_meas_assoc_metric, check_k_nearest) in \
 #            [('modified_SIS_gumbel', 'distance', None)]:  
 #            [('modified_SIS_min_cost', 'distance', None),
@@ -271,10 +274,10 @@ if __name__ == "__main__":
 #
 #             ('sequential', None, True),
 #             ('sequential', None, False)]:
-                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
+#                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
 #                for det_names in [['regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
 #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
-#                    for det_names in [['regionlets']]:
+                for det_names in [['regionlets']]:
 #                        for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
                     for num_particles in NUM_PARTICLES_TO_TEST:
                         description_of_run = get_description_of_run_gen_detections(include_ignored_gt, include_dontcare_in_gt,
@@ -289,7 +292,8 @@ if __name__ == "__main__":
                         for run_idx in range(1, NUM_RUNS+1):
                             for seq_idx in SEQUENCES_TO_PROCESS:
                                 cur_spec = \
-                                {'num_particles': num_particles,
+                                {'_dupefinder': {'_fw_name': 'DupeFinderExact'}, #enable duplicate cheking
+                                'num_particles': num_particles,
                                 'include_ignored_gt': False,
                                 'include_dontcare_in_gt': False,
                                 'sort_dets_on_intervals': True,
@@ -359,7 +363,7 @@ if __name__ == "__main__":
                                 #compute death probabilities for targets that have been unassociated
                                 #for up to death_prob_markov_order time instances, we will assume death probability is unchanged after
                                 #this number of time instances in our model                                
-                                'death_prob_markov_order' }                                                    
+                                'death_prob_markov_order': 2 }                                                    
                                 cur_firework = Firework(RunRBPF(), spec=cur_spec)
         #                       cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
 

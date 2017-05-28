@@ -43,6 +43,6 @@ MONGODB_NAME = 'local_testing'
 #MONGODB_PORT = 43141
 #MONGODB_NAME = 'nips_compare_proposals_atlas'
 
-MONGODB_HOST = 'ds143081.mlab.com'
-MONGODB_PORT = 43081
-MONGODB_NAME = 'nips_compare_proposals_sherlock'
+#MONGODB_HOST = 'ds143081.mlab.com'
+#MONGODB_PORT = 43081
+#MONGODB_NAME = 'nips_compare_proposals_sherlock'
