@@ -259,7 +259,7 @@ class Node:
             else:
                 self.remaining_cost_matrix = self.construct_remaining_cost_matrix()
 
-            assert((self.remaining_cost_matrix > 0).all()), self.remaining_cost_matrix
+            assert((self.remaining_cost_matrix >= 0).all()), self.remaining_cost_matrix
             #solve the assignment problem for the remaining cost matrix
             if ASSIGNMENT_SOLVER == 'munkres':
                 hm = Munkres()
@@ -691,15 +691,15 @@ def speed_test(M,k,num_cost_matrices,iters):
 
 
 if __name__ == "__main__":
-    M = 1 # number of measurements in cost matrices of size 
-    k = 5 # find k lowest cost solutions
-    num_cost_matrices = 10
-    test_against_brute_force(M,k,num_cost_matrices,100)
-
+#    M = 1 # number of measurements in cost matrices of size 
+#    k = 5 # find k lowest cost solutions
+#    num_cost_matrices = 10
+#    test_against_brute_force(M,k,num_cost_matrices,100)
+#
     M = 15 # number of measurements in cost matrices of size 
-    k = 100 # find k lowest cost solutions
-    num_cost_matrices = 10
-    iters = 10
+    k = 200 # find k lowest cost solutions
+    num_cost_matrices = 4
+    iters = 1
     if PROFILE:
         cProfile.runctx('speed_test(M,k,num_cost_matrices,iters)', {'M': M, 'k': k,
             'num_cost_matrices':num_cost_matrices, 'iters':iters, 'speed_test':speed_test}, {})

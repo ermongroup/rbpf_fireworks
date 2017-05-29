@@ -1578,7 +1578,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     '''
     Very similar to modified_SIS_gumbel_step, but we sample new particles w/o replacement.  Also
     params.SPEC['gumbel_scale'] should exist.  When params.SPEC['gumbel_scale'] = 0, we get MHT back.
-    When params.SPEC['gumbel_scale'] != 1, we are taking the mean (instead of max) of gumbel perturbations
+    When params.SPEC['gumbel_scale'] = 1, we are taking the mean (instead of max) of gumbel perturbations
     to assignment cost matrix and multiplying it by params.SPEC['gumbel_scale'].
     '''
     (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'])
@@ -1617,11 +1617,13 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         log_prob_matrices.append(cur_log_probs) #store to calculate probabilities later
         assert((cur_log_probs <= .000001).all()), (cur_log_probs)
 
-        #3. add gumbel matrix to log probs matrix, scaled by params.SPEC['gumbel_scale']/(number of assignments)
-        G = np.random.gumbel(loc=0.0, scale=1.0, size=(cur_log_probs.shape[0], cur_log_probs.shape[1]))
-        number_of_assignments = 2*(M + T)
-        G = G*params.SPEC['gumbel_scale']/number_of_assignments
-        cur_log_probs += G
+        if not params.SPEC['proposal_distr'] == 'modified_SIS_exact':
+            #3. add gumbel matrix to log probs matrix, scaled by params.SPEC['gumbel_scale']/(number of assignments)
+            G = np.random.gumbel(loc=0.0, scale=1.0, size=(cur_log_probs.shape[0], cur_log_probs.shape[1]))
+            number_of_assignments = 2*(M + T)
+            G = G*params.SPEC['gumbel_scale']/number_of_assignments
+            cur_log_probs += G
+
         cur_cost_matrix = -1*cur_log_probs #k_best_assign_mult_cost_matrices is set up to find minimum cost, not max log prob
         
         if cur_cost_matrix.size > 0:
@@ -1638,9 +1640,9 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         particle_neg_log_probs.append(-1*np.log(particle_group_probs[p_key]) + min_cost*2*(M+T))
 
 
-    #make all entries of all cost matrices positive
+    #make all entries of all cost matrices non-negative
     for idx in range(len(perturbed_cost_matrices)):
-        perturbed_cost_matrices[idx] = perturbed_cost_matrices[idx] - min_cost + 1.0
+        perturbed_cost_matrices[idx] = perturbed_cost_matrices[idx] - min_cost
         assert((perturbed_cost_matrices[idx] >= .000001).all()), (perturbed_cost_matrices[idx])
 
     #4. find N_PARTICLES most likely assignments among all assignments in log probs matrices of ALL particle GROUPS
@@ -1653,11 +1655,16 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
 
     print 'M =', M
 
-
-    best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices, particle_neg_log_probs, M)
+    if not params.SPEC['proposal_distr'] == 'modified_SIS_exact':
+        best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices, particle_neg_log_probs, M)
 #    best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices)
 
+    else: #params.SPEC['proposal_distr'] == 'modified_SIS_exact'
+        #now we sample without replacemenent from the most likely assignments
+        best_assignments = k_best_assign_mult_cost_matrices(params.SPEC['num_top_hypotheses_to_sample_from'], perturbed_cost_matrices, particle_neg_log_probs, M)        
+        assignment_proposal_distr = []
 
+        sampled_assignments = np.random.choice(len(p), size=(num_samples), replace=False, p=p)
     #5. For each of the most likely assignments, create a new particle that is a copy of its particle GROUP, 
     # and associate measurements / kill targets according to assignment.
 
@@ -2024,9 +2031,9 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
         new_target_list = [] #for debugging, list of booleans whether each particle created a new target
         pIdxDebugInfo = 0
 
-        if params.SPEC['proposal_distr'] == 'modified_SIS_gumbel':
+        if params.SPEC['proposal_distr'] == 'modified_SIS_gumbel' or params.SPEC['proposal_distr'] == 'modified_SIS_exact':
             particle_set = modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
-            #Using MHT sampling with replacement, we care about importance weights, normalize so they don't get too small
+            #Using MHT sampling without replacement, we care about importance weights, normalize so they don't get too small
             normalize_importance_weights(particle_set) 
 #            particle_set = modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
         elif params.SPEC['proposal_distr'] == 'modified_SIS_min_cost':
