@@ -1596,7 +1596,8 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     perturbed_cost_matrices = [] #list of negative perturbed log prob matrices for each particle group
     log_prob_matrices = [] #list of log prob matrices for each particle group
     ordered_particle_groups = [] #list of particle groups in the same order as perturbed_cost_matrices
-    particle_neg_log_probs = [] # negative log probabilities + 2*(M+T) of the min_cost for each particle group to pass along when solving minimum cost assignments
+    particle_neg_log_probs = [] # negative log probabilities 
+    particle_costs = [] # negative log probabilities + 2*(M+T) of the min_cost for each particle group to pass along when solving minimum cost assignments
     #we need all entries of all cost matrices to be positive, so we keep track of the smallest value
     min_cost = 0.0
 
@@ -1637,7 +1638,8 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         perturbed_cost_matrices.append(cur_cost_matrix)
         ordered_particle_groups.append(particle)
         #add min_cost*2*(M+T) term because T varies between particle groups and we subtract min_cost from all entries in the perturbed cost matrix
-        particle_neg_log_probs.append(-1*np.log(particle_group_probs[p_key]) + min_cost*2*(M+T))
+        particle_costs.append(-1*np.log(particle_group_probs[p_key]) + min_cost*2*(M+T))
+        particle_neg_log_probs.append(-1*np.log(particle_group_probs[p_key]))
 
 
     #make all entries of all cost matrices non-negative
@@ -1656,13 +1658,19 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     print 'M =', M
 
     if not params.SPEC['proposal_distr'] == 'modified_SIS_exact':
-        best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices, particle_neg_log_probs, M)
+        best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices, particle_costs, M)
 #    best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices)
 
     else: #params.SPEC['proposal_distr'] == 'modified_SIS_exact'
         #now we sample without replacemenent from the most likely assignments
-        best_assignments = k_best_assign_mult_cost_matrices(params.SPEC['num_top_hypotheses_to_sample_from'], perturbed_cost_matrices, particle_neg_log_probs, M)        
+        best_assignments = k_best_assign_mult_cost_matrices(params.SPEC['num_top_hypotheses_to_sample_from'], perturbed_cost_matrices, particle_costs, M)        
+        
         assignment_proposal_distr = []
+
+        for (cur_cost, cur_assignment, cur_particle_idx) in best_assignments:
+            assignment_log_prob = np.trace(np.dot(log_prob_matrices[cur_particle_idx], cur_assignment_matrix.T))
+            assignment_prob = np.exp(assignment_log_prob - particle_neg_log_probs[cur_particle_idx])
+
 
         sampled_assignments = np.random.choice(len(p), size=(num_samples), replace=False, p=p)
     #5. For each of the most likely assignments, create a new particle that is a copy of its particle GROUP, 
