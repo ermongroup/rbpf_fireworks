@@ -97,7 +97,7 @@ SEQUENCES_TO_PROCESS = [1]
 #SEQUENCES_TO_PROCESS = [13]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
 #NUM_PARTICLES_TO_TEST = [5, 10, 20]
-NUM_PARTICLES_TO_TEST = [10]
+#NUM_PARTICLES_TO_TEST = [10]
 
 
 ###################################### Experiment Organization ######################################
@@ -254,7 +254,15 @@ if __name__ == "__main__":
         for online_delay in [0]:
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), \
 #            ('modified_SIS_gumbel', .5), ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 2), ('modified_SIS_gumbel', 4)]:
-            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 1)]:
+#            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 1)]:
+
+            for (proposal_distr, gumbel_scale, num_particles) in [('modified_SIS_gumbel', 0, 4)]:
+#            for (proposal_distr, gumbel_scale, num_particles) in [('modified_SIS_exact', -9999, 4)]:
+#Run me tonight:
+#            for (proposal_distr, gumbel_scale, num_particles) in \
+#                [('modified_SIS_exact', None, 4),
+#                 ('modified_SIS_gumbel', 0, 4),
+#                 ('modified_SIS_gumbel', 0, 240)]:
 
 
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), ('modified_SIS_gumbel', 1)]:
@@ -279,119 +287,124 @@ if __name__ == "__main__":
 #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
                 for det_names in [['regionlets']]:
 #                        for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
-                    for num_particles in NUM_PARTICLES_TO_TEST:
-                        description_of_run = get_description_of_run_gen_detections(include_ignored_gt, include_dontcare_in_gt,
-                                        sort_dets_on_intervals, det_names)
-                        results_folder_name = '%s/%d_particles' % (description_of_run, num_particles)
-                        results_folder = '%s/%s/%s_onine_delay=%d,proposal_distr=%s,targ_meas_assoc_metric=%s,check_k_nearest=%s,gumbel_scale=%f' % \
-                            (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name, online_delay,
-                            proposal_distr,targ_meas_assoc_metric,check_k_nearest, gumbel_scale)
-                                                                        
-                        setup_results_folder(results_folder)
-                        run_rbpf_fireworks = []            
-                        for run_idx in range(1, NUM_RUNS+1):
-                            for seq_idx in SEQUENCES_TO_PROCESS:
-                                cur_spec = \
-                                {'_dupefinder': {'_fw_name': 'DupeFinderExact'}, #enable duplicate cheking
-                                'num_particles': num_particles,
-                                'include_ignored_gt': False,
-                                'include_dontcare_in_gt': False,
-                                'sort_dets_on_intervals': True,
-                                'det_names': det_names,
-                                'run_idx': run_idx,
-                                'seq_idx': seq_idx,
-                                'results_folder': results_folder,
-                                'CHECK_K_NEAREST_TARGETS': check_k_nearest,                        
-                                'K_NEAREST_TARGETS': 1,                        
-                                'RUN_ONLINE': RUN_ONLINE,
-                                'ONLINE_DELAY': online_delay,
-                                'USE_CONSTANT_R': USE_CONSTANT_R,
-                                'P': P_default.tolist(),
-                                'R': R_DEFAULT.tolist(),
-                                'Q': Q_DEFAULT.tolist(),
-                                'scale_prior_by_meas_orderings': scale_prior_by_meas_orderings,
-                                'derandomize_with_seed': False,
-                                'use_general_num_dets': use_general_num_dets,
-                                #if true, set the prior probability of birth and clutter equal in
-                                #the proposal distribution, using the clutter prior for both
-                                'set_birth_clutter_prop_equal': False,
-                                'birth_clutter_likelihood': birth_clutter_likelihood,
-                                'proposal_distr': proposal_distr,
-                                'use_log_probs': 'True',
-                                'normalize_log_importance_weights': True,                                    
-                                #the minimum allowed box overlap for each detection source when associating
-                                #detections into groups
-                                'det_grouping_min_overlap': {'mscnn':.5, 
-                                                             '3dop':.5,
-                                                             'mono3d':.5,
-                                                             'mv3d':.5,
-                                                             'regionlets':.5},
-                                #'distance' or 'box_overlap', metric used when computing min cost measurment
-                                #target association assignment                             
-                                'targ_meas_assoc_metric': targ_meas_assoc_metric,
-                                #propose target measurement association with these distances as the 
-                                #maximum allowed distance when finding minimum cost assignment  
-                                #and 'targ_meas_assoc_metric' = 'distance'                                 
-                                'target_detection_max_dists': [15, 50, 150],
-                                #propose target measurement association with these box overlaps as the 
-                                #maximum allowed box overlap when finding minimum cost assignment  
-                                #and 'targ_meas_assoc_metric' = 'box_overlap'                                 
-                                'target_detection_max_overlaps': [.25, .5, .75],
-                                'coord_ascent_params':{ #first entry in each list is the parameter value, second is the parameter's alpha value
-                                    'birth_proposal_prior_const': [1.0, 2.0],
-                                    'clutter_proposal_prior_const': [1.0, 2.0],
-                                    'birth_model_prior_const': [1.0, 2.0],
-                                    'clutter_model_prior_const': [1.0, 2.0],
-                                    'det_grouping_min_overlap_mscnn': [.5, 0, 1],
-                                    'det_grouping_min_overlap_3dop': [.5, 0, 1],
-                                    'det_grouping_min_overlap_mono3d': [.5, 0, 1],
-                                    'det_grouping_min_overlap_mv3d': [.5, 0, 1],
-                                    'det_grouping_min_overlap_regionlets': [.5, 0, 1],
-                                    'target_detection_max_dists_0': [15, 1.4],
-                                    'target_detection_max_dists_1': [50, 1.4],
-                                    'target_detection_max_dists_2': [150, 1.4]
-                                    },
-                                'train_test': train_test,  #should be 'train', 'test', or 'generated_data'                                                                        
-        #                        'gt_path': None #None for KITTI data, file path (string) for synthetic data
-                                'gt_path': None, #None for KITTI data, file path (string) for synthetic data
-                                'data_generation_spec': None,
-                                'birth_clutter_model':birth_clutter_model,
-                                #the number of samples we will use to compute the expected value of the partition function 
-                                #using an approximation to the Gumbel max trick
-                                'num_gumbel_partition_samples': 20,
-                                'gumbel_scale': gumbel_scale,
-                                #compute death probabilities for targets that have been unassociated
-                                #for up to death_prob_markov_order time instances, we will assume death probability is unchanged after
-                                #this number of time instances in our model                                
-                                'death_prob_markov_order': 2 }                                                    
-                                cur_firework = Firework(RunRBPF(), spec=cur_spec)
-        #                       cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
+                    description_of_run = get_description_of_run_gen_detections(include_ignored_gt, include_dontcare_in_gt,
+                                    sort_dets_on_intervals, det_names)
+                    results_folder_name = '%s/%d_particles' % (description_of_run, num_particles)
+                    results_folder = '%s/%s/%s_onine_delay=%d,proposal_distr=%s,targ_meas_assoc_metric=%s,check_k_nearest=%s,gumbel_scale=%f' % \
+                        (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name, online_delay,
+                        proposal_distr,targ_meas_assoc_metric,check_k_nearest, gumbel_scale)
+                                                                    
+                    setup_results_folder(results_folder)
+                    run_rbpf_fireworks = []            
+                    for run_idx in range(1, NUM_RUNS+1):
+                        for seq_idx in SEQUENCES_TO_PROCESS:
+                            cur_spec = \
+                            {'_dupefinder': {'_fw_name': 'DupeFinderExact'}, #enable duplicate cheking
+                            'num_particles': num_particles,
+                            'include_ignored_gt': False,
+                            'include_dontcare_in_gt': False,
+                            'sort_dets_on_intervals': True,
+                            'det_names': det_names,
+                            'run_idx': run_idx,
+                            'seq_idx': seq_idx,
+                            'results_folder': results_folder,
+                            'CHECK_K_NEAREST_TARGETS': check_k_nearest,                        
+                            'K_NEAREST_TARGETS': 1,                        
+                            'RUN_ONLINE': RUN_ONLINE,
+                            'ONLINE_DELAY': online_delay,
+                            'USE_CONSTANT_R': USE_CONSTANT_R,
+                            'P': P_default.tolist(),
+                            'R': R_DEFAULT.tolist(),
+                            'Q': Q_DEFAULT.tolist(),
+                            'scale_prior_by_meas_orderings': scale_prior_by_meas_orderings,
+                            'derandomize_with_seed': False,
+                            'use_general_num_dets': use_general_num_dets,
+                            #if true, set the prior probability of birth and clutter equal in
+                            #the proposal distribution, using the clutter prior for both
+                            'set_birth_clutter_prop_equal': False,
+                            'birth_clutter_likelihood': birth_clutter_likelihood,
+                            'proposal_distr': proposal_distr,
+                            'use_log_probs': 'True',
+                            'normalize_log_importance_weights': True,                                    
+                            #the minimum allowed box overlap for each detection source when associating
+                            #detections into groups
+                            'det_grouping_min_overlap': {'mscnn':.5, 
+                                                         '3dop':.5,
+                                                         'mono3d':.5,
+                                                         'mv3d':.5,
+                                                         'regionlets':.5},
+                            #'distance' or 'box_overlap', metric used when computing min cost measurment
+                            #target association assignment                             
+                            'targ_meas_assoc_metric': targ_meas_assoc_metric,
+                            #propose target measurement association with these distances as the 
+                            #maximum allowed distance when finding minimum cost assignment  
+                            #and 'targ_meas_assoc_metric' = 'distance'                                 
+                            'target_detection_max_dists': [15, 50, 150],
+                            #propose target measurement association with these box overlaps as the 
+                            #maximum allowed box overlap when finding minimum cost assignment  
+                            #and 'targ_meas_assoc_metric' = 'box_overlap'                                 
+                            'target_detection_max_overlaps': [.25, .5, .75],
+                            'coord_ascent_params':{ #first entry in each list is the parameter value, second is the parameter's alpha value
+                                'birth_proposal_prior_const': [1.0, 2.0],
+                                'clutter_proposal_prior_const': [1.0, 2.0],
+                                'birth_model_prior_const': [1.0, 2.0],
+                                'clutter_model_prior_const': [1.0, 2.0],
+                                'det_grouping_min_overlap_mscnn': [.5, 0, 1],
+                                'det_grouping_min_overlap_3dop': [.5, 0, 1],
+                                'det_grouping_min_overlap_mono3d': [.5, 0, 1],
+                                'det_grouping_min_overlap_mv3d': [.5, 0, 1],
+                                'det_grouping_min_overlap_regionlets': [.5, 0, 1],
+                                'target_detection_max_dists_0': [15, 1.4],
+                                'target_detection_max_dists_1': [50, 1.4],
+                                'target_detection_max_dists_2': [150, 1.4]
+                                },
+                            'train_test': train_test,  #should be 'train', 'test', or 'generated_data'                                                                        
+    #                        'gt_path': None #None for KITTI data, file path (string) for synthetic data
+                            'gt_path': None, #None for KITTI data, file path (string) for synthetic data
+                            'data_generation_spec': None,
+                            'birth_clutter_model':birth_clutter_model,
+                            #the number of samples we will use to compute the expected value of the partition function 
+                            #using an approximation to the Gumbel max trick
+                            'num_gumbel_partition_samples': 20,
+                            'gumbel_scale': gumbel_scale,
+                            #compute death probabilities for targets that have been unassociated
+                            #for up to death_prob_markov_order time instances, we will assume death probability is unchanged after
+                            #this number of time instances in our model                                
+                            'death_prob_markov_order': 2,
+                            #if params.SPEC['proposal_distr'] == 'modified_SIS_exact'
+                            #we sample from this many of the most likely hypotheses
+                            #this number should be large enough that we never draw a sample
+                            #from outside these choices, check whether this is the case or increase
+                            #dynamically if we sample from outside these choices
+                            'num_top_hypotheses_to_sample_from': 200 }                                                    
+                            cur_firework = Firework(RunRBPF(), spec=cur_spec)
+    #                       cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
 
-                                run_rbpf_fireworks.append(cur_firework)
+                            run_rbpf_fireworks.append(cur_firework)
 
 
-    #                   seq_idx_to_eval = [i for i in range(21)]
-                        seq_idx_to_eval = SEQUENCES_TO_PROCESS
-                        eval_old_spec = copy.deepcopy(cur_spec)
-                        eval_old_spec['seq_idx_to_eval'] = seq_idx_to_eval 
-                        eval_old_spec['use_corrected_eval'] = False
-                        eval_old_firework = Firework(RunEval(), spec=eval_old_spec)
+#                   seq_idx_to_eval = [i for i in range(21)]
+                    seq_idx_to_eval = SEQUENCES_TO_PROCESS
+                    eval_old_spec = copy.deepcopy(cur_spec)
+                    eval_old_spec['seq_idx_to_eval'] = seq_idx_to_eval 
+                    eval_old_spec['use_corrected_eval'] = False
+                    eval_old_firework = Firework(RunEval(), spec=eval_old_spec)
 
-                        eval_new_spec = copy.deepcopy(cur_spec)
-                        eval_new_spec['seq_idx_to_eval'] = seq_idx_to_eval 
-                        eval_new_spec['use_corrected_eval'] = True
-                        eval_new_firework = Firework(RunEval(), spec=eval_new_spec)
+                    eval_new_spec = copy.deepcopy(cur_spec)
+                    eval_new_spec['seq_idx_to_eval'] = seq_idx_to_eval 
+                    eval_new_spec['use_corrected_eval'] = True
+                    eval_new_firework = Firework(RunEval(), spec=eval_new_spec)
 
-                        eval_fireworks = [eval_old_firework, eval_new_firework]
-                        all_fireworks.extend(run_rbpf_fireworks)
-                        all_fireworks.extend(eval_fireworks)
-                        for fw in run_rbpf_fireworks:
-                            firework_dependencies[fw] = eval_fireworks
+                    eval_fireworks = [eval_old_firework, eval_new_firework]
+                    all_fireworks.extend(run_rbpf_fireworks)
+                    all_fireworks.extend(eval_fireworks)
+                    for fw in run_rbpf_fireworks:
+                        firework_dependencies[fw] = eval_fireworks
 
-                        storeResultsFW = Firework(StoreResultsInDatabase(), spec=eval_new_spec)
-                        all_fireworks.append(storeResultsFW)
-                        firework_dependencies[eval_old_firework] = storeResultsFW
-                        firework_dependencies[eval_new_firework] = storeResultsFW
+                    storeResultsFW = Firework(StoreResultsInDatabase(), spec=eval_new_spec)
+                    all_fireworks.append(storeResultsFW)
+                    firework_dependencies[eval_old_firework] = storeResultsFW
+                    firework_dependencies[eval_new_firework] = storeResultsFW
 
 
 

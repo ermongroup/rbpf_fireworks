@@ -44,6 +44,10 @@ from learn_params1 import get_meas_target_sets_1sources_general
 #from learn_params1 import get_meas_target_sets_general
 from learn_params1_local import get_meas_target_sets_general
 
+sys.path.insert(0, "%ssampling" % RBPF_HOME_DIRECTORY)
+from sample_wo_replacement import calc_prop_prob
+
+
 from get_test_targetSets import get_meas_target_sets_test
 from generate_data import KITTI_detection_file_to_TargetSet
 import cProfile
@@ -111,7 +115,7 @@ if LSTM_MOTION:
 DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
 
 
-PROFILE = True
+PROFILE = False
 USE_GENERATED_DATA = False
 
 PLOT_TARGET_LOCATIONS = False
@@ -1601,6 +1605,8 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     #we need all entries of all cost matrices to be positive, so we keep track of the smallest value
     min_cost = 0.0
 
+    invalid_low_prob_sample_count = 0 
+
     zero_assignments = [] #particle group(s) exist with zero targets and we have zero measurements
     for p_key, particle in particle_groups.iteritems():
         T = len(particle.targets.living_targets)
@@ -1645,7 +1651,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     #make all entries of all cost matrices non-negative
     for idx in range(len(perturbed_cost_matrices)):
         perturbed_cost_matrices[idx] = perturbed_cost_matrices[idx] - min_cost
-        assert((perturbed_cost_matrices[idx] >= .000001).all()), (perturbed_cost_matrices[idx])
+        assert((perturbed_cost_matrices[idx] >= 0.0).all()), (perturbed_cost_matrices[idx])
 
     #4. find N_PARTICLES most likely assignments among all assignments in log probs matrices of ALL particle GROUPS
 
@@ -1666,17 +1672,31 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         best_assignments = k_best_assign_mult_cost_matrices(params.SPEC['num_top_hypotheses_to_sample_from'], perturbed_cost_matrices, particle_costs, M)        
         
         assignment_proposal_distr = []
-
         for (cur_cost, cur_assignment, cur_particle_idx) in best_assignments:
+            T = len(ordered_particle_groups[cur_particle_idx].targets.living_targets)            
+            cur_assignment_matrix = convert_assignment_pairs_to_matrix3(cur_assignment, M, T)
+
             assignment_log_prob = np.trace(np.dot(log_prob_matrices[cur_particle_idx], cur_assignment_matrix.T))
             assignment_prob = np.exp(assignment_log_prob - particle_neg_log_probs[cur_particle_idx])
+            assignment_proposal_distr.append(assignment_prob)
 
+        assert(sum(assignment_proposal_distr) <= 1.0)
+        assignment_proposal_distr.append(1.0 - sum(assignment_proposal_distr))
+        while True:
+            sampled_assignment_indices = np.random.choice(len(p), size=(len(particle_set)), replace=False, p=assignment_proposal_distr)
+            if not len(best_assignments) in sampled_assignment_indices:
+                break
+            else:
+                invalid_low_prob_sample_count += 1
 
-        sampled_assignments = np.random.choice(len(p), size=(num_samples), replace=False, p=p)
+        sampled_assignments = []
+        for sampled_idx in sampled_assignment_indices:
+            sampled_assignments.append(best_assignments[sampled_idx])
+        best_assignments = sampled_assignments
     #5. For each of the most likely assignments, create a new particle that is a copy of its particle GROUP, 
     # and associate measurements / kill targets according to assignment.
 
-    for (cur_cost, cur_assignment, cur_particle_idx) in best_assignments:
+    for (idx, (cur_cost, cur_assignment, cur_particle_idx)) in enumerate(best_assignments):
         if cur_cost > 1000000000:
             break #invalid assignment, we've exhausted all valid assignments
         #3. create a new particle that is a copy of the max group, and associate measurements / kill
@@ -1691,9 +1711,14 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         cur_assignment_matrix = convert_assignment_pairs_to_matrix3(cur_assignment, M, T)
         assert(SPEC['normalize_log_importance_weights'] == True)
         #set to log of importance weight
-        #new_particle.importance_weight = -cur_cost
         assignment_log_prob = np.trace(np.dot(log_prob_matrices[cur_particle_idx], cur_assignment_matrix.T))
-        new_particle.importance_weight = assignment_log_prob - particle_neg_log_probs[cur_particle_idx] #log prob
+        if not params.SPEC['proposal_distr'] == 'modified_SIS_exact':
+            new_particle.importance_weight = assignment_log_prob - particle_neg_log_probs[cur_particle_idx] #log prob
+        else: #params.SPEC['proposal_distr'] == 'modified_SIS_exact'
+            exact_log_prob = assignment_log_prob - particle_neg_log_probs[cur_particle_idx] #log prob
+            proposal_log_prob = np.log(calc_prop_prob(assignment_proposal_distr, sampled_assignment_indices[idx], len(particle_set)))
+            new_particle.importance_weight = exact_prob - proposal_log_prob #log prob
+       
         (meas_grp_associations, dead_target_indices) = convert_assignment_matrix3(cur_assignment_matrix, M, T)
 
 
@@ -1747,7 +1772,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         new_particle_set.append(new_particle)
         assert(new_particle.parent_particle != None)
 
-    return new_particle_set
+    return (new_particle_set, invalid_low_prob_sample_count)
 
 
 def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths, heights, cur_time, params):
@@ -1971,6 +1996,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
     #the particle with the maximum importance weight on the previous time instance 
     prv_max_weight_particle = None
 
+    invalid_low_prob_sample_count = 0
 
     min_meas_idx = 0
     for time_instance_index in range(number_time_instances):
@@ -2040,7 +2066,8 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
         pIdxDebugInfo = 0
 
         if params.SPEC['proposal_distr'] == 'modified_SIS_gumbel' or params.SPEC['proposal_distr'] == 'modified_SIS_exact':
-            particle_set = modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
+            (particle_set, cur_invalid_low_prob_sample_count) = modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
+            invalid_low_prob_sample_count += cur_invalid_low_prob_sample_count
             #Using MHT sampling without replacement, we care about importance weights, normalize so they don't get too small
             normalize_importance_weights(particle_set) 
 #            particle_set = modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
@@ -2247,7 +2274,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
         "out of", number_time_instances, "time instances"
 
 
-    return (max_weight_target_set, run_info, number_resamplings, incorrect_max_weight_particle_count, number_time_instances)
+    return (max_weight_target_set, run_info, number_resamplings, incorrect_max_weight_particle_count, number_time_instances, invalid_low_prob_sample_count)
 
 
 def test_read_write_data_KITTI(target_set):
@@ -2831,7 +2858,7 @@ class RunRBPF(FireTaskBase):
                     cProfile.run('run_rbpf_on_targetset([meas_target_set], results_filename, params)')
                 else:
 
-                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes) = \
+                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes, invalid_low_prob_sample_count) = \
                     run_rbpf_on_targetset([meas_target_set], results_filename, params)
             else:       
                 if PROFILE:
@@ -2840,7 +2867,7 @@ class RunRBPF(FireTaskBase):
                         'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset}, {})
 #                    cProfile.run('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)')
                 else:
-                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes) = \
+                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes, invalid_low_prob_sample_count) = \
                     run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)
             print "done processing sequence: ", seq_idx
             
@@ -2892,7 +2919,8 @@ class RunRBPF(FireTaskBase):
 
 #        return FWAction(mod_spec=[{'_inc': {"mistakes_by_max_weight_particle": max_weight_mistakes},
 #                                   '_inc': {"max_possible_mistakes": max_possible_mistakes}}])
-        return FWAction(mod_spec=[{'_inc': {"total_runtime": this_seq_run_time, \
+        return FWAction(mod_spec=[{'_inc': {"invalid_low_prob_sample_count": invalid_low_prob_sample_count, \
+                                            "total_runtime": this_seq_run_time, \
                                             "mistakes_by_max_weight_particle": max_weight_mistakes, \
                                             "number_resamplings": number_resamplings}}])
 

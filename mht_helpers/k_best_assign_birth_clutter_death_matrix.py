@@ -189,8 +189,8 @@ def check_for_duplicates(best_assignments, M, cost_matrix_example):
     '''
     Check the assignments differ in entries that are meaningful
     '''
-    print 'checking for duplicates'
-    print(cost_matrix_example.shape, cost_matrix_example)
+#    print 'checking for duplicates'
+#    print(cost_matrix_example.shape, cost_matrix_example)
     unique_assignments = []
     for assignment in best_assignments:
         T = len(assignment[1])/2 - M
