@@ -29,7 +29,7 @@ np.random.seed(1)
 random.seed(1)
 #if True, check that we don't return two assignment matrices that correspond
 #to the same associations and deaths, due to filler entries in matrix
-CHECK_NO_DUPLICATES = False
+CHECK_NO_DUPLICATES = True
 
 #if true use Munkres from munkres to solve the assignment problem
 #if false use linear_sum_assignment from scipy to solve the assignment problem (generally faster)
@@ -208,7 +208,7 @@ def check_for_duplicates(best_assignments, M, cost_matrix_example):
 #        assert(meas_grp_associations == meas_grp_associations1)
 #        assert(dead_target_indices == dead_target_indices1)
 
-        cur_tuple = (tuple(meas_grp_associations), tuple(dead_target_indices), assignment[0])
+        cur_tuple = (tuple(meas_grp_associations), tuple(dead_target_indices), assignment[2])
         assert(not cur_tuple in unique_assignments), (assignment, best_assignments, unique_assignments, M, T)
         unique_assignments.append(cur_tuple)
 

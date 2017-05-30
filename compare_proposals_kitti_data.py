@@ -67,9 +67,9 @@ from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 
 #local:
-from fireworks.core.rocket_launcher import rapidfire
+#from fireworks.core.rocket_launcher import rapidfire
 #remote:
-#from fireworks.queue.queue_launcher import rapidfire
+from fireworks.queue.queue_launcher import rapidfire
 
 from fireworks.user_objects.queue_adapters.common_adapter import CommonAdapter
 from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
@@ -93,15 +93,15 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-SEQUENCES_TO_PROCESS = [i for i in range(21)]
+#SEQUENCES_TO_PROCESS = [i for i in range(21)]
 #SEQUENCES_TO_PROCESS = [0,2,3,4,5,6,10]
 #SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [11]
 #SEQUENCES_TO_PROCESS = [13,14,15]
-#SEQUENCES_TO_PROCESS = [13]
+SEQUENCES_TO_PROCESS = [7]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
 #NUM_PARTICLES_TO_TEST = [5, 10, 20]
-NUM_PARTICLES_TO_TEST = [5, 20]#[5, 20, 80, 240, 960]
+NUM_PARTICLES_TO_TEST = [5]#[5, 20, 80, 240, 960]
 
 ###################################### Experiment Organization ######################################
 DIRECTORY_OF_ALL_RESULTS = '%sNIPS_prep/' % RBPF_HOME_DIRECTORY
@@ -253,16 +253,24 @@ if __name__ == "__main__":
 
     targ_meas_assoc_metric = None
     check_k_nearest = None
+
+    gumbel_scale = 0
     for train_test in ['train']:
         for online_delay in [0]:
-            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0)]:#, ('modified_SIS_gumbel', 1)]:
+#            for (proposal_distr) in ['modified_SIS_w_replacement_unique']:
+#            for (proposal_distr) in ['modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
+
+
+
+#            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0)]:#, ('modified_SIS_gumbel', 1)]:
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), \
 #            ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 4)]:
 #            ('modified_SIS_gumbel', .5), ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 2), ('modified_SIS_gumbel', 4)]:
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 1)]:
 
             for (proposal_distr, gumbel_scale, num_particles) in [('modified_SIS_gumbel', 0, 5)]:
-
+        
+            
 
 #            for (proposal_distr, gumbel_scale, num_particles) in [('modified_SIS_gumbel', 0, 4)]:
 #            for (proposal_distr, gumbel_scale, num_particles) in [('modified_SIS_exact', -9999, 4)]:
@@ -291,9 +299,9 @@ if __name__ == "__main__":
 #             ('sequential', None, True),
 #             ('sequential', None, False)]:
 #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
-                for det_names in [['regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
+#                for det_names in [['regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
 #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
-#                for det_names in [['regionlets']]:
+                for det_names in [['regionlets']]:
 #                        for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
                     for num_particles in NUM_PARTICLES_TO_TEST:
                         description_of_run = get_description_of_run_gen_detections(include_ignored_gt, include_dontcare_in_gt,
@@ -421,15 +429,15 @@ if __name__ == "__main__":
     # store workflow and launch it
     workflow = Workflow(all_fireworks, firework_dependencies)
     #local
-    launchpad.add_wf(workflow)
-    rapidfire(launchpad, FWorker())
-    #remote
 #    launchpad.add_wf(workflow)
-#    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
-#    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
-#                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
-#                  fill_mode=False)
-#
-#
+#    rapidfire(launchpad, FWorker())
+    #remote
+    launchpad.add_wf(workflow)
+    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
+    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
+                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
+                  fill_mode=False)
+
+
 
 

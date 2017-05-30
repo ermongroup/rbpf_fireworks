@@ -117,7 +117,7 @@ if LSTM_MOTION:
 DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
 
 
-PROFILE = False
+PROFILE = True
 USE_GENERATED_DATA = False
 
 PLOT_TARGET_LOCATIONS = False
@@ -1238,6 +1238,18 @@ class Particle:
 
 
 def normalize_importance_weights(particle_set):
+
+    #####debugging#########
+    print 'particle weights before normalization:',
+    imp_weight_sum = 0.0
+    for particle in particle_set:
+        imp_weight_sum += particle.importance_weight
+        print particle.importance_weight,
+    print        
+    assert(np.abs(imp_weight_sum - 1.0) > .0001), (normalization_constant, SPEC['normalize_log_importance_weights'], 'normalize_importance_weights called when weights appear normalized')
+    #####end debugging#########
+
+
     if SPEC['normalize_log_importance_weights'] == True:
         max_imprt_weight = 'not_set'
         for particle in particle_set:
@@ -1253,14 +1265,18 @@ def normalize_importance_weights(particle_set):
             particle.importance_weight = math.exp(particle.importance_weight - max_imprt_weight)
 
 
-    #now normalize importance weights   
+    #now normalize importance weights
     normalization_constant = 0.0
     for particle in particle_set:
         normalization_constant += particle.importance_weight
     assert(normalization_constant != 0.0), normalization_constant
-    assert(np.abs(normalization_constant - 1.0) > .0001), (normalization_constant, SPEC['normalize_log_importance_weights'], 'normalize_importance_weights called when weights appear normalized')
     for particle in particle_set:
         particle.importance_weight /= normalization_constant
+
+    print 'particle weights after normalization:',
+    for particle in particle_set:
+        print particle.importance_weight,
+    print
 
 
 def perform_resampling(particle_set):
@@ -1708,7 +1724,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
             #-sample 'num_particles' hypotheses from 'num_top_hypotheses_to_sample_from' without replacement,
             #and ignore the fact that when sampling w/o replacement samples are dependent and we need to
             #calculate the proposal probability and reweight particles by dividing by this prob
-            sampled_assignment_indices = np.random.choice(len(assignment_proposal_distr), size=(len(particle_set)), replace=False, p=assignment_proposal_distr)
+            sampled_assignment_indices = np.random.choice(len(assignment_proposal_distr), size=min((len(particle_set)), len(assignment_proposal_distr)), replace=False, p=assignment_proposal_distr)
             sampled_assignments = []
             for sampled_idx in sampled_assignment_indices:
                 sampled_assignments.append(best_assignments[sampled_idx])
@@ -1732,17 +1748,18 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
             total_sample_count = 0
             unique_sample_counts = defaultdict(int) #key: unique sample index, value: number of times this index has been sampled
 
-            while(len(unique_sample_counts) < len(particle_set))
-                sampled_idx = np.random.choice(len(assignment_proposal_distr), size=(len(particle_set)), replace=True, p=assignment_proposal_distr)
-                unique_sample_counts[sampled_idx] += 1
+            while(len(unique_sample_counts) < min(len(assignment_proposal_distr), len(particle_set))):
+                sampled_idx = np.random.choice(len(assignment_proposal_distr), size=1, replace=True, p=assignment_proposal_distr)
+                unique_sample_counts[sampled_idx[0]] += 1
                 total_sample_count += 1
 
             sampled_assignments = []
             assignment_importance_weights = []
-            for (sampled_idx, idx_sample_count) in d.iteritems():
+            for (sampled_idx, idx_sample_count) in unique_sample_counts.iteritems():
                 sampled_assignments.append(best_assignments[sampled_idx])
-                assignment_importance_weights = idx_sample_count/total_sample_count
+                assignment_importance_weights.append(float(idx_sample_count)/float(total_sample_count))
 
+            print assignment_importance_weights
             best_assignments = sampled_assignments
 
 
@@ -2183,7 +2200,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 new_target_list.append(new_target)
                 pIdxDebugInfo += 1
 
-        if params.SPEC['proposal_distr'] != 'modified_SIS_exact':
+        if not params.SPEC['proposal_distr'] in ['modified_SIS_exact','modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
             print "about to normalize importance weights"
             #Using MHT sampling without replacement, we care about importance weights, normalize so they don't get too small            
             normalize_importance_weights(particle_set)
