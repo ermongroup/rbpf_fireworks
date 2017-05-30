@@ -1732,7 +1732,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
             total_sample_count = 0
             unique_sample_counts = defaultdict(int) #key: unique sample index, value: number of times this index has been sampled
 
-            while(len(unique_sample_counts) < len(particle_set))
+            while(len(unique_sample_counts) < len(particle_set)):
                 sampled_idx = np.random.choice(len(assignment_proposal_distr), size=(len(particle_set)), replace=True, p=assignment_proposal_distr)
                 unique_sample_counts[sampled_idx] += 1
                 total_sample_count += 1

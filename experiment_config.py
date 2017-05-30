@@ -39,10 +39,14 @@
 #MONGODB_PORT = 39761
 #MONGODB_NAME = 'nips_prep_sherlock'
 
-MONGODB_HOST = 'ds143141.mlab.com'
-MONGODB_PORT = 43141
-MONGODB_NAME = 'nips_compare_proposals_atlas'
+#MONGODB_HOST = 'ds143141.mlab.com'
+#MONGODB_PORT = 43141
+#MONGODB_NAME = 'nips_compare_proposals_atlas'
 
 #MONGODB_HOST = 'ds143081.mlab.com'
 #MONGODB_PORT = 43081
 #MONGODB_NAME = 'nips_compare_proposals_sherlock'
+
+MONGODB_HOST = 'ds157621.mlab.com'
+MONGODB_PORT = 57621
+MONGODB_NAME = 'atlas_compare_sis_approximations'
