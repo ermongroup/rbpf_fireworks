@@ -41,8 +41,8 @@ from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
 from learn_params1 import get_meas_target_sets_2sources_general
 from learn_params1 import get_meas_target_sets_1sources_general
 
-#from learn_params1 import get_meas_target_sets_general
-from learn_params1_local import get_meas_target_sets_general
+from learn_params1 import get_meas_target_sets_general
+#from learn_params1_local import get_meas_target_sets_general
 
 sys.path.insert(0, "%ssampling" % RBPF_HOME_DIRECTORY)
 from sample_wo_replacement import calc_prop_prob
@@ -1258,6 +1258,7 @@ def normalize_importance_weights(particle_set):
     for particle in particle_set:
         normalization_constant += particle.importance_weight
     assert(normalization_constant != 0.0), normalization_constant
+    assert(np.abs(normalization_constant - 1.0) > .0001), (normalization_constant, SPEC['normalize_log_importance_weights'], 'normalize_importance_weights called when weights appear normalized')
     for particle in particle_set:
         particle.importance_weight /= normalization_constant
 
@@ -1586,6 +1587,23 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     params.SPEC['gumbel_scale'] should exist.  When params.SPEC['gumbel_scale'] = 0, we get MHT back.
     When params.SPEC['gumbel_scale'] = 1, we are taking the mean (instead of max) of gumbel perturbations
     to assignment cost matrix and multiplying it by params.SPEC['gumbel_scale'].
+
+    proposal options implemented here:
+    params.SPEC['proposal_distr'] == 'modified_SIS_gumbel':
+        - when gumbel scale is 0, this is MHT
+
+    params.SPEC['proposal_distr'] == 'modified_SIS_wo_replacement_approx':
+        -sample 'num_particles' hypotheses from 'num_top_hypotheses_to_sample_from' without replacement,
+        and ignore the fact that when sampling w/o replacement samples are dependent and we need to
+        calculate the proposal probability and reweight particles by dividing by this prob
+
+    params.SPEC['proposal_distr'] == 'modified_SIS_w_replacement':
+        -sample 'num_particles' hypotheses from 'num_top_hypotheses_to_sample_from' with replacement,
+
+    params.SPEC['proposal_distr'] == 'modified_SIS_w_replacement_unique':
+        -sample 'num_particles' unique hypotheses from 'num_top_hypotheses_to_sample_from' with replacement,
+        that is, keep sampling until we have 'num_particles' different hypotheses
+
     '''
     (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'])
     #housekeeping, should make this nicer somehow
@@ -1626,7 +1644,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         log_prob_matrices.append(cur_log_probs) #store to calculate probabilities later
         assert((cur_log_probs <= .000001).all()), (cur_log_probs)
 
-        if not params.SPEC['proposal_distr'] == 'modified_SIS_exact':
+        if params.SPEC['proposal_distr'] == 'modified_SIS_gumbel':
             #3. add gumbel matrix to log probs matrix, scaled by params.SPEC['gumbel_scale']/(number of assignments)
             G = np.random.gumbel(loc=0.0, scale=1.0, size=(cur_log_probs.shape[0], cur_log_probs.shape[1]))
             number_of_assignments = 2*(M + T)
@@ -1665,11 +1683,11 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
 
     print 'M =', M
 
-    if not params.SPEC['proposal_distr'] == 'modified_SIS_exact':
+    if params.SPEC['proposal_distr'] == 'modified_SIS_gumbel':
         best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices, particle_costs, M)
 #    best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES, perturbed_cost_matrices)
 
-    else: #params.SPEC['proposal_distr'] == 'modified_SIS_exact'
+    else: 
         #now we sample without replacemenent from the most likely assignments
         best_assignments = k_best_assign_mult_cost_matrices(params.SPEC['num_top_hypotheses_to_sample_from'], perturbed_cost_matrices, particle_costs, M)        
         
@@ -1682,21 +1700,82 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
             assignment_prob = np.exp(assignment_log_prob - particle_neg_log_probs[cur_particle_idx])
             assignment_proposal_distr.append(assignment_prob)
 
-        assert(sum(assignment_proposal_distr) <= 1.0)
-        assignment_proposal_distr.append(1.0 - sum(assignment_proposal_distr))
-        while True:
-            sampled_assignment_indices = np.random.choice(len(assignment_proposal_distr), size=(len(particle_set)), replace=False, p=assignment_proposal_distr)
-            print assignment_proposal_distr
-            print sampled_assignment_indices
-            if not len(best_assignments) in sampled_assignment_indices:
-                break
-            else:
-                invalid_low_prob_sample_count += 1
+        assignment_proposal_distr = np.asarray(assignment_proposal_distr)
+        assignment_proposal_distr /= float(np.sum(assignment_proposal_distr))
+        assert(np.abs(np.sum(assignment_proposal_distr) - 1.0) < .000001)
 
-        sampled_assignments = []
-        for sampled_idx in sampled_assignment_indices:
-            sampled_assignments.append(best_assignments[sampled_idx])
-        best_assignments = sampled_assignments
+        if params.SPEC['proposal_distr'] == 'modified_SIS_wo_replacement_approx':
+            #-sample 'num_particles' hypotheses from 'num_top_hypotheses_to_sample_from' without replacement,
+            #and ignore the fact that when sampling w/o replacement samples are dependent and we need to
+            #calculate the proposal probability and reweight particles by dividing by this prob
+            sampled_assignment_indices = np.random.choice(len(assignment_proposal_distr), size=(len(particle_set)), replace=False, p=assignment_proposal_distr)
+            sampled_assignments = []
+            for sampled_idx in sampled_assignment_indices:
+                sampled_assignments.append(best_assignments[sampled_idx])
+            best_assignments = sampled_assignments
+
+
+
+        elif params.SPEC['proposal_distr'] == 'modified_SIS_w_replacement':
+            #-sample 'num_particles' hypotheses from 'num_top_hypotheses_to_sample_from' with replacement,
+            sampled_assignment_indices = np.random.choice(len(assignment_proposal_distr), size=(len(particle_set)), replace=True, p=assignment_proposal_distr)
+            sampled_assignments = []
+            for sampled_idx in sampled_assignment_indices:
+                sampled_assignments.append(best_assignments[sampled_idx])
+            best_assignments = sampled_assignments
+
+
+        else:
+            assert(params.SPEC['proposal_distr'] == 'modified_SIS_w_replacement_unique')
+            #-sample 'num_particles' unique hypotheses from 'num_top_hypotheses_to_sample_from' with replacement,
+            #that is, keep sampling until we have 'num_particles' different hypotheses
+            total_sample_count = 0
+            unique_sample_counts = defaultdict(int) #key: unique sample index, value: number of times this index has been sampled
+
+            while(len(unique_sample_counts) < len(particle_set))
+                sampled_idx = np.random.choice(len(assignment_proposal_distr), size=(len(particle_set)), replace=True, p=assignment_proposal_distr)
+                unique_sample_counts[sampled_idx] += 1
+                total_sample_count += 1
+
+            sampled_assignments = []
+            assignment_importance_weights = []
+            for (sampled_idx, idx_sample_count) in d.iteritems():
+                sampled_assignments.append(best_assignments[sampled_idx])
+                assignment_importance_weights = idx_sample_count/total_sample_count
+
+            best_assignments = sampled_assignments
+
+
+
+
+############    else: #params.SPEC['proposal_distr'] == 'modified_SIS_exact'
+############        #now we sample without replacemenent from the most likely assignments
+############        best_assignments = k_best_assign_mult_cost_matrices(params.SPEC['num_top_hypotheses_to_sample_from'], perturbed_cost_matrices, particle_costs, M)        
+############        
+############        assignment_proposal_distr = []
+############        for (cur_cost, cur_assignment, cur_particle_idx) in best_assignments:
+############            T = len(ordered_particle_groups[cur_particle_idx].targets.living_targets)            
+############            cur_assignment_matrix = convert_assignment_pairs_to_matrix3(cur_assignment, M, T)
+############
+############            assignment_log_prob = np.trace(np.dot(log_prob_matrices[cur_particle_idx], cur_assignment_matrix.T))
+############            assignment_prob = np.exp(assignment_log_prob - particle_neg_log_probs[cur_particle_idx])
+############            assignment_proposal_distr.append(assignment_prob)
+############
+############        assert(sum(assignment_proposal_distr) <= 1.0)
+############        assignment_proposal_distr.append(1.0 - sum(assignment_proposal_distr))
+############        while True:
+############            sampled_assignment_indices = np.random.choice(len(assignment_proposal_distr), size=(len(particle_set)), replace=False, p=assignment_proposal_distr)
+############            print assignment_proposal_distr
+############            print sampled_assignment_indices
+############            if not len(best_assignments) in sampled_assignment_indices:
+############                break
+############            else:
+############                invalid_low_prob_sample_count += 1
+############
+############        sampled_assignments = []
+############        for sampled_idx in sampled_assignment_indices:
+############            sampled_assignments.append(best_assignments[sampled_idx])
+############        best_assignments = sampled_assignments
     #5. For each of the most likely assignments, create a new particle that is a copy of its particle GROUP, 
     # and associate measurements / kill targets according to assignment.
 
@@ -1717,12 +1796,31 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         assert(SPEC['normalize_log_importance_weights'] == True)
         #set to log of importance weight
         assignment_log_prob = np.trace(np.dot(log_prob_matrices[cur_particle_idx], cur_assignment_matrix.T))
-        if not params.SPEC['proposal_distr'] == 'modified_SIS_exact':
+        if params.SPEC['proposal_distr'] == 'modified_SIS_gumbel':
             new_particle.importance_weight = assignment_log_prob - particle_neg_log_probs[cur_particle_idx] #log prob
-        else: #params.SPEC['proposal_distr'] == 'modified_SIS_exact'
-            exact_log_prob = assignment_log_prob - particle_neg_log_probs[cur_particle_idx] #log prob
-            proposal_log_prob = np.log(calc_prop_prob(assignment_proposal_distr, sampled_assignment_indices[idx], len(particle_set)))
-            new_particle.importance_weight = exact_prob - proposal_log_prob #log prob
+
+
+        elif params.SPEC['proposal_distr'] == 'modified_SIS_wo_replacement_approx':
+            #-sample 'num_particles' hypotheses from 'num_top_hypotheses_to_sample_from' without replacement,
+            #and ignore the fact that when sampling w/o replacement samples are dependent and we need to
+            #calculate the proposal probability and reweight particles by dividing by this prob
+            new_particle.importance_weight = assignment_log_prob - particle_neg_log_probs[cur_particle_idx] #log prob
+
+        elif params.SPEC['proposal_distr'] == 'modified_SIS_w_replacement':
+            #-sample 'num_particles' hypotheses from 'num_top_hypotheses_to_sample_from' with replacement,
+            #all particle weights should be same, parents should already be correct, just double check
+            assert(np.abs(new_particle.importance_weight - 1.0/len(particle_set)) < .000001)
+
+        else:
+            assert(params.SPEC['proposal_distr'] == 'modified_SIS_w_replacement_unique')
+            new_particle.importance_weight = assignment_importance_weights[idx]
+
+
+
+############        else: #params.SPEC['proposal_distr'] == 'modified_SIS_exact'
+############            exact_log_prob = assignment_log_prob - particle_neg_log_probs[cur_particle_idx] #log prob
+############            proposal_log_prob = np.log(calc_prop_prob(assignment_proposal_distr, sampled_assignment_indices[idx], len(particle_set)))
+############            new_particle.importance_weight = exact_prob - proposal_log_prob #log prob
        
         (meas_grp_associations, dead_target_indices) = convert_assignment_matrix3(cur_assignment_matrix, M, T)
 
@@ -2070,11 +2168,9 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
         new_target_list = [] #for debugging, list of booleans whether each particle created a new target
         pIdxDebugInfo = 0
 
-        if params.SPEC['proposal_distr'] == 'modified_SIS_gumbel' or params.SPEC['proposal_distr'] == 'modified_SIS_exact':
+        if params.SPEC['proposal_distr'] in ['modified_SIS_gumbel', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
             (particle_set, cur_invalid_low_prob_sample_count) = modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
             invalid_low_prob_sample_count += cur_invalid_low_prob_sample_count
-            #Using MHT sampling without replacement, we care about importance weights, normalize so they don't get too small
-            normalize_importance_weights(particle_set) 
 #            particle_set = modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
         elif params.SPEC['proposal_distr'] == 'modified_SIS_min_cost':
             particle_set = modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
@@ -2087,8 +2183,9 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 new_target_list.append(new_target)
                 pIdxDebugInfo += 1
 
-        if params.SPEC['proposal_distr'] != 'modified_SIS_gumbel':
+        if params.SPEC['proposal_distr'] != 'modified_SIS_exact':
             print "about to normalize importance weights"
+            #Using MHT sampling without replacement, we care about importance weights, normalize so they don't get too small            
             normalize_importance_weights(particle_set)
         #debugging
         if DEBUG:
@@ -2156,7 +2253,8 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 cur_max_weight_target_set = cur_max_weight_particle.targets
 
 
-            if params.SPEC['proposal_distr'] in ['modified_SIS_gumbel', 'modified_SIS_min_cost']:
+
+            if params.SPEC['proposal_distr'] in ['modified_SIS_gumbel', 'modified_SIS_min_cost', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
                 if time_instance_index>0 and cur_max_weight_particle.parent_particle != prv_max_weight_particle:
                     (target_associations, duplicate_ids) = \
                     match_target_ids(cur_max_weight_particle.parent_particle.targets.living_targets,\
@@ -2239,7 +2337,8 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
         
         #Using modified_SIS_MHT_gumbel, sampling with replacement, importance weights may vary but DON'T resample because sampling
         #was done without replacement
-        if (params.SPEC['proposal_distr'] != 'modified_SIS_gumbel' and get_eff_num_particles(particle_set) < N_PARTICLES/RESAMPLE_RATIO):
+        if (not params.SPEC['proposal_distr'] in ['modified_SIS_gumbel', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique'] \
+            and get_eff_num_particles(particle_set) < N_PARTICLES/RESAMPLE_RATIO):
 
             perform_resampling(particle_set)
             print "resampled on iter: ", iter
