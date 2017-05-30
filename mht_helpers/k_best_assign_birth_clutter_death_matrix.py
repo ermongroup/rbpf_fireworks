@@ -29,7 +29,7 @@ np.random.seed(1)
 random.seed(1)
 #if True, check that we don't return two assignment matrices that correspond
 #to the same associations and deaths, due to filler entries in matrix
-CHECK_NO_DUPLICATES = True
+CHECK_NO_DUPLICATES = False
 
 #if true use Munkres from munkres to solve the assignment problem
 #if false use linear_sum_assignment from scipy to solve the assignment problem (generally faster)

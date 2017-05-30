@@ -101,7 +101,7 @@ SEQUENCES_TO_PROCESS = [i for i in range(21)]
 #SEQUENCES_TO_PROCESS = [13]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
 #NUM_PARTICLES_TO_TEST = [5, 10, 20]
-NUM_PARTICLES_TO_TEST = [5, 20]
+NUM_PARTICLES_TO_TEST = [160, 80, 20, 5]#[5, 20, 80, 240, 960]
 
 ###################################### Experiment Organization ######################################
 DIRECTORY_OF_ALL_RESULTS = '%sNIPS_prep/' % RBPF_HOME_DIRECTORY
@@ -255,9 +255,9 @@ if __name__ == "__main__":
     check_k_nearest = None
     for train_test in ['train']:
         for online_delay in [0]:
-#            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0)]:
-            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), \
-            ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 4)]:
+            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0)]:#, ('modified_SIS_gumbel', 1)]:
+#            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), \
+#            ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 4)]:
 #            ('modified_SIS_gumbel', .5), ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 2), ('modified_SIS_gumbel', 4)]:
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 1)]:
 
