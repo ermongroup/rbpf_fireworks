@@ -41,8 +41,8 @@ from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
 from learn_params1 import get_meas_target_sets_2sources_general
 from learn_params1 import get_meas_target_sets_1sources_general
 
-#from learn_params1 import get_meas_target_sets_general
-from learn_params1_local import get_meas_target_sets_general
+from learn_params1 import get_meas_target_sets_general
+#from learn_params1_local import get_meas_target_sets_general
 
 sys.path.insert(0, "%ssampling" % RBPF_HOME_DIRECTORY)
 from sample_wo_replacement import calc_prop_prob
