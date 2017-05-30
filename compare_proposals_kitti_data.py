@@ -101,7 +101,7 @@ SEQUENCES_TO_PROCESS = [i for i in range(21)]
 #SEQUENCES_TO_PROCESS = [13]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
 #NUM_PARTICLES_TO_TEST = [5, 10, 20]
-NUM_PARTICLES_TO_TEST = [160, 80, 20, 5]#[5, 20, 80, 240, 960]
+NUM_PARTICLES_TO_TEST = [5, 20]#[5, 20, 80, 240, 960]
 
 ###################################### Experiment Organization ######################################
 DIRECTORY_OF_ALL_RESULTS = '%sNIPS_prep/' % RBPF_HOME_DIRECTORY
