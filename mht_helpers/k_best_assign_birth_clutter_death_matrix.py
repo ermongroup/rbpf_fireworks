@@ -209,7 +209,7 @@ def check_for_duplicates(best_assignments, M, cost_matrix_example):
 #        assert(dead_target_indices == dead_target_indices1)
 
         cur_tuple = (tuple(meas_grp_associations), tuple(dead_target_indices), assignment[0])
-        assert(not cur_tuple in unique_assignments), (assignment, best_assignments, unique_assignments)
+        assert(not cur_tuple in unique_assignments), (assignment, best_assignments, unique_assignments, M, T)
         unique_assignments.append(cur_tuple)
 
 #def check_assignments_differ(assignA, assignB, M, T):
