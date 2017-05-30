@@ -13,8 +13,12 @@ from itertools import permutations
 from operator import itemgetter
 
 import cvxpy as cvx
-
+import sys
 import math
+from cluster_config import RBPF_HOME_DIRECTORY
+sys.path.insert(0, "%sgeneral_tracking" % RBPF_HOME_DIRECTORY)
+from global_params import INFEASIBLE_COST
+
 
 #if we have prior of 0, return PRIOR_EPSILON
 PRIOR_EPSILON = .000000001
@@ -1177,7 +1181,7 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
     M = len(meas_groups)
     T = total_target_count
     log_probs = np.ones((2*M + 2*T, 2*T + 2*M))
-    log_probs *= -99999999999 #setting all entries to very negative value
+    log_probs *= -1*INFEASIBLE_COST #setting all entries to very negative value
 
     p_target_does_not_emit = params.target_groupEmission_priors[ImmutableSet([])]
 
@@ -1354,7 +1358,7 @@ def convert_assignment_pairs_to_associations3(assignment_pairs, M, T):
             if assoc_idx == clutter_col: #clutter
                 meas_associations.append(-1)
             else: #birth
-                assert(assoc_idx == birth_col)
+                assert(assoc_idx == birth_col), (row_idx, assoc_idx, birth_col, M, T)
                 meas_associations.append(T)
 
     #get unassociated target deaths

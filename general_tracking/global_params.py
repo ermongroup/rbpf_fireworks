@@ -1,7 +1,10 @@
 import numpy as np
 CAMERA_PIXEL_WIDTH = 1242
 CAMERA_PIXEL_HEIGHT = 375
-
+#Entries in assignment cost matrices that cannot be chosen as associations are set
+#to this value or greatershould be big but don't want overflow issues
+# when further transforming the matrix, more principled number?
+INFEASIBLE_COST = 9999999999999999
 USE_POISSON_DEATH_MODEL = False
 
 #measurement area (e.g. image) borders

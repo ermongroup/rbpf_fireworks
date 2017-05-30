@@ -55,6 +55,8 @@ import time
 import os
 sys.path.insert(0, "%sgeneral_tracking" % RBPF_HOME_DIRECTORY)
 from global_params import DEFAULT_TIME_STEP
+#Entries in the cost matrix that cannot be chosen as associations are set to this value or greater
+from global_params import INFEASIBLE_COST
 
 from rbpf_sampling_manyMeasSrcs import group_detections
 from rbpf_sampling_manyMeasSrcs import solve_perturbed_max_gumbel
@@ -115,7 +117,7 @@ if LSTM_MOTION:
 DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
 
 
-PROFILE = False
+PROFILE = True
 USE_GENERATED_DATA = False
 
 PLOT_TARGET_LOCATIONS = False
@@ -1683,7 +1685,9 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         assert(sum(assignment_proposal_distr) <= 1.0)
         assignment_proposal_distr.append(1.0 - sum(assignment_proposal_distr))
         while True:
-            sampled_assignment_indices = np.random.choice(len(p), size=(len(particle_set)), replace=False, p=assignment_proposal_distr)
+            sampled_assignment_indices = np.random.choice(len(assignment_proposal_distr), size=(len(particle_set)), replace=False, p=assignment_proposal_distr)
+            print assignment_proposal_distr
+            print sampled_assignment_indices
             if not len(best_assignments) in sampled_assignment_indices:
                 break
             else:
@@ -1697,8 +1701,9 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     # and associate measurements / kill targets according to assignment.
 
     for (idx, (cur_cost, cur_assignment, cur_particle_idx)) in enumerate(best_assignments):
-        if cur_cost > 1000000000:
-            break #invalid assignment, we've exhausted all valid assignments
+#        if cur_cost > 1000000000:
+#            break #invalid assignment, we've exhausted all valid assignments
+        assert(cur_cost < INFEASIBLE_COST)
         #3. create a new particle that is a copy of the max group, and associate measurements / kill
         #targets according to the max x_k from 2.
         assert(SPEC['use_general_num_dets'])

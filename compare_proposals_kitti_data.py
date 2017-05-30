@@ -63,9 +63,9 @@ from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 
 #local:
-from fireworks.core.rocket_launcher import rapidfire
+#from fireworks.core.rocket_launcher import rapidfire
 #remote:
-#from fireworks.queue.queue_launcher import rapidfire
+from fireworks.queue.queue_launcher import rapidfire
 
 from fireworks.user_objects.queue_adapters.common_adapter import CommonAdapter
 from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
@@ -256,8 +256,8 @@ if __name__ == "__main__":
 #            ('modified_SIS_gumbel', .5), ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 2), ('modified_SIS_gumbel', 4)]:
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 1)]:
 
-            for (proposal_distr, gumbel_scale, num_particles) in [('modified_SIS_gumbel', 0, 4)]:
-#            for (proposal_distr, gumbel_scale, num_particles) in [('modified_SIS_exact', -9999, 4)]:
+#            for (proposal_distr, gumbel_scale, num_particles) in [('modified_SIS_gumbel', 0, 4)]:
+            for (proposal_distr, gumbel_scale, num_particles) in [('modified_SIS_exact', -9999, 3)]:
 #Run me tonight:
 #            for (proposal_distr, gumbel_scale, num_particles) in \
 #                [('modified_SIS_exact', None, 4),
@@ -412,14 +412,14 @@ if __name__ == "__main__":
     # store workflow and launch it
     workflow = Workflow(all_fireworks, firework_dependencies)
     #local
-    launchpad.add_wf(workflow)
-    rapidfire(launchpad, FWorker())
-    #remote
 #    launchpad.add_wf(workflow)
-#    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
-#    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
-#                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
-#                  fill_mode=False)
+#    rapidfire(launchpad, FWorker())
+    #remote
+    launchpad.add_wf(workflow)
+    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
+    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
+                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
+                  fill_mode=False)
 
 
 
