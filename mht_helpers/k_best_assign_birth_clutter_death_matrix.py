@@ -1,7 +1,7 @@
 import numpy as np
 import sys
 import cProfile
-
+import sys
 from munkres import Munkres, print_matrix
 from scipy.optimize import linear_sum_assignment
 #use edited version of scipy
@@ -19,6 +19,12 @@ sys.path.insert(0, "../")
 from rbpf_sampling_manyMeasSrcs import convert_assignment_matrix3
 from rbpf_sampling_manyMeasSrcs import convert_assignment_pairs_to_matrix3
 from rbpf_sampling_manyMeasSrcs import convert_assignment_pairs_to_associations3
+from cluster_config import RBPF_HOME_DIRECTORY
+sys.path.insert(0, "%sgeneral_tracking" % RBPF_HOME_DIRECTORY)
+#Entries in the cost matrix that cannot be chosen as associations are set to this value or greater
+from global_params import INFEASIBLE_COST
+
+
 np.random.seed(1)
 random.seed(1)
 #if True, check that we don't return two assignment matrices that correspond
@@ -41,10 +47,8 @@ PROFILE = False
 #other entries in row/col to INFEASIBLE_COST, THIS DOESN"T WORK CURRENTLY
 #'copy' NOT IMPLEMENTED
 REMAINING_COST_MATRIX_CONSTRUNCTION = 'delete'
-#Set other entries in the same row/col as a required cell to this value, should be big
-#but don't want overflow issues when further transforming the matrix, more principled number?
-INFEASIBLE_COST = 9999999999999999
-#This is different that the implementation in k_best_assignment in that when we are finding
+
+#This is different than the implementation in k_best_assignment in that when we are finding
 #the k_best assignments for a measurement association/target death matrix, the bottom right
 #portion of the matrix is filled with zeros and we do not care about getting multiple assignments
 #that only differ in this bottom right corner, so we change the partition of nodes to exclude
@@ -159,7 +163,8 @@ def k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M):
             print '&'*80
             print
             print
-        if min_cost_idx != -1:
+#        if min_cost_idx != -1:
+        if min_cost < INFEASIBLE_COST:
             best_assignments.append(cur_partition[min_cost_idx].get_min_cost_assignment())
             if DEBUG:
                 print "iter", itr, "-"*80
