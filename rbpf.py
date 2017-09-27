@@ -2380,6 +2380,8 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
         max_imprt_weight_count_dict[particle_count_with_max_imprt_weight] += 1
 #END DEBUGGING
 
+    #FIX ME, should return the a target set representing our map estimate
+    #not the particle set from the particle with maximum importance weight.
     max_imprt_weight = -1
     for particle in particle_set:
         if(particle.importance_weight > max_imprt_weight):
