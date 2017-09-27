@@ -10,10 +10,6 @@
 #MONGODB_PORT = 53609
 #MONGODB_NAME = 'atlas_mult_meas'
 
-MONGODB_HOST = 'ds153179.mlab.com'
-MONGODB_PORT = 53179
-MONGODB_NAME = 'local_testing'
-
 #MONGODB_HOST = 'ds145355.mlab.com'
 #MONGODB_PORT = 45355
 #MONGODB_NAME = 'atlas_general_meas'
@@ -46,3 +42,15 @@ MONGODB_NAME = 'local_testing'
 #MONGODB_HOST = 'ds143081.mlab.com'
 #MONGODB_PORT = 43081
 #MONGODB_NAME = 'nips_compare_proposals_sherlock'
+
+#MONGODB_HOST = 'ds157621.mlab.com'
+#MONGODB_PORT = 57621
+#MONGODB_NAME = 'atlas_compare_sis_approximations'
+
+#MONGODB_HOST = 'ds153179.mlab.com'
+#MONGODB_PORT = 53179
+#MONGODB_NAME = 'local_testing'
+
+MONGODB_HOST = 'ds149844.mlab.com'
+MONGODB_PORT = 49844
+MONGODB_NAME = 'cvpr_prep_atlas'

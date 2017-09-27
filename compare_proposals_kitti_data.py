@@ -3,6 +3,10 @@
 #
 #
 #Note, on Atlas before this script:
+# start a krbscreen session:
+# $ krbscreen #reattach using $ screen -rx
+# $ reauth #important so that jobs can be submitted after logging out, enter password
+#
 # $ export PATH=/opt/rh/python27/root/usr/bin:$PATH
 # $ export LD_LIBRARY_PATH=/opt/rh/python27/root/usr/lib64/:$LD_LIBRARY_PATH
 # $ PACKAGE_DIR=/atlas/u/jkuck/software
@@ -93,18 +97,18 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-#SEQUENCES_TO_PROCESS = [i for i in range(21)]
+#SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
 #SEQUENCES_TO_PROCESS = [0,2,3,4,5,6,10]
-#SEQUENCES_TO_PROCESS = [0]
+SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [11]
 #SEQUENCES_TO_PROCESS = [13,14,15]
-SEQUENCES_TO_PROCESS = [7]
+#SEQUENCES_TO_PROCESS = [7]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
 #NUM_PARTICLES_TO_TEST = [5, 10, 20]
 NUM_PARTICLES_TO_TEST = [5]#[5, 20, 80, 240, 960]
 
 ###################################### Experiment Organization ######################################
-DIRECTORY_OF_ALL_RESULTS = '%sNIPS_prep/' % RBPF_HOME_DIRECTORY
+DIRECTORY_OF_ALL_RESULTS = '%sCVPR_prep/' % RBPF_HOME_DIRECTORY
 CUR_EXPERIMENT_BATCH_NAME = 'compare_proposals_kitti/'
 
 ###################################### RBPF Parameters ######################################
@@ -255,20 +259,21 @@ if __name__ == "__main__":
     check_k_nearest = None
 
     gumbel_scale = 0
+
+    print 'HOWDY!!'
+    debug_counter = 0
     for train_test in ['train']:
         for online_delay in [0]:
 #            for (proposal_distr) in ['modified_SIS_w_replacement_unique']:
-#            for (proposal_distr) in ['modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
-
-
-
+            #for proposal_distr in ['modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
+            for proposal_distr in ['min_cost', 'sequential', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0)]:#, ('modified_SIS_gumbel', 1)]:
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), \
 #            ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 4)]:
 #            ('modified_SIS_gumbel', .5), ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 2), ('modified_SIS_gumbel', 4)]:
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 1)]:
 
-            for (proposal_distr, gumbel_scale, num_particles) in [('modified_SIS_gumbel', 0, 5)]:
+#            for (proposal_distr, gumbel_scale, num_particles) in [('modified_SIS_gumbel', 0, 5)]:
         
             
 
@@ -299,9 +304,9 @@ if __name__ == "__main__":
 #             ('sequential', None, True),
 #             ('sequential', None, False)]:
 #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
-#                for det_names in [['regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
+                for det_names in [['regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
 #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
-                for det_names in [['regionlets']]:
+#                for det_names in [['regionlets']]:
 #                        for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
                     for num_particles in NUM_PARTICLES_TO_TEST:
                         description_of_run = get_description_of_run_gen_detections(include_ignored_gt, include_dontcare_in_gt,
@@ -312,7 +317,9 @@ if __name__ == "__main__":
                             proposal_distr,targ_meas_assoc_metric,check_k_nearest, gumbel_scale)
                                                                         
                         setup_results_folder(results_folder)
-                        run_rbpf_fireworks = []            
+                        run_rbpf_fireworks = []
+                        print 'NUM_RUNS =', NUM_RUNS
+                        print 'SEQUENCES_TO_PROCESS:', SEQUENCES_TO_PROCESS            
                         for run_idx in range(1, NUM_RUNS+1):
                             for seq_idx in SEQUENCES_TO_PROCESS:
                                 cur_spec = \
@@ -415,6 +422,10 @@ if __name__ == "__main__":
 
                         eval_fireworks = [eval_old_firework, eval_new_firework]
                         all_fireworks.extend(run_rbpf_fireworks)
+
+                        print "howdy!", debug_counter, 'len(all_fireworks) =', len(all_fireworks), 'len(run_rbpf_fireworks) =', len(run_rbpf_fireworks)
+                        debug_counter += 1                       
+                         
                         all_fireworks.extend(eval_fireworks)
                         for fw in run_rbpf_fireworks:
                             firework_dependencies[fw] = eval_fireworks
