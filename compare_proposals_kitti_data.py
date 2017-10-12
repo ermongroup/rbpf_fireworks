@@ -97,15 +97,15 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-#SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
+SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
 #SEQUENCES_TO_PROCESS = [0,2,3,4,5,6,10]
-SEQUENCES_TO_PROCESS = [0]
+#SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [11]
 #SEQUENCES_TO_PROCESS = [13,14,15]
 #SEQUENCES_TO_PROCESS = [7]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
 #NUM_PARTICLES_TO_TEST = [5, 10, 20]
-NUM_PARTICLES_TO_TEST = [5]#[5, 20, 80, 240, 960]
+NUM_PARTICLES_TO_TEST = [100]#[5, 20, 80, 240, 960]
 
 ###################################### Experiment Organization ######################################
 DIRECTORY_OF_ALL_RESULTS = '%sCVPR_prep/' % RBPF_HOME_DIRECTORY
@@ -255,8 +255,8 @@ if __name__ == "__main__":
     birth_clutter_likelihood = 'aprox1'
     scale_prior_by_meas_orderings = 'count_multi_src_orderings'
 
-    targ_meas_assoc_metric = None
-    check_k_nearest = None
+#    targ_meas_assoc_metric = None
+    check_k_nearest = False
 
     gumbel_scale = 0
 
@@ -266,7 +266,7 @@ if __name__ == "__main__":
         for online_delay in [0]:
 #            for (proposal_distr) in ['modified_SIS_w_replacement_unique']:
             #for proposal_distr in ['modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
-            for proposal_distr in ['min_cost', 'sequential', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
+            for proposal_distr in ['min_cost', 'sequential', 'modified_SIS_w_replacement']:
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0)]:#, ('modified_SIS_gumbel', 1)]:
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), \
 #            ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 4)]:
@@ -440,8 +440,8 @@ if __name__ == "__main__":
     # store workflow and launch it
     workflow = Workflow(all_fireworks, firework_dependencies)
     #local
-#    launchpad.add_wf(workflow)
-#    rapidfire(launchpad, FWorker())
+    #launchpad.add_wf(workflow)
+    #rapidfire(launchpad, FWorker())
     #remote
     launchpad.add_wf(workflow)
     qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
