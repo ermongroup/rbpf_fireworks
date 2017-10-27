@@ -51,6 +51,20 @@
 #MONGODB_PORT = 53179
 #MONGODB_NAME = 'local_testing'
 
-MONGODB_HOST = 'ds149844.mlab.com'
-MONGODB_PORT = 49844
-MONGODB_NAME = 'cvpr_prep_atlas'
+#MONGODB_HOST = 'ds149844.mlab.com'
+#MONGODB_PORT = 49844
+#MONGODB_NAME = 'cvpr_prep_atlas'
+
+MONGODB_HOST = 'ds145019.mlab.com'
+MONGODB_PORT = 45019
+MONGODB_NAME = 'cvpr_prep_atlas_mot16'
+
+
+
+
+
+
+
+
+
+

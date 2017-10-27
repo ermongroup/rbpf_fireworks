@@ -113,10 +113,6 @@ if LSTM_MOTION:
     from sklearn.preprocessing import MinMaxScaler
 
 
-
-DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
-
-
 PROFILE = False
 USE_GENERATED_DATA = False
 
@@ -2796,9 +2792,9 @@ class RunRBPF(FireTaskBase):
         #########################
 
         if SPEC['train_test'] == 'train':
-            filename_mapping = DATA_PATH + "/evaluate_tracking.seqmap"
+            filename_mapping = fw_spec['data_path'] + "/evaluate_tracking.seqmap"
         elif SPEC['train_test'] == 'test':
-            filename_mapping = DATA_PATH + "/evaluate_tracking.seqmap.test"
+            filename_mapping = fw_spec['data_path'] + "/evaluate_tracking.seqmap.test"
 
         if SPEC['train_test'] == 'generated_data':
             n_frames = SPEC['data_generation_spec']['num_time_steps']
@@ -2844,23 +2840,26 @@ class RunRBPF(FireTaskBase):
                     'regionlets' : [i for i in range(2, 20)],
                     '3dop' : [float(i)*.1 for i in range(2,10)],            
                     'mono3d' : [float(i)*.1 for i in range(2,10)],            
-                    'mv3d' : [float(i)*.1 for i in range(2,10)]}        
+                    'mv3d' : [float(i)*.1 for i in range(2,10)],
+                    'single_det_src': [float(i)*.1 for i in range(10)]}        
     #            'regionlets' = [i for i in range(2, 16)]
             else:
                 score_interval_dict_all_det = {\
     #            'mscnn' = [.5],                                
-                'mscnn' : [.3],                                
+                'mscnn' : [.3],
                 'regionlets' : [2],
                 '3dop' : [.2],
                 'mono3d' : [.2],
-                'mv3d' : [.2]}
+                'mv3d' : [.2],
+                'single_det_src': [0]}
+
 
             if SPEC['train_test'] == 'train':
                 #train on all training sequences, except the current sequence we are testing on
-                training_sequences = [i for i in [i for i in range(21)] if i != seq_idx]
+                training_sequences = [i for i in [i for i in range(fw_spec['training_seq_count'])] if i != seq_idx]
             elif SPEC['train_test'] == 'test':
                 #train on all training sequences
-                training_sequences = [i for i in range(21)]
+                training_sequences = [i for i in range(fw_spec['training_seq_count'])]
             else:
                 assert(SPEC['train_test'] == 'generated_data')
                 training_sequences = [i for i in range(21)]
@@ -2881,8 +2880,8 @@ class RunRBPF(FireTaskBase):
                 birth_count_priors, birth_lambdas_by_group, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES, 
                 posAndSize_inv_covariance_blocks, meas_noise_mean, posOnly_covariance_blocks,
                 clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize) =\
-                            get_meas_target_sets_general(training_sequences, SCORE_INTERVALS_DET_USED, det_names, \
-                            obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
+                            get_meas_target_sets_general(fw_spec, fw_spec['obj_class'], fw_spec['data_path'], fw_spec['pickled_data_dir'], training_sequences, SCORE_INTERVALS_DET_USED, det_names, \
+                            doctor_clutter_probs = True, doctor_birth_probs = True,\
                             include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
                             include_ignored_detections = include_ignored_detections, death_prob_markov_order = SPEC['death_prob_markov_order'])
 
@@ -2907,7 +2906,7 @@ class RunRBPF(FireTaskBase):
                     det2_score_intervals = score_interval_dict_all_det[det2_name]
                     (measurementTargetSetsBySequence, TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES, BIRTH_PROBABILITIES,\
                         MEAS_NOISE_COVS, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES, JOINT_MEAS_NOISE_COV) = \
-                            get_meas_target_sets_2sources_general(training_sequences, det1_score_intervals, \
+                            get_meas_target_sets_2sources_general(fw_spec['obj_class'], fw_spec['data_path'], fw_spec['pickled_data_dir'], training_sequences, det1_score_intervals, \
                             det2_score_intervals, det1_name, det2_name, obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
                             include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
                             include_ignored_detections = include_ignored_detections)
@@ -2915,7 +2914,7 @@ class RunRBPF(FireTaskBase):
                 else:
                     (measurementTargetSetsBySequence, TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES, BIRTH_PROBABILITIES,\
                         MEAS_NOISE_COVS, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES) = \
-                            get_meas_target_sets_1sources_general(training_sequences, det1_score_intervals, \
+                            get_meas_target_sets_1sources_general(fw_spec['obj_class'], fw_spec['data_path'], fw_spec['pickled_data_dir'], training_sequences, det1_score_intervals, \
                             det1_name, obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
                             include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
                             include_ignored_detections = include_ignored_detections)            

@@ -97,7 +97,9 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
+#SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
+#SEQUENCES_TO_PROCESS = [4,5,6]
+SEQUENCES_TO_PROCESS = [0,1,2,3,4,5,6]
 #SEQUENCES_TO_PROCESS = [0,2,3,4,5,6,10]
 #SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [11]
@@ -105,11 +107,11 @@ SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
 #SEQUENCES_TO_PROCESS = [7]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
 #NUM_PARTICLES_TO_TEST = [5, 10, 20]
-NUM_PARTICLES_TO_TEST = [100]#[5, 20, 80, 240, 960]
+NUM_PARTICLES_TO_TEST = [2, 20, 50, 100]#[5, 20, 80, 240, 960]
 
 ###################################### Experiment Organization ######################################
-DIRECTORY_OF_ALL_RESULTS = '%sCVPR_prep/' % RBPF_HOME_DIRECTORY
-CUR_EXPERIMENT_BATCH_NAME = 'compare_proposals_kitti/'
+DIRECTORY_OF_ALL_RESULTS = '%sCVPR_prep_MOT16/' % RBPF_HOME_DIRECTORY
+CUR_EXPERIMENT_BATCH_NAME = 'compare_proposals/'
 
 ###################################### RBPF Parameters ######################################
 #Specify how the proposal distribution should be pruned
@@ -235,6 +237,24 @@ if __name__ == "__main__":
     launchpad = LaunchPad(host=MONGODB_HOST, port=MONGODB_PORT, name=MONGODB_NAME, username=MONGODB_USERNAME, password=MONGODB_PASSWORD,
                      logdir=None, strm_lvl='INFO', user_indices=None, wf_user_indices=None, ssl_ca_file=None)
     launchpad.reset('', require_password=False)
+           
+    #the number of training sequences (separate videos) for different datasets
+    training_seq_count = {\
+        'KITTI': 21,
+        '2DMOT2015': 11,
+        'MOT16': 7,
+        'MOT17': 7
+    }
+
+
+    data_set_name = 'MOT16'
+    obj_class = 'pedestrian'
+    data_path = '/atlas/u/jkuck/%s/kitti_format' % data_set_name
+    pickled_data_dir = "%s/learn_params1_pickled_data" % data_path
+
+    #data_set_name = 'KITTI'
+    #PICKELD_DATA_DIRECTORY = "%sKITTI_helpers/learn_params1_pickled_data" % RBPF_HOME_DIRECTORY
+    #DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
 
     include_ignored_gt=False
     include_dontcare_in_gt=False
@@ -304,7 +324,8 @@ if __name__ == "__main__":
 #             ('sequential', None, True),
 #             ('sequential', None, False)]:
 #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
-                for det_names in [['regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
+#                for det_names in [['regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
+                for det_names in [['single_det_src']]:
 #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
 #                for det_names in [['regionlets']]:
 #                        for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
@@ -324,6 +345,11 @@ if __name__ == "__main__":
                             for seq_idx in SEQUENCES_TO_PROCESS:
                                 cur_spec = \
                                 {'_dupefinder': {'_fw_name': 'DupeFinderExact'}, #enable duplicate cheking
+                                'obj_class': obj_class,
+                                'data_path': data_path,
+                                'pickled_data_dir': pickled_data_dir,
+                                'data_set_name': data_set_name,
+                                'training_seq_count': training_seq_count[data_set_name],
                                 'num_particles': num_particles,
                                 'include_ignored_gt': False,
                                 'include_dontcare_in_gt': False,
@@ -394,6 +420,7 @@ if __name__ == "__main__":
                                 #compute death probabilities for targets that have been unassociated
                                 #for up to death_prob_markov_order time instances, we will assume death probability is unchanged after
                                 #this number of time instances in our model                                
+                                #'death_prob_markov_order':2,
                                 'death_prob_markov_order':2,
                                 #if params.SPEC['proposal_distr'] == 'modified_SIS_exact'
                                 #we sample from this many of the most likely hypotheses

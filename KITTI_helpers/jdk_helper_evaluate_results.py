@@ -1051,9 +1051,9 @@ def eval_results(all_run_results, seq_idx_to_eval, SPEC=None, gt_path=None, use_
                     all_sequences_completed = False
             if all_sequences_completed:
                 if SPEC['train_test'] == 'generated_data':
-                    cur_run_metrics = evaluate(cur_run_results + "/", seq_idx_to_eval, gt_path=gt_path, corrected_version=use_corrected_eval) # + operator used for string concatenation!
+                    cur_run_metrics = evaluate(cur_run_results + "/", seq_idx_to_eval, gt_path=gt_path, corrected_version=use_corrected_eval, class_to_eval=SPEC['obj_class']) # + operator used for string concatenation!
                 else:
-                    cur_run_metrics = evaluate(cur_run_results + "/", seq_idx_to_eval, corrected_version=use_corrected_eval) # + operator used for string concatenation!
+                    cur_run_metrics = evaluate(cur_run_results + "/", seq_idx_to_eval, corrected_version=use_corrected_eval, class_to_eval=SPEC['obj_class']) # + operator used for string concatenation!
                 print cur_run_metrics
                 print 'hi'
                 orig_metrics_len = len(cur_run_metrics)
