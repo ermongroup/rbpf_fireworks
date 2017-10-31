@@ -136,9 +136,11 @@ def file_MOT_to_KITTI(mot_file, kitti_file, file_type):
                         (frame_idx, track_id, x1, y1, x2, y2, det_score))
         else:
             assert(file_type == 'ground_truth')
-#            det_score = float(fields[6])
-#            assert(det_score != 0)            
-            f_kitti.write( "%d %d Pedestrian -1 -1 -1 %f %f %f %f -1 -1 -1 -1 -1 -1 -1\n" % \
+            valid_pedestrian_gt = float(fields[6])
+            #0 is used to flag ground truth objects not used in the evaluation
+            #it looks like these objects include cars and other random stuff like signs and pieces of concrete
+            if(valid_pedestrian_gt != 0): 
+                f_kitti.write( "%d %d Pedestrian -1 -1 -1 %f %f %f %f -1 -1 -1 -1 -1 -1 -1\n" % \
                         (frame_idx, track_id, x1, y1, x2, y2))          
 
     f_mot.close()
@@ -146,9 +148,9 @@ def file_MOT_to_KITTI(mot_file, kitti_file, file_type):
 
 
 if __name__ == "__main__":
-    directories_MOT_to_KITTI(dir_loc = '/atlas/u/jkuck/MOT17', multi_det = True)
-    directories_MOT_to_KITTI(dir_loc = '/atlas/u/jkuck/MOT16', multi_det = False)
-    directories_MOT_to_KITTI(dir_loc = '/atlas/u/jkuck/2DMOT2015', multi_det = False)
+#    directories_MOT_to_KITTI(dir_loc = '/Users/jkuck/tracking_research/MOT17', multi_det = True)
+    directories_MOT_to_KITTI(dir_loc = '/Users/jkuck/tracking_research/MOT16', multi_det = False)
+#    directories_MOT_to_KITTI(dir_loc = '/Users/jkuck/tracking_research/2DMOT2015', multi_det = False)
     sleep(3)
 
 

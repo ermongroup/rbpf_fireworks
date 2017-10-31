@@ -34,8 +34,6 @@ SKIP_LEARNING_Q = True
 #Be careful!! If changing data representation, e.g. class gtObject, need to delete pickled data!!
 USE_PICKLED_DATA = True
 
-CAMERA_PIXEL_WIDTH = 1242
-CAMERA_PIXEL_HEIGHT = 375
 #########################################################################
 # function that does the evaluation
 # input:
@@ -87,7 +85,7 @@ class tData:
         return '\n'.join("%s: %s" % item for item in attrs.items())
 
 class gtObject:
-    def __init__(self, x1, x2, y1, y2, track_id):
+    def __init__(self, x1, x2, y1, y2, track_id, fw_spec):
         """
         Ground truth object (occurence of a ground truth track in a single frame)
 
@@ -121,7 +119,10 @@ class gtObject:
         #if this gtObject is associated with any detection
         self.associated_detection = None
 
-        if (x1 < 10 or x2 > CAMERA_PIXEL_WIDTH - 15 or y1 < 10 or y2 > CAMERA_PIXEL_HEIGHT - 15):
+
+        image_width = fw_spec['image_widths'][fw_spec['seq_idx']]
+        image_height = fw_spec['image_heights'][fw_spec['seq_idx']]
+        if (x1 < 10 or x2 > image_width - 15 or y1 < 10 or y2 > image_height - 15):
             self.near_border = True
         else:
             self.near_border = False
@@ -176,8 +177,9 @@ class trackingEvaluation(object):
              missed         - number of missed targets (FN)
     """
 
-    def __init__(self, data_path, cutoff_score, det_method, gt_path, min_overlap=0.5, max_truncation = 0.15, mail=None, cls="car"):
+    def __init__(self, fw_spec, data_path, cutoff_score, det_method, gt_path, min_overlap=0.5, max_truncation = 0.15, mail=None, cls="car"):
         #jdk parameters to learn
+        self.fw_spec = fw_spec
         self.data_path = data_path
         self.cutoff_score = cutoff_score
         self.clutter_count_list = []
@@ -686,7 +688,7 @@ class trackingEvaluation(object):
 
                 if include_ignored_gt and not include_ignored_detections:
                     for gg in g:
-                        gt_objects[-1][-1].append(gtObject(gg.x1, gg.x2, gg.y1, gg.y2, gg.track_id))
+                        gt_objects[-1][-1].append(gtObject(gg.x1, gg.x2, gg.y1, gg.y2, gg.track_id, self.fw_spec))
 
                     for row,col in association_matrix:
                         # apply gating on boxoverlap
@@ -703,7 +705,7 @@ class trackingEvaluation(object):
                 elif not include_ignored_gt and not include_ignored_detections:
                     for gg in g:
                         if(not gg.ignored):
-                            gt_objects[-1][-1].append(gtObject(gg.x1, gg.x2, gg.y1, gg.y2, gg.track_id))
+                            gt_objects[-1][-1].append(gtObject(gg.x1, gg.x2, gg.y1, gg.y2, gg.track_id, self.fw_spec))
 
                     for row,col in association_matrix:
                         # apply gating on boxoverlap
@@ -721,7 +723,7 @@ class trackingEvaluation(object):
 
                 elif include_ignored_gt and include_ignored_detections:
                     for gg in g:
-                        gt_objects[-1][-1].append(gtObject(gg.x1, gg.x2, gg.y1, gg.y2, gg.track_id))
+                        gt_objects[-1][-1].append(gtObject(gg.x1, gg.x2, gg.y1, gg.y2, gg.track_id, self.fw_spec))
 
                     for row,col in association_matrix:
                         # apply gating on boxoverlap
@@ -738,7 +740,7 @@ class trackingEvaluation(object):
                 elif not include_ignored_gt and include_ignored_detections:
                     for gg in g:
                         if(not gg.ignored):
-                            gt_objects[-1][-1].append(gtObject(gg.x1, gg.x2, gg.y1, gg.y2, gg.track_id))
+                            gt_objects[-1][-1].append(gtObject(gg.x1, gg.x2, gg.y1, gg.y2, gg.track_id, self.fw_spec))
 
                     for row,col in association_matrix:
                         # apply gating on boxoverlap
@@ -1051,7 +1053,7 @@ class trackingEvaluation(object):
         self.printSep()
         dump.close()
 
-def evaluate(data_path, pickled_data_dir, min_score, det_method,mail,obj_class = "car", include_ignored_gt = False, include_dontcare_in_gt = False, include_ignored_detections = True):
+def evaluate(fw_spec, data_path, pickled_data_dir, min_score, det_method,mail,obj_class = "car", include_ignored_gt = False, include_dontcare_in_gt = False, include_ignored_detections = True):
     """
     Output:
     - gt_objects: gt_objects[i][j] is a list of all ground truth objects in the jth frame of the ith video sequence
@@ -1087,7 +1089,7 @@ def evaluate(data_path, pickled_data_dir, min_score, det_method,mail,obj_class =
     mail.msg("Processing Result for KITTI Tracking Benchmark")
     classes = []
     assert(obj_class == "car" or obj_class == "pedestrian")
-    e = trackingEvaluation(data_path, min_score, det_method=det_method, 
+    e = trackingEvaluation(fw_spec, data_path, min_score, det_method=det_method, 
         gt_path=data_path + "/training_ground_truth", mail=mail,cls=obj_class)
     # load tracker data and check provided classes
     e.loadDetections()
@@ -2032,7 +2034,7 @@ def doctor_clutter_probabilities(all_clutter_probabilities):
         all_clutter_probabilities[i] += [.0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs), .0000001/float(20+num_zero_probs)]
 
 
-def get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequences, score_intervals, det_method="lsvm", doctor_clutter_probs=True, doctor_birth_probs=True,\
+def get_meas_target_set(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, score_intervals, det_method="lsvm", doctor_clutter_probs=True, doctor_birth_probs=True,\
     print_info=False, include_ignored_gt = False, include_dontcare_in_gt = False, include_ignored_detections = True):
     """
     Input:
@@ -2060,7 +2062,7 @@ def get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequenc
 
     mail = mailpy.Mail("")
 
-    (gt_objects, det_objects) = evaluate(data_path, pickled_data_dir, score_intervals[0], det_method,mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
+    (gt_objects, det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, score_intervals[0], det_method,mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
 
     measurementTargetSetsBySequence = []
@@ -2173,7 +2175,7 @@ def doctor_birth_probabilities(birth_probabilities):
                     cur_score_int_birth_probs[prob_idx] = .0000001/float(num_zero_probs)
 
 
-def get_meas_target_sets_lsvm_and_regionlets(obj_class, data_path, pickled_data_dir, training_sequences, regionlets_score_intervals, lsvm_score_intervals, \
+def get_meas_target_sets_lsvm_and_regionlets(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, regionlets_score_intervals, lsvm_score_intervals, \
     doctor_clutter_probs = True, doctor_birth_probs = True, include_ignored_gt = False, \
     include_dontcare_in_gt = False, include_ignored_detections = True):
     """
@@ -2184,13 +2186,13 @@ def get_meas_target_sets_lsvm_and_regionlets(obj_class, data_path, pickled_data_
 
     print "HELLO#1"
     (measurementTargetSetsBySequence_regionlets, target_emission_probs_regionlets, clutter_probabilities_regionlets, \
-        incorrect_birth_probabilities_regionlets, meas_noise_covs_regionlets) = get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequences, regionlets_score_intervals, \
+        incorrect_birth_probabilities_regionlets, meas_noise_covs_regionlets) = get_meas_target_set(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, regionlets_score_intervals, \
         "regionlets", doctor_clutter_probs=doctor_clutter_probs, doctor_birth_probs=doctor_birth_probs, include_ignored_gt=include_ignored_gt, \
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#2"
 
     (measurementTargetSetsBySequence_lsvm, target_emission_probs_lsvm, clutter_probabilities_lsvm, \
-        incorrect_birth_probabilities_lsvm, meas_noise_covs_lsvm) = get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequences, lsvm_score_intervals, \
+        incorrect_birth_probabilities_lsvm, meas_noise_covs_lsvm) = get_meas_target_set(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, lsvm_score_intervals, \
         "lsvm", doctor_clutter_probs=doctor_clutter_probs, doctor_birth_probs=doctor_birth_probs, include_ignored_gt=include_ignored_gt, \
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#3"
@@ -2210,12 +2212,12 @@ def get_meas_target_sets_lsvm_and_regionlets(obj_class, data_path, pickled_data_
     print "HELLO#5"
 
     mail = mailpy.Mail("") #this is silly and could be cleaned up
-    (gt_objects, regionlets_det_objects) = evaluate(data_path, pickled_data_dir, min_score=regionlets_score_intervals[0], \
+    (gt_objects, regionlets_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=regionlets_score_intervals[0], \
         det_method='regionlets', mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#6"
 
-    (gt_objects, lsvm_det_objects) = evaluate(data_path, pickled_data_dir, min_score=lsvm_score_intervals[0], \
+    (gt_objects, lsvm_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=lsvm_score_intervals[0], \
         det_method='lsvm', mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     multi_detections = MultiDetections(gt_objects, regionlets_det_objects, lsvm_det_objects, training_sequences)
@@ -2240,7 +2242,7 @@ def get_meas_target_sets_lsvm_and_regionlets(obj_class, data_path, pickled_data_
 
 
 
-def get_meas_target_sets_regionlets_general_format(obj_class, data_path, pickled_data_dir, training_sequences, regionlets_score_intervals, \
+def get_meas_target_sets_regionlets_general_format(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, regionlets_score_intervals, \
     doctor_clutter_probs = True, doctor_birth_probs = True, include_ignored_gt = False, \
     include_dontcare_in_gt = False, include_ignored_detections = True):
     """
@@ -2251,7 +2253,7 @@ def get_meas_target_sets_regionlets_general_format(obj_class, data_path, pickled
 
     print "HELLO#1"
     (measurementTargetSetsBySequence_regionlets, target_emission_probs_regionlets, clutter_probabilities_regionlets, \
-        incorrect_birth_probabilities_regionlets, meas_noise_covs_regionlets) = get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequences, regionlets_score_intervals, \
+        incorrect_birth_probabilities_regionlets, meas_noise_covs_regionlets) = get_meas_target_set(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, regionlets_score_intervals, \
         "regionlets", doctor_clutter_probs=doctor_clutter_probs, doctor_birth_probs=doctor_birth_probs, include_ignored_gt=include_ignored_gt, \
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#2"
@@ -2268,14 +2270,14 @@ def get_meas_target_sets_regionlets_general_format(obj_class, data_path, pickled
     print "HELLO#5"
 
     mail = mailpy.Mail("") #this is silly and could be cleaned up
-    (gt_objects, regionlets_det_objects) = evaluate(data_path, pickled_data_dir, min_score=regionlets_score_intervals[0], \
+    (gt_objects, regionlets_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=regionlets_score_intervals[0], \
         det_method='regionlets', mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#6"
 
 ########### CLEAN THIS UP BEGIN
 #    lsvm_score_intervals = [2] #arbitrary!
-#    (gt_objects, lsvm_det_objects) = evaluate(data_path, pickled_data_dir, min_score=lsvm_score_intervals[0], \
+#    (gt_objects, lsvm_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=lsvm_score_intervals[0], \
 #        det_method='lsvm', mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
 #        include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     multi_detections = MultiDetections(gt_objects, regionlets_det_objects, regionlets_det_objects, training_sequences)
@@ -2298,7 +2300,7 @@ def get_meas_target_sets_regionlets_general_format(obj_class, data_path, pickled
     return (returnTargSets, emission_probs, clutter_probs, birth_probabilities, meas_noise_covs, death_probs_near_border, death_probs_not_near_border)
 
 
-def get_meas_target_sets_mscnn_and_regionlets(obj_class, data_path, pickled_data_dir, training_sequences, mscnn_score_intervals, regionlets_score_intervals, \
+def get_meas_target_sets_mscnn_and_regionlets(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, mscnn_score_intervals, regionlets_score_intervals, \
     doctor_clutter_probs = True, doctor_birth_probs = True, include_ignored_gt = False, \
     include_dontcare_in_gt = False, include_ignored_detections = True):
     """
@@ -2309,13 +2311,13 @@ def get_meas_target_sets_mscnn_and_regionlets(obj_class, data_path, pickled_data
 
     print "HELLO#1"
     (measurementTargetSetsBySequence_mscnn, target_emission_probs_mscnn, clutter_probabilities_mscnn, \
-        incorrect_birth_probabilities_mscnn, meas_noise_covs_mscnn) = get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequences, mscnn_score_intervals, \
+        incorrect_birth_probabilities_mscnn, meas_noise_covs_mscnn) = get_meas_target_set(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, mscnn_score_intervals, \
         "mscnn", doctor_clutter_probs=doctor_clutter_probs, doctor_birth_probs=doctor_birth_probs, include_ignored_gt=include_ignored_gt, \
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#2"
 
     (measurementTargetSetsBySequence_regionlets, target_emission_probs_regionlets, clutter_probabilities_regionlets, \
-        incorrect_birth_probabilities_regionlets, meas_noise_covs_regionlets) = get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequences, regionlets_score_intervals, \
+        incorrect_birth_probabilities_regionlets, meas_noise_covs_regionlets) = get_meas_target_set(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, regionlets_score_intervals, \
         "regionlets", doctor_clutter_probs=doctor_clutter_probs, doctor_birth_probs=doctor_birth_probs, include_ignored_gt=include_ignored_gt, \
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#3"
@@ -2335,12 +2337,12 @@ def get_meas_target_sets_mscnn_and_regionlets(obj_class, data_path, pickled_data
     print "HELLO#5"
 
     mail = mailpy.Mail("") #this is silly and could be cleaned up
-    (gt_objects, mscnn_det_objects) = evaluate(data_path, pickled_data_dir, min_score=mscnn_score_intervals[0], \
+    (gt_objects, mscnn_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=mscnn_score_intervals[0], \
         det_method='mscnn', mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#6"
 
-    (gt_objects, regionlets_det_objects) = evaluate(data_path, pickled_data_dir, min_score=regionlets_score_intervals[0], \
+    (gt_objects, regionlets_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=regionlets_score_intervals[0], \
         det_method='regionlets', mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     multi_detections = MultiDetections(gt_objects, mscnn_det_objects, regionlets_det_objects, training_sequences)
@@ -2395,7 +2397,7 @@ def get_meas_target_sets_mscnn_and_regionlets(obj_class, data_path, pickled_data
     return (returnTargSets, emission_probs, clutter_probs, birth_probabilities, meas_noise_covs, death_probs_near_border, death_probs_not_near_border, joint_meas_noise_cov)
 
 
-def get_meas_target_sets_2sources_general(obj_class, data_path, pickled_data_dir, training_sequences, det1_score_intervals, det2_score_intervals, \
+def get_meas_target_sets_2sources_general(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, det1_score_intervals, det2_score_intervals, \
     det1_name, det2_name, doctor_clutter_probs = True, doctor_birth_probs = True, \
     include_ignored_gt = False, include_dontcare_in_gt = False, include_ignored_detections = True):
     """
@@ -2406,7 +2408,7 @@ def get_meas_target_sets_2sources_general(obj_class, data_path, pickled_data_dir
 
     print "HELLO#1"
     (measurementTargetSetsBySequence_det1, target_emission_probs_det1, clutter_probabilities_det1, \
-        incorrect_birth_probabilities_det1, meas_noise_covs_det1) = get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequences, det1_score_intervals, \
+        incorrect_birth_probabilities_det1, meas_noise_covs_det1) = get_meas_target_set(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, det1_score_intervals, \
         det1_name, doctor_clutter_probs=doctor_clutter_probs, doctor_birth_probs=doctor_birth_probs, include_ignored_gt=include_ignored_gt, \
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#2"
@@ -2414,7 +2416,7 @@ def get_meas_target_sets_2sources_general(obj_class, data_path, pickled_data_dir
     if det2_name:
         assert(det2_score_intervals != None)
         (measurementTargetSetsBySequence_det2, target_emission_probs_det2, clutter_probabilities_det2, \
-            incorrect_birth_probabilities_det2, meas_noise_covs_det2) = get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequences, det2_score_intervals, \
+            incorrect_birth_probabilities_det2, meas_noise_covs_det2) = get_meas_target_set(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, det2_score_intervals, \
             det2_name, doctor_clutter_probs=doctor_clutter_probs, doctor_birth_probs=doctor_birth_probs, include_ignored_gt=include_ignored_gt, \
             include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#3"
@@ -2444,13 +2446,13 @@ def get_meas_target_sets_2sources_general(obj_class, data_path, pickled_data_dir
     print "HELLO#5"
 
     mail = mailpy.Mail("") #this is silly and could be cleaned up
-    (gt_objects, det1_objects) = evaluate(data_path, pickled_data_dir, min_score=det1_score_intervals[0], \
+    (gt_objects, det1_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=det1_score_intervals[0], \
         det_method=det1_name, mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#6"
 
     if det2_name:
-        (gt_objects, det2_objects) = evaluate(data_path, pickled_data_dir, min_score=det2_score_intervals[0], \
+        (gt_objects, det2_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=det2_score_intervals[0], \
             det_method=det2_name, mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
             include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
         multi_detections = MultiDetections(gt_objects, det1_objects, det2_objects, training_sequences)
@@ -2506,7 +2508,7 @@ def get_meas_target_sets_2sources_general(obj_class, data_path, pickled_data_dir
     return (returnTargSets, emission_probs, clutter_probs, birth_probabilities, meas_noise_covs, death_probs_near_border, death_probs_not_near_border, joint_meas_noise_cov)
 
 
-def get_meas_target_sets_mscnn_general_format(obj_class, data_path, pickled_data_dir, training_sequences, mscnn_score_intervals, \
+def get_meas_target_sets_mscnn_general_format(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, mscnn_score_intervals, \
     doctor_clutter_probs = True, doctor_birth_probs = True, include_ignored_gt = False, \
     include_dontcare_in_gt = False, include_ignored_detections = True):
     """
@@ -2517,7 +2519,7 @@ def get_meas_target_sets_mscnn_general_format(obj_class, data_path, pickled_data
 
     print "HELLO#1"
     (measurementTargetSetsBySequence_mscnn, target_emission_probs_mscnn, clutter_probabilities_mscnn, \
-        incorrect_birth_probabilities_mscnn, meas_noise_covs_mscnn) = get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequences, mscnn_score_intervals, \
+        incorrect_birth_probabilities_mscnn, meas_noise_covs_mscnn) = get_meas_target_set(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, mscnn_score_intervals, \
         "mscnn", doctor_clutter_probs=doctor_clutter_probs, doctor_birth_probs=doctor_birth_probs, include_ignored_gt=include_ignored_gt, \
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#2"
@@ -2534,14 +2536,14 @@ def get_meas_target_sets_mscnn_general_format(obj_class, data_path, pickled_data
     print "HELLO#5"
 
     mail = mailpy.Mail("") #this is silly and could be cleaned up
-    (gt_objects, mscnn_det_objects) = evaluate(data_path, pickled_data_dir, min_score=mscnn_score_intervals[0], \
+    (gt_objects, mscnn_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=mscnn_score_intervals[0], \
         det_method='mscnn', mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#6"
 
 ########### CLEAN THIS UP BEGIN
 #    lsvm_score_intervals = [2] #arbitrary!
-#    (gt_objects, lsvm_det_objects) = evaluate(data_path, pickled_data_dir, min_score=lsvm_score_intervals[0], \
+#    (gt_objects, lsvm_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=lsvm_score_intervals[0], \
 #        det_method='lsvm', mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
 #        include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     multi_detections = MultiDetections(gt_objects, mscnn_det_objects, mscnn_det_objects, training_sequences)
@@ -2564,7 +2566,7 @@ def get_meas_target_sets_mscnn_general_format(obj_class, data_path, pickled_data
     return (returnTargSets, emission_probs, clutter_probs, birth_probabilities, meas_noise_covs, death_probs_near_border, death_probs_not_near_border)
 
 
-def get_meas_target_sets_1sources_general(obj_class, data_path, pickled_data_dir, training_sequences, det_score_intervals, det_name, \
+def get_meas_target_sets_1sources_general(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, det_score_intervals, det_name, \
     doctor_clutter_probs = True, doctor_birth_probs = True, include_ignored_gt = False, \
     include_dontcare_in_gt = False, include_ignored_detections = True):
     """
@@ -2575,7 +2577,7 @@ def get_meas_target_sets_1sources_general(obj_class, data_path, pickled_data_dir
 
     print "HELLO#1"
     (measurementTargetSetsBySequence, target_emission_probs, clutter_probabilities, \
-        incorrect_birth_probabilities, meas_noise_covs) = get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequences, det_score_intervals, \
+        incorrect_birth_probabilities, meas_noise_covs) = get_meas_target_set(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, det_score_intervals, \
         det_name, doctor_clutter_probs=doctor_clutter_probs, doctor_birth_probs=doctor_birth_probs, include_ignored_gt=include_ignored_gt, \
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#2"
@@ -2592,14 +2594,14 @@ def get_meas_target_sets_1sources_general(obj_class, data_path, pickled_data_dir
     print "HELLO#5"
 
     mail = mailpy.Mail("") #this is silly and could be cleaned up
-    (gt_objects, det_objects) = evaluate(data_path, pickled_data_dir, min_score=det_score_intervals[0], \
+    (gt_objects, det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=det_score_intervals[0], \
         det_method=det_name, mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
         include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     print "HELLO#6"
 
 ########### CLEAN THIS UP BEGIN
 #    lsvm_score_intervals = [2] #arbitrary!
-#    (gt_objects, lsvm_det_objects) = evaluate(data_path, pickled_data_dir, min_score=lsvm_score_intervals[0], \
+#    (gt_objects, lsvm_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=lsvm_score_intervals[0], \
 #        det_method='lsvm', mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
 #        include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
     multi_detections = MultiDetections(gt_objects, det_objects, det_objects, training_sequences)
@@ -3463,7 +3465,7 @@ def get_meas_target_sets_general(fw_spec, obj_class, data_path, pickled_data_dir
     for det_name in detection_names:
         print "getting measurement target set for", det_name, "detections"
         (cur_measurementTargetSetsBySequence, cur_target_emission_probs, cur_clutter_probabilities, \
-            junk_birth_probabilities, cur_meas_noise_covs) = get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequences, score_intervals[det_name], \
+            junk_birth_probabilities, cur_meas_noise_covs) = get_meas_target_set(fw_spec, obj_class, data_path, pickled_data_dir, training_sequences, score_intervals[det_name], \
             det_name, doctor_clutter_probs=doctor_clutter_probs, doctor_birth_probs=doctor_birth_probs, include_ignored_gt=include_ignored_gt, \
             include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)
         measurementTargetSetsBySequence[det_name] = cur_measurementTargetSetsBySequence
@@ -3492,7 +3494,7 @@ def get_meas_target_sets_general(fw_spec, obj_class, data_path, pickled_data_dir
     #dictionary where all_det_objects['det_name'] contains the detected objects of type 'det_name'
     all_det_objects = {}
     for det_name in detection_names:
-        (gt_objects, cur_det_objects) = evaluate(data_path, pickled_data_dir, min_score=score_intervals[det_name][0], \
+        (gt_objects, cur_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=score_intervals[det_name][0], \
             det_method=det_name, mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
             include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)        
         all_det_objects[det_name] = cur_det_objects
@@ -3824,18 +3826,15 @@ if __name__ == "__main__":
 
     mail = mailpy.Mail("")
 
-###########    score_intervals_lsvm = [i/2.0 for i in range(0, 10)]
-###########    score_intervals_regionlets = [i for i in range(2, 20)]
-############    score_intervals_lsvm = [0.0]
-############    score_intervals_regionlets = [2.0]
-#####  score_intervals = [2.0]
-#####  get_meas_target_set(obj_class, data_path, pickled_data_dir, training_sequences, score_intervals, det_method = det_method, doctor_clutter_probs = True,\
-#####                        print_info=True)
-#    training_sequences = [i for i in range(21)] #use all sequences for training
+    fw_spec = {
+        'image_widths': [1242 for i in range(21)],
+        'image_heights': [375 for i in range(21)],
+        'seq_idx': 0
+    }
 
     #### Check death probabilities #######
-    (gt_objects, lsvm_det_objects) = evaluate(data_path, pickled_data_dir, min_score=0.0, det_method='lsvm', mail=mail, obj_class="car")
-    (gt_objects, regionlets_det_objects) = evaluate(data_path, pickled_data_dir, min_score=2.0, det_method='regionlets', mail=mail, obj_class="car")
+    (gt_objects, lsvm_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=0.0, det_method='lsvm', mail=mail, obj_class="car")
+    (gt_objects, regionlets_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=2.0, det_method='regionlets', mail=mail, obj_class="car")
 #    multi_detections = MultiDetections(gt_objects, regionlets_det_objects, lsvm_det_objects, training_sequences)
     multi_detections = MultiDetections(gt_objects, regionlets_det_objects, regionlets_det_objects, training_sequences)
 #    multi_detections = MultiDetections(gt_objects, lsvm_det_objects, lsvm_det_objects, training_sequences)
@@ -3862,7 +3861,7 @@ if __name__ == "__main__":
     score_intervals = [2.0]
 
     #obj_class == "car" or obj_class == "pedestrian"
-    (gt_objects, det_objects) = evaluate(data_path, pickled_data_dir, score_intervals[0], det_method,mail, obj_class="car")
+    (gt_objects, det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, score_intervals[0], det_method,mail, obj_class="car")
     all_data = AllData(gt_objects, det_objects, training_sequences)
 ################
 ################    print "clutter probabilities, not conditioned on measurement count:"

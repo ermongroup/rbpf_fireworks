@@ -1213,7 +1213,7 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
         if(cur_death_prob == 1.0):
             cur_death_prob = .99999999999 #still getting an error with domain error, trying this
 
-        if(cur_death_prob == 0)
+        if(cur_death_prob == 0):
             cur_death_prob = 10**-100
             
         assert(p_target_does_not_emit > 0 and cur_death_prob > 0 and cur_death_prob < 1.0), (p_target_does_not_emit, cur_death_prob)
