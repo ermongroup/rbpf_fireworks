@@ -217,7 +217,7 @@ class Target:
 #           self.x = np.array([[position], [velocity]])
 #           self.P = P_default
 #       else:
-        assert(measurement != None)
+        assert(measurement.all() != None)
         self.x = np.array([[measurement[0]], [0], [measurement[1]], [0]])
         self.P = SPEC['P']
 
@@ -799,7 +799,7 @@ class TargetSet:
         return every_target
 
 
-    def write_online_results(self, online_results_filename, frame_idx, total_frame_count, extra_info):
+    def write_online_results(self, online_results_filename, frame_idx, total_frame_count, extra_info, fw_spec):
         """
         Inputs:
         - extra_info: dictionary containing the particle's importance weight (key 'importance_weight') 
@@ -825,12 +825,12 @@ class TargetSet:
                 right = x_pos + width/2.0
                 bottom = y_pos + height/2.0      
                 if SAVE_EXTRA_INFO:
-                    f.write( "%d %d Car -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                        (frame_idx, target.id_, left, top, right, bottom, extra_info['importance_weight'], \
+                    f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
+                        (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['importance_weight'], \
                         extra_info['first_time_as_max_imprt_part'], self.living_count))
                 else:
-                    f.write( "%d %d Car -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
-                        (frame_idx, target.id_, left, top, right, bottom))
+                    f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
+                        (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom))
 
         else:
             print self.living_targets_q
@@ -850,12 +850,12 @@ class TargetSet:
                 right = x_pos + width/2.0
                 bottom = y_pos + height/2.0      
                 if SAVE_EXTRA_INFO:
-                    f.write( "%d %d Car -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                        (frame_idx - SPEC['ONLINE_DELAY'], target.id_, left, top, right, bottom, extra_info['importance_weight'], \
+                    f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
+                        (frame_idx - SPEC['ONLINE_DELAY'], target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['importance_weight'], \
                         extra_info['first_time_as_max_imprt_part'], self.living_count))
                 else:
-                    f.write( "%d %d Car -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
-                        (frame_idx - SPEC['ONLINE_DELAY'], target.id_, left, top, right, bottom))
+                    f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
+                        (frame_idx - SPEC['ONLINE_DELAY'], target.id_, fw_spec['obj_class'], left, top, right, bottom))
 
             if frame_idx == total_frame_count - 1:
                 q_idx = 2
@@ -881,15 +881,15 @@ class TargetSet:
                         right = x_pos + width/2.0
                         bottom = y_pos + height/2.0      
                         if SAVE_EXTRA_INFO:
-                            f.write( "%d %d Car -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                                (cur_frame_idx, target.id_, left, top, right, bottom, extra_info['importance_weight'], \
+                            f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
+                                (cur_frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['importance_weight'], \
                                 extra_info['first_time_as_max_imprt_part'], self.living_count))
-                            print "%d %d Car -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                                (cur_frame_idx, target.id_, left, top, right, bottom, extra_info['importance_weight'], \
+                            print "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
+                                (cur_frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['importance_weight'], \
                                 extra_info['first_time_as_max_imprt_part'], self.living_count)
                         else:
-                            f.write( "%d %d Car -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
-                                (cur_frame_idx, target.id_, left, top, right, bottom))
+                            f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
+                                (cur_frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom))
 
                 print "&&&&&&&&&"
                 for target in self.living_targets:
@@ -904,19 +904,19 @@ class TargetSet:
                     right = x_pos + width/2.0
                     bottom = y_pos + height/2.0      
                     if SAVE_EXTRA_INFO:
-                        f.write( "%d %d Car -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                            (frame_idx, target.id_, left, top, right, bottom, extra_info['importance_weight'], \
+                        f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
+                            (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['importance_weight'], \
                             extra_info['first_time_as_max_imprt_part'], self.living_count))
-                        print  "%d %d Car -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                            (frame_idx, target.id_, left, top, right, bottom, extra_info['importance_weight'], \
+                        print  "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
+                            (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['importance_weight'], \
                             extra_info['first_time_as_max_imprt_part'], self.living_count)
                     else:
-                        f.write( "%d %d Car -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
-                            (frame_idx, target.id_, left, top, right, bottom))
+                        f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
+                            (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom))
 
 
 
-    def write_targets_to_KITTI_format(self, num_frames, results_filename, plot_filename):
+    def write_targets_to_KITTI_format(self, num_frames, results_filename, plot_filename, fw_spec):
         x_locations_all_targets = defaultdict(list)
         y_locations_all_targets = defaultdict(list)
         if USE_GENERATED_DATA:
@@ -938,8 +938,8 @@ class TargetSet:
                         top = y_pos - height/2.0
                         right = x_pos + width/2.0
                         bottom = y_pos + height/2.0      
-                        f.write( "%d %d Car -1 -1 2.57 %d %d %d %d -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
-                            (frame_idx, target.id_, left, top, right, bottom))
+                        f.write( "%d %d %s -1 -1 2.57 %d %d %d %d -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
+                            (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom))
 
                         x_locations_all_targets[target.id_].append(x_pos)
                         y_locations_all_targets[target.id_].append(y_pos)
@@ -961,8 +961,8 @@ class TargetSet:
                         top = y_pos - height/2.0
                         right = x_pos + width/2.0
                         bottom = y_pos + height/2.0      
-                        f.write( "%d %d Car -1 -1 2.57 %d %d %d %d -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
-                            (frame_idx, target.id_, left, top, right, bottom))
+                        f.write( "%d %d %s -1 -1 2.57 %d %d %d %d -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
+                            (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom))
 
                         x_locations_all_targets[target.id_].append(x_pos)
                         y_locations_all_targets[target.id_].append(y_pos)
@@ -2071,7 +2071,7 @@ def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths,
 
 
 
-def run_rbpf_on_targetset(target_sets, online_results_filename, params):
+def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec):
     """
     Measurement class designed to only have 1 measurement/time instance
     Input:
@@ -2335,7 +2335,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params):
                 print "time_stamp =", time_stamp
                 print "frm_idx =", frm_idx
                 cur_max_weight_target_set.write_online_results(online_results_filename, frm_idx, number_time_instances,
-                                            extra_info)
+                                            extra_info, fw_spec)
 
             if time_instance_index >= SPEC['ONLINE_DELAY']:
                 prv_max_weight_particle = cur_max_weight_particle
@@ -2977,20 +2977,19 @@ class RunRBPF(FireTaskBase):
             if USE_GENERATED_DATA:
                 meas_target_set = gen_data(measurements_filename)
                 if PROFILE: 
-                    cProfile.run('run_rbpf_on_targetset([meas_target_set], results_filename, params)')
+                    cProfile.run('run_rbpf_on_targetset([meas_target_set], results_filename, params, fw_spec)')
                 else:
 
                     (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes, invalid_low_prob_sample_count) = \
-                    run_rbpf_on_targetset([meas_target_set], results_filename, params)
+                    run_rbpf_on_targetset([meas_target_set], results_filename, params, fw_spec)
             else:       
                 if PROFILE:
-                    cProfile.runctx('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)',
+                    cProfile.runctx('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec)',
                         {'sequenceMeasurementTargetSet': sequenceMeasurementTargetSet,
-                        'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset}, {})
-#                    cProfile.run('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)')
+                        'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset, 'fw_spec':fw_spec}, {})
                 else:
                     (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes, invalid_low_prob_sample_count) = \
-                    run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params)
+                    run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec)
             print "done processing sequence: ", seq_idx
             
             tB = time.time()
@@ -3009,7 +3008,7 @@ class RunRBPF(FireTaskBase):
 
             if not SPEC['RUN_ONLINE']:
                 estimated_ts.write_targets_to_KITTI_format(num_frames = n_frames[seq_idx], results_filename = results_filename,\
-                                                           plot_filename = plot_filename)
+                                                           plot_filename = plot_filename, fw_spec = fw_spec)
             print "done write results"
             print "running the rbpf took %f seconds" % (tB-tA)
             
