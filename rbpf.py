@@ -146,9 +146,6 @@ USE_PYTHON_GAUSSIAN = False
 CACHED_LIKELIHOODS = 0
 NOT_CACHED_LIKELIHOODS = 0
 
-p_clutter_likelihood = 1.0/float(1242*375)
-p_birth_likelihood = 1.0/float(1242*375)
-
 #measurement function matrix
 H = np.array([[1.0,  0.0, 0.0, 0.0],
               [0.0,  0.0, 1.0, 0.0]])   
@@ -172,8 +169,7 @@ max_vel = 1.0
 #to be associated with each other when calculating MOTA and MOTP
 MAX_ASSOCIATION_DIST = 1
 
-CAMERA_PIXEL_WIDTH = 1242
-CAMERA_PIXEL_HEIGHT = 375
+
 
 def get_score_index(score_intervals, score):
     """
@@ -210,7 +206,7 @@ def get_cmap(N):
 
 
 class Target:
-    def __init__(self, cur_time, id_, measurement = None, width=-1, height=-1):
+    def __init__(self, fw_spec, cur_time, id_, measurement = None, width=-1, height=-1):
 #       if measurement is None: #for data generation
 #           position = np.random.uniform(min_pos,max_pos)
 #           velocity = np.random.uniform(min_vel,max_vel)
@@ -245,13 +241,19 @@ class Target:
         #used when SPEC['UPDATE_MULT_MEAS_SIMUL'] = True
         self.associated_measurements = []
 
+        self.image_width = fw_spec['image_widths'][fw_spec['seq_idx']]
+        self.image_height = fw_spec['image_heights'][fw_spec['seq_idx']]
+
+        
+        
+
     def near_border(self):
         near_border = False
         x1 = self.x[0][0] - self.width/2.0
         x2 = self.x[0][0] + self.width/2.0
         y1 = self.x[2][0] - self.height/2.0
         y2 = self.x[2][0] + self.height/2.0
-        if(x1 < 10 or x2 > (CAMERA_PIXEL_WIDTH - 15) or y1 < 10 or y2 > (CAMERA_PIXEL_HEIGHT - 15)):
+        if(x1 < 10 or x2 > (self.image_width - 15) or y1 < 10 or y2 > (self.image_height - 15)):
             near_border = True
         return near_border
 
@@ -563,8 +565,8 @@ class Target:
         y1 = self.x[2][0] - self.height/2.0
         y2 = self.x[2][0] + self.height/2.0
 
-        if(x2<0 or x1>=CAMERA_PIXEL_WIDTH or \
-           y2<0 or y1>=CAMERA_PIXEL_HEIGHT):
+        if(x2<0 or x1>=self.image_width or \
+           y2<0 or y1>=self.image_height):
 #           print '!'*40, "TARGET IS OFFSCREEN", '!'*40
             self.offscreen = True
             if USE_GENERATED_DATA:
@@ -684,7 +686,7 @@ class TargetSet:
     Contains ground truth states for all targets.  Also contains all generated measurements.
     """
 
-    def __init__(self):
+    def __init__(self, fw_spec):
         #list of type Target containing targets currently alive
         self.living_targets = []
         self.all_targets = [] #alive and dead targets
@@ -697,8 +699,10 @@ class TargetSet:
 
         self.living_targets_q = deque([-1 for i in range(SPEC['ONLINE_DELAY']+1)])
 
+        self.fw_spec = fw_spec
+
     def create_child(self):
-        child_target_set = TargetSet()
+        child_target_set = TargetSet(self.fw_spec)
         child_target_set.parent_target_set = self
         child_target_set.total_count = self.total_count
         child_target_set.living_count = self.living_count
@@ -711,10 +715,10 @@ class TargetSet:
     def create_new_target(self, measurement, width, height, cur_time):
         if SPEC['RUN_ONLINE']:
             global NEXT_TARGET_ID
-            new_target = Target(cur_time, NEXT_TARGET_ID, np.squeeze(measurement), width, height)
+            new_target = Target(self.fw_spec, cur_time, NEXT_TARGET_ID, np.squeeze(measurement), width, height)
             NEXT_TARGET_ID += 1
         else:
-            new_target = Target(cur_time, self.total_count, np.squeeze(measurement), width, height)
+            new_target = Target(self.fw_spec, cur_time, self.total_count, np.squeeze(measurement), width, height)
         self.living_targets.append(new_target)
         self.all_targets.append(new_target)
         self.living_count += 1
@@ -813,6 +817,8 @@ class TargetSet:
             f = open(online_results_filename, "a") #write at end of file
 
         if SPEC['ONLINE_DELAY'] == 0:
+            print "fw_spec['obj_class']:", fw_spec['obj_class']
+
             for target in self.living_targets:
                 assert(target.all_time_stamps[-1] == round(frame_idx*DEFAULT_TIME_STEP, 2)), (target.all_time_stamps[-1], round(frame_idx*DEFAULT_TIME_STEP, 2))
                 x_pos = target.all_states[-1][0][0][0]
@@ -992,10 +998,10 @@ class TargetSet:
 
 
 class Particle:
-    def __init__(self, id_):
+    def __init__(self, id_, fw_spec):
         #Targets tracked by this particle
-        self.targets = TargetSet()
-
+        self.targets = TargetSet(fw_spec)
+        self.fw_spec = fw_spec
         #all_measurement_associations[i] will be a list of measurement associations on time step i.
         #all_dead_targets[i] will be a list of all targets killed on time step i.
         #these two lists uniquely identifies the state of this particle and are used for determining whether
@@ -1031,7 +1037,7 @@ class Particle:
 
     def create_child(self):
         global NEXT_PARTICLE_ID
-        child_particle = Particle(NEXT_PARTICLE_ID)
+        child_particle = Particle(NEXT_PARTICLE_ID, self.fw_spec)
         NEXT_PARTICLE_ID += 1
         child_particle.parent_particle = self #this might hurt memory with real data
         child_particle.importance_weight = self.importance_weight
@@ -2086,7 +2092,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec)
     global NEXT_PARTICLE_ID
     #Create the particle set
     for i in range(0, N_PARTICLES):
-        particle_set.append(Particle(NEXT_PARTICLE_ID))
+        particle_set.append(Particle(NEXT_PARTICLE_ID, fw_spec))
         NEXT_PARTICLE_ID += 1
     prev_time_stamp = -1
 
@@ -2396,29 +2402,6 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec)
     return (max_weight_target_set, run_info, number_resamplings, incorrect_max_weight_particle_count, number_time_instances, invalid_low_prob_sample_count)
 
 
-def test_read_write_data_KITTI(target_set):
-    """
-    Measurement class designed to only have 1 measurement/time instance
-    Input:
-    - target_set: generated TargetSet containing generated measurements and ground truth
-    Output:
-    - max_weight_target_set: TargetSet from a (could be multiple with equal weight) maximum
-        importance weight particle after processing all measurements
-    """
-    output_target_set = TargetSet()
-
-    for measurement_set in target_set.measurements:
-        time_stamp = measurement_set.time
-        measurements = measurement_set.val
-        widths = measurement_set.widths
-        heights = measurement_set.heights
-
-        for i in range(len(measurements)):
-            output_target_set.create_new_target(measurements[i], widths[i], heights[i], time_stamp)
-
-    return output_target_set
-
-
 
 def convert_to_clearmetrics_dictionary(target_set, all_time_stamps):
     """
@@ -2690,6 +2673,8 @@ class RunRBPF(FireTaskBase):
         global SPEC
         SPEC = fw_spec
 
+        print "fw_spec['obj_class']:", fw_spec['obj_class']
+
         print "SPEC:"
         print SPEC
         
@@ -2841,7 +2826,10 @@ class RunRBPF(FireTaskBase):
                     '3dop' : [float(i)*.1 for i in range(2,10)],            
                     'mono3d' : [float(i)*.1 for i in range(2,10)],            
                     'mv3d' : [float(i)*.1 for i in range(2,10)],
-                    'single_det_src': [float(i)*.1 for i in range(10)]}        
+                    'single_det_src': [float(i)*.1 for i in range(10)],
+                    'DPM': [float(i)*.1 for i in range(10)], 
+                    'FRCNN': [float(i)*.1 for i in range(10)], 
+                    'SDP': [float(i)*.1 for i in range(10)]}        
     #            'regionlets' = [i for i in range(2, 16)]
             else:
                 score_interval_dict_all_det = {\
@@ -2851,7 +2839,10 @@ class RunRBPF(FireTaskBase):
                 '3dop' : [.2],
                 'mono3d' : [.2],
                 'mv3d' : [.2],
-                'single_det_src': [0]}
+                'single_det_src': [0],
+                'DPM': [0], 
+                'FRCNN': [0], 
+                'SDP': [0]}
 
 
             if SPEC['train_test'] == 'train':
@@ -2869,6 +2860,8 @@ class RunRBPF(FireTaskBase):
             for det_name in det_names:
                 print det_name
                 SCORE_INTERVALS.append(score_interval_dict_all_det[det_name])
+            p_clutter_likelihood = 1.0/float(fw_spec['image_widths'][fw_spec['seq_idx']]*fw_spec['image_heights'][fw_spec['seq_idx']])
+            p_birth_likelihood = 1.0/float(fw_spec['image_widths'][fw_spec['seq_idx']]*fw_spec['image_heights'][fw_spec['seq_idx']])
 
             if use_general_num_dets:
                 #dictionary of score intervals for only detection sources we are using
@@ -2906,7 +2899,7 @@ class RunRBPF(FireTaskBase):
                     det2_score_intervals = score_interval_dict_all_det[det2_name]
                     (measurementTargetSetsBySequence, TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES, BIRTH_PROBABILITIES,\
                         MEAS_NOISE_COVS, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES, JOINT_MEAS_NOISE_COV) = \
-                            get_meas_target_sets_2sources_general(fw_spec['obj_class'], fw_spec['data_path'], fw_spec['pickled_data_dir'], training_sequences, det1_score_intervals, \
+                            get_meas_target_sets_2sources_general(fw_spec, fw_spec['obj_class'], fw_spec['data_path'], fw_spec['pickled_data_dir'], training_sequences, det1_score_intervals, \
                             det2_score_intervals, det1_name, det2_name, obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
                             include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
                             include_ignored_detections = include_ignored_detections)
@@ -2914,7 +2907,7 @@ class RunRBPF(FireTaskBase):
                 else:
                     (measurementTargetSetsBySequence, TARGET_EMISSION_PROBS, CLUTTER_PROBABILITIES, BIRTH_PROBABILITIES,\
                         MEAS_NOISE_COVS, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES) = \
-                            get_meas_target_sets_1sources_general(fw_spec['obj_class'], fw_spec['data_path'], fw_spec['pickled_data_dir'], training_sequences, det1_score_intervals, \
+                            get_meas_target_sets_1sources_general(fw_spec, fw_spec['obj_class'], fw_spec['data_path'], fw_spec['pickled_data_dir'], training_sequences, det1_score_intervals, \
                             det1_name, obj_class = "car", doctor_clutter_probs = True, doctor_birth_probs = True,\
                             include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
                             include_ignored_detections = include_ignored_detections)            

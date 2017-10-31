@@ -71,9 +71,9 @@ from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 
 #local:
-#from fireworks.core.rocket_launcher import rapidfire
+from fireworks.core.rocket_launcher import rapidfire
 #remote:
-from fireworks.queue.queue_launcher import rapidfire
+#from fireworks.queue.queue_launcher import rapidfire
 
 from fireworks.user_objects.queue_adapters.common_adapter import CommonAdapter
 from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
@@ -98,19 +98,21 @@ from generate_data import GenData
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
 #SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
-#SEQUENCES_TO_PROCESS = [4,5,6]
-SEQUENCES_TO_PROCESS = [0,1,2,3,4,5,6]
+SEQUENCES_TO_PROCESS = [4]
+#SEQUENCES_TO_PROCESS = [0,1,2,3,4,5,6]
 #SEQUENCES_TO_PROCESS = [0,2,3,4,5,6,10]
 #SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [11]
 #SEQUENCES_TO_PROCESS = [13,14,15]
 #SEQUENCES_TO_PROCESS = [7]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
-#NUM_PARTICLES_TO_TEST = [5, 10, 20]
-NUM_PARTICLES_TO_TEST = [2, 20, 50, 100]#[5, 20, 80, 240, 960]
+NUM_PARTICLES_TO_TEST = [2]
+#NUM_PARTICLES_TO_TEST = [2, 20, 50, 100]#[5, 20, 80, 240, 960]
 
 ###################################### Experiment Organization ######################################
-DIRECTORY_OF_ALL_RESULTS = '%sCVPR_prep_MOT16/' % RBPF_HOME_DIRECTORY
+DATA_SET_NAME = 'MOT17'
+DIRECTORY_OF_ALL_RESULTS = '%sCVPR_prep_%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
+#DIRECTORY_OF_ALL_RESULTS = '%sCVPR_prep/' % RBPF_HOME_DIRECTORY
 CUR_EXPERIMENT_BATCH_NAME = 'compare_proposals/'
 
 ###################################### RBPF Parameters ######################################
@@ -238,6 +240,8 @@ if __name__ == "__main__":
                      logdir=None, strm_lvl='INFO', user_indices=None, wf_user_indices=None, ssl_ca_file=None)
     launchpad.reset('', require_password=False)
            
+    train_test = 'train'
+
     #the number of training sequences (separate videos) for different datasets
     training_seq_count = {\
         'KITTI': 21,
@@ -246,15 +250,47 @@ if __name__ == "__main__":
         'MOT17': 7
     }
 
+    #the number of test sequences (separate videos) for different datasets
+    test_seq_count = {\
+        'KITTI': 29,
+        '2DMOT2015': 11,
+        'MOT16': 7,
+        'MOT17': 7
+    }
 
-    data_set_name = 'MOT16'
-    obj_class = 'pedestrian'
-    data_path = '/atlas/u/jkuck/%s/kitti_format' % data_set_name
-    pickled_data_dir = "%s/learn_params1_pickled_data" % data_path
+    if DATA_SET_NAME == 'MOT16':
+        obj_class = 'pedestrian'
+        data_path = '/Users/jkuck/tracking_research/%s/kitti_format' % DATA_SET_NAME
+        pickled_data_dir = "%s/learn_params1_pickled_data" % data_path
+        #list of image widths (in pixels) by sequence
+        image_widths = [1920, 1920, 640, 1920, 1920, 1920, 1920]
+        #list of camera pixel heights by sequence
+        image_heights = [1080, 1080, 480, 1080, 1080, 1080, 1080]
+        det_sets_to_run = [['single_det_src']]
 
-    #data_set_name = 'KITTI'
-    #PICKELD_DATA_DIRECTORY = "%sKITTI_helpers/learn_params1_pickled_data" % RBPF_HOME_DIRECTORY
-    #DATA_PATH = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
+    if DATA_SET_NAME == 'MOT17':
+        obj_class = 'pedestrian'
+        data_path = '/Users/jkuck/tracking_research/%s/kitti_format' % DATA_SET_NAME
+        pickled_data_dir = "%s/learn_params1_pickled_data" % data_path
+        #list of image widths (in pixels) by sequence
+        image_widths = [1920, 1920, 640, 1920, 1920, 1920, 1920]
+        #list of camera pixel heights by sequence
+        image_heights = [1080, 1080, 480, 1080, 1080, 1080, 1080]
+        det_sets_to_run = [['DPM', 'FRCNN', 'SDP']]
+
+    #DATA_SET_NAME = 'KITTI'
+    elif DATA_SET_NAME == 'KITTI':
+        obj_class = 'car'
+        pickled_data_dir = "%sKITTI_helpers/learn_params1_pickled_data" % RBPF_HOME_DIRECTORY
+        data_path = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
+        #lists of image heights and widths (in pixels) by sequence
+        if train_test == 'train':
+            image_widths = [1242 for i in range(training_seq_count['KITTI'])]
+            image_heights = [375 for i in range(training_seq_count['KITTI'])]
+        else:
+            assert(train_test == 'test')
+            image_widths = [1242 for i in range(test_seq_count['KITTI'])]
+            image_heights = [375 for i in range(test_seq_count['KITTI'])]
 
     include_ignored_gt=False
     include_dontcare_in_gt=False
@@ -263,7 +299,6 @@ if __name__ == "__main__":
     all_fireworks = []
     firework_dependencies = {}
 
-    train_test = 'train'
     targ_meas_assoc_metric = 'distance'
     online_delay = 0
     birth_clutter_likelihood = 'aprox1'
@@ -286,7 +321,8 @@ if __name__ == "__main__":
         for online_delay in [0]:
 #            for (proposal_distr) in ['modified_SIS_w_replacement_unique']:
             #for proposal_distr in ['modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
-            for proposal_distr in ['min_cost', 'sequential', 'modified_SIS_w_replacement']:
+            for proposal_distr in ['min_cost']:
+#            for proposal_distr in ['min_cost', 'sequential', 'modified_SIS_w_replacement']:
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0)]:#, ('modified_SIS_gumbel', 1)]:
 #            for (proposal_distr, gumbel_scale) in [('modified_SIS_gumbel', 0), ('modified_SIS_gumbel', .25), \
 #            ('modified_SIS_gumbel', 1), ('modified_SIS_gumbel', 4)]:
@@ -325,7 +361,8 @@ if __name__ == "__main__":
 #             ('sequential', None, False)]:
 #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
 #                for det_names in [['regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
-                for det_names in [['single_det_src']]:
+                for det_names in det_sets_to_run:
+#                for det_names in [['regionlets']]:
 #                for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
 #                for det_names in [['regionlets']]:
 #                        for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
@@ -348,8 +385,10 @@ if __name__ == "__main__":
                                 'obj_class': obj_class,
                                 'data_path': data_path,
                                 'pickled_data_dir': pickled_data_dir,
-                                'data_set_name': data_set_name,
-                                'training_seq_count': training_seq_count[data_set_name],
+                                'DATA_SET_NAME': DATA_SET_NAME,
+                                'image_widths': image_widths,
+                                'image_heights': image_heights,
+                                'training_seq_count': training_seq_count[DATA_SET_NAME],
                                 'num_particles': num_particles,
                                 'include_ignored_gt': False,
                                 'include_dontcare_in_gt': False,
@@ -421,7 +460,7 @@ if __name__ == "__main__":
                                 #for up to death_prob_markov_order time instances, we will assume death probability is unchanged after
                                 #this number of time instances in our model                                
                                 #'death_prob_markov_order':2,
-                                'death_prob_markov_order':2,
+                                'death_prob_markov_order':3,
                                 #if params.SPEC['proposal_distr'] == 'modified_SIS_exact'
                                 #we sample from this many of the most likely hypotheses
                                 #this number should be large enough that we never draw a sample
@@ -467,14 +506,14 @@ if __name__ == "__main__":
     # store workflow and launch it
     workflow = Workflow(all_fireworks, firework_dependencies)
     #local
-    #launchpad.add_wf(workflow)
-    #rapidfire(launchpad, FWorker())
-    #remote
     launchpad.add_wf(workflow)
-    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
-    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
-                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
-                  fill_mode=False)
+    rapidfire(launchpad, FWorker())
+    #remote
+    #launchpad.add_wf(workflow)
+    #qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
+    #rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
+    #              njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
+    #              fill_mode=False)
 
 
 
