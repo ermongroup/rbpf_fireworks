@@ -421,7 +421,10 @@ if __name__ == "__main__":
                                                              '3dop':.5,
                                                              'mono3d':.5,
                                                              'mv3d':.5,
-                                                             'regionlets':.5},
+                                                             'regionlets':.5,
+                                                             'DPM':.5, 
+                                                             'FRCNN':.5, 
+                                                             'SDP':.5},
                                 #'distance' or 'box_overlap', metric used when computing min cost measurment
                                 #target association assignment                             
                                 'targ_meas_assoc_metric': targ_meas_assoc_metric,
@@ -442,6 +445,9 @@ if __name__ == "__main__":
                                     'det_grouping_min_overlap_3dop': [.5, 0, 1],
                                     'det_grouping_min_overlap_mono3d': [.5, 0, 1],
                                     'det_grouping_min_overlap_mv3d': [.5, 0, 1],
+                                    'det_grouping_min_overlap_DPM':[.5, 0, 1],
+                                    'det_grouping_min_overlap_FRCNN':[.5, 0, 1],
+                                    'det_grouping_min_overlap_SDP':[.5, 0, 1],                                    
                                     'det_grouping_min_overlap_regionlets': [.5, 0, 1],
                                     'target_detection_max_dists_0': [15, 1.4],
                                     'target_detection_max_dists_1': [50, 1.4],
