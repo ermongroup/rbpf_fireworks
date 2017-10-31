@@ -1958,7 +1958,11 @@ class AllData:
                                                  self.gt_objects[seq_idx][frame_idx][gt_idx].associated_detection.y])
                             meas_errors.append(meas_pos - gt_pos)
 
-        assert(len(meas_errors) != 0), ("There are no associated detections in the score range [%f,%f)" % (min_score, max_score))
+#        assert(len(meas_errors) != 0), ("There are no associated detections in the score range [%f,%f)" % (min_score, max_score))
+        if(len(meas_errors) == 0): #increase score range if we have no detections in given range
+            print "There are no associated detections in the score range [%f,%f), increasing score range for get_R" % (min_score, max_score)
+            score_range_width = max_score - min_score
+            return self.get_R_score_range(min_score - score_range_width/2.0, max_score + score_range_width/2.0)
 
         meas_noise_cov = np.cov(np.asarray(meas_errors).T)
         meas_noise_mean = np.mean(np.asarray(meas_errors), 0)

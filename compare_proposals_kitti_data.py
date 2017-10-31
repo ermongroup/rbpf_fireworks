@@ -71,9 +71,9 @@ from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 
 #local:
-from fireworks.core.rocket_launcher import rapidfire
+#from fireworks.core.rocket_launcher import rapidfire
 #remote:
-#from fireworks.queue.queue_launcher import rapidfire
+from fireworks.queue.queue_launcher import rapidfire
 
 from fireworks.user_objects.queue_adapters.common_adapter import CommonAdapter
 from fw_tutorials.dynamic_wf.fibadd_task import FibonacciAdderTask
@@ -98,16 +98,16 @@ from generate_data import GenData
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
 #SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
-SEQUENCES_TO_PROCESS = [4]
-#SEQUENCES_TO_PROCESS = [0,1,2,3,4,5,6]
+#SEQUENCES_TO_PROCESS = [4]
+SEQUENCES_TO_PROCESS = [0,1,2,3,4,5,6]
 #SEQUENCES_TO_PROCESS = [0,2,3,4,5,6,10]
 #SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [11]
 #SEQUENCES_TO_PROCESS = [13,14,15]
 #SEQUENCES_TO_PROCESS = [7]
 #NUM_PARTICLES_TO_TEST = [20, 50, 125]
-NUM_PARTICLES_TO_TEST = [2]
-#NUM_PARTICLES_TO_TEST = [2, 20, 50, 100]#[5, 20, 80, 240, 960]
+#NUM_PARTICLES_TO_TEST = [2]
+NUM_PARTICLES_TO_TEST = [2, 20, 50, 100]#[5, 20, 80, 240, 960]
 
 ###################################### Experiment Organization ######################################
 DATA_SET_NAME = 'MOT17'
@@ -260,7 +260,7 @@ if __name__ == "__main__":
 
     if DATA_SET_NAME == 'MOT16':
         obj_class = 'pedestrian'
-        data_path = '/Users/jkuck/tracking_research/%s/kitti_format' % DATA_SET_NAME
+        data_path = '/atlas/u/jkuck/%s/kitti_format' % DATA_SET_NAME
         pickled_data_dir = "%s/learn_params1_pickled_data" % data_path
         #list of image widths (in pixels) by sequence
         image_widths = [1920, 1920, 640, 1920, 1920, 1920, 1920]
@@ -270,7 +270,7 @@ if __name__ == "__main__":
 
     if DATA_SET_NAME == 'MOT17':
         obj_class = 'pedestrian'
-        data_path = '/Users/jkuck/tracking_research/%s/kitti_format' % DATA_SET_NAME
+        data_path = '/atlas/u/jkuck/%s/kitti_format' % DATA_SET_NAME
         pickled_data_dir = "%s/learn_params1_pickled_data" % data_path
         #list of image widths (in pixels) by sequence
         image_widths = [1920, 1920, 640, 1920, 1920, 1920, 1920]
@@ -421,7 +421,10 @@ if __name__ == "__main__":
                                                              '3dop':.5,
                                                              'mono3d':.5,
                                                              'mv3d':.5,
-                                                             'regionlets':.5},
+                                                             'regionlets':.5,
+                                                             'DPM':.5, 
+                                                             'FRCNN':.5, 
+                                                             'SDP':.5},
                                 #'distance' or 'box_overlap', metric used when computing min cost measurment
                                 #target association assignment                             
                                 'targ_meas_assoc_metric': targ_meas_assoc_metric,
@@ -442,6 +445,9 @@ if __name__ == "__main__":
                                     'det_grouping_min_overlap_3dop': [.5, 0, 1],
                                     'det_grouping_min_overlap_mono3d': [.5, 0, 1],
                                     'det_grouping_min_overlap_mv3d': [.5, 0, 1],
+                                    'det_grouping_min_overlap_DPM':[.5, 0, 1],
+                                    'det_grouping_min_overlap_FRCNN':[.5, 0, 1],
+                                    'det_grouping_min_overlap_SDP':[.5, 0, 1],                                    
                                     'det_grouping_min_overlap_regionlets': [.5, 0, 1],
                                     'target_detection_max_dists_0': [15, 1.4],
                                     'target_detection_max_dists_1': [50, 1.4],
@@ -506,14 +512,14 @@ if __name__ == "__main__":
     # store workflow and launch it
     workflow = Workflow(all_fireworks, firework_dependencies)
     #local
-    launchpad.add_wf(workflow)
-    rapidfire(launchpad, FWorker())
-    #remote
     #launchpad.add_wf(workflow)
-    #qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
-    #rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
-    #              njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
-    #              fill_mode=False)
+    #rapidfire(launchpad, FWorker())
+    #remote
+    launchpad.add_wf(workflow)
+    qadapter = CommonAdapter.from_file("%sfireworks_files/my_qadapter.yaml" % RBPF_HOME_DIRECTORY)
+    rapidfire(launchpad, FWorker(), qadapter, launch_dir='.', nlaunches='infinite', njobs_queue=81,
+                  njobs_block=500, sleep_time=None, reserve=False, strm_lvl='INFO', timeout=None,
+                  fill_mode=False)
 
 
 
