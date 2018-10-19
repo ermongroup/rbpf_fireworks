@@ -1,4 +1,7 @@
+from __future__ import division
+
 import numpy as np
+import tensorflow as tf
 from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 #from fireworks.core.firework import FiretaskBase
@@ -6,6 +9,7 @@ from fireworks.core.firework import FWAction, FireTaskBase
 #from filterpy.common import Q_discrete_white_noise
 from filterpy.monte_carlo import stratified_resample
 import filterpy
+from pymatgen.optimization import linear_assignment
 
 #import matplotlib
 #matplotlib.use('Agg')
@@ -31,8 +35,12 @@ from collections import deque
 from collections import defaultdict
 from sets import ImmutableSet
 
+sys.path.insert(0, '/atlas/u/jkuck/gumbel_sample_permanent')
+from nestingUB_gumbel_sample_permanent import sample_log_permanent_with_gumbels
+
 from cluster_config import RBPF_HOME_DIRECTORY
 sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
+import mailpy
 from learn_params1 import get_meas_target_set
 from learn_params1 import get_meas_target_sets_lsvm_and_regionlets
 from learn_params1 import get_meas_target_sets_regionlets_general_format
@@ -40,13 +48,16 @@ from learn_params1 import get_meas_target_sets_mscnn_general_format
 from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
 from learn_params1 import get_meas_target_sets_2sources_general
 from learn_params1 import get_meas_target_sets_1sources_general
-
 from learn_params1 import get_meas_target_sets_general
 #from learn_params1_local import get_meas_target_sets_general
+from learn_params1 import evaluate
 
 sys.path.insert(0, "%ssampling" % RBPF_HOME_DIRECTORY)
 from sample_wo_replacement import calc_prop_prob
 
+sys.path.insert(0, "%scondition_priors" % RBPF_HOME_DIRECTORY)
+from test_tf_sess import load_emmision_prior_model
+from deep_target_emission_priors import get_deepsort_feature_arrays
 
 from get_test_targetSets import get_meas_target_sets_test
 from generate_data import KITTI_detection_file_to_TargetSet
@@ -71,11 +82,14 @@ from rbpf_sampling_manyMeasSrcs import get_immutable_set_meas_names
 from rbpf_sampling_manyMeasSrcs import conditional_birth_clutter_distribution
 from rbpf_sampling_manyMeasSrcs import nCr
 from rbpf_sampling_manyMeasSrcs import construct_log_probs_matrix3
+from rbpf_sampling_manyMeasSrcs import construct_log_probs_matrix4
 from rbpf_sampling_manyMeasSrcs import convert_assignment_matrix3
 from rbpf_sampling_manyMeasSrcs import convert_assignment_pairs_to_matrix3
 
 sys.path.insert(0, "%smht_helpers" % RBPF_HOME_DIRECTORY)
 from k_best_assign_birth_clutter_death_matrix import k_best_assign_mult_cost_matrices
+
+
 #from k_best_assignment import k_best_assign_mult_cost_matrices
 #from run_experiment import DIRECTORY_OF_ALL_RESULTS
 #from run_experiment import CUR_EXPERIMENT_BATCH_NAME
@@ -126,16 +140,16 @@ FIND_MAX_IMPRT_TIMES_LIKELIHOOD = False
 #if true only update a target with at most one measurement
 #(i.e. not regionlets and then lsvm)
 
-RESAMPLE_RATIO = 4.0 #resample when get_eff_num_particles < N_PARTICLES/RESAMPLE_RATIO
+RESAMPLE_RATIO = 2.0 #resample when get_eff_num_particles < N_PARTICLES/RESAMPLE_RATIO
 
 DEBUG = False
 #print stuff for debugging, etc
 PRINT_INFO = False
 
-#if True, save the current max importance weight, whether this is the particles first time as
-#the max importance weight particle, and the number of living targets along with every
+#if True, save the MAP particle weight, whether this is the particles first time as
+#the max importance weight particle (this might be meaningless, check details), and the number of living targets along with every
 #line of the results file
-SAVE_EXTRA_INFO = False
+SAVE_EXTRA_INFO = True
 
 #(if False bug, using R_default instead of S, check SPEC['USE_CONSTANT_R']
 #I'm pretty sure this is actually FIXED, but check out some time)
@@ -206,7 +220,7 @@ def get_cmap(N):
 
 
 class Target:
-    def __init__(self, fw_spec, cur_time, id_, measurement = None, width=-1, height=-1):
+    def __init__(self, fw_spec, cur_time, id_, measurement = None, width=-1, height=-1, img_features=None):
 #       if measurement is None: #for data generation
 #           position = np.random.uniform(min_pos,max_pos)
 #           velocity = np.random.uniform(min_vel,max_vel)
@@ -244,8 +258,12 @@ class Target:
         self.image_width = fw_spec['image_widths'][fw_spec['seq_idx']]
         self.image_height = fw_spec['image_heights'][fw_spec['seq_idx']]
 
+        #features extracted from the image bounding box around this target
+        self.img_features = img_features
         
-        
+        #used if SPEC['proposal_distr'] == 'ground_truth_assoc'
+        #track_id of the gt_object this target was last associated with
+        self.last_gt_assoc = None
 
     def near_border(self):
         near_border = False
@@ -349,14 +367,23 @@ class Target:
         self.last_measurement_association = cur_time        
 
 
-    def update(self, measurement, width, height, cur_time, meas_noise_cov):
+    def update(self, measurement, width, height, cur_time, meas_noise_cov, img_features=None,\
+        meas_assoc_gt_obj_id=None):
         """ Perform update step and replace predicted position for the current time step
         with the updated position in self.all_states
         Input:
         - measurement: the measurement (numpy array)
         - cur_time: time when the measurement was taken (float)
+        - meas_assoc_gt_obj_id: 
+            - when SPEC['proposal_distr'] == 'ground_truth_assoc':
+                the track_id of the ground truth object this measurement is 
+                associated with, or -1 if the measurement is clutter
+            - when SPEC['proposal_distr'] != 'ground_truth_assoc': None
+
 !!!!!!!!!PREDICTION HAS BEEN RUN AT THE BEGINNING OF TIME STEP FOR EVERY TARGET!!!!!!!!!
         """        
+        self.img_features = img_features
+        self.last_gt_assoc = meas_assoc_gt_obj_id
         reformat_meas = np.array([[measurement[0]],
                                   [measurement[1]]])
         assert(self.x.shape == (4, 1))
@@ -712,13 +739,23 @@ class TargetSet:
         child_target_set.living_targets_q = copy.deepcopy(self.living_targets_q)
         return child_target_set
 
-    def create_new_target(self, measurement, width, height, cur_time):
+    def create_new_target(self, measurement, width, height, cur_time, img_features, meas_assoc_gt_obj_id):
+        '''
+
+        Inputs:
+        - meas_assoc_gt_obj_id: 
+            - when SPEC['proposal_distr'] == 'ground_truth_assoc':
+                the track_id of the ground truth object this measurement is 
+                associated with, or -1 if the measurement is clutter
+            - when SPEC['proposal_distr'] != 'ground_truth_assoc': None
+        '''
         if SPEC['RUN_ONLINE']:
             global NEXT_TARGET_ID
-            new_target = Target(self.fw_spec, cur_time, NEXT_TARGET_ID, np.squeeze(measurement), width, height)
+            new_target = Target(self.fw_spec, cur_time, NEXT_TARGET_ID, np.squeeze(measurement), width, height, img_features=img_features)
             NEXT_TARGET_ID += 1
         else:
-            new_target = Target(self.fw_spec, cur_time, self.total_count, np.squeeze(measurement), width, height)
+            new_target = Target(self.fw_spec, cur_time, self.total_count, np.squeeze(measurement), width, height, img_features=img_features)
+        new_target.last_gt_assoc = meas_assoc_gt_obj_id
         self.living_targets.append(new_target)
         self.all_targets.append(new_target)
         self.living_count += 1
@@ -832,8 +869,8 @@ class TargetSet:
                 bottom = y_pos + height/2.0      
                 if SAVE_EXTRA_INFO:
                     f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                        (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['importance_weight'], \
-                        extra_info['first_time_as_max_imprt_part'], self.living_count))
+                        (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['MAP_particle_prob'], \
+                        extra_info['first_time_as_max_imprt_part'], extra_info['sampled_meas_targ_assoc_idx']))
                 else:
                     f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
                         (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom))
@@ -857,8 +894,8 @@ class TargetSet:
                 bottom = y_pos + height/2.0      
                 if SAVE_EXTRA_INFO:
                     f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                        (frame_idx - SPEC['ONLINE_DELAY'], target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['importance_weight'], \
-                        extra_info['first_time_as_max_imprt_part'], self.living_count))
+                        (frame_idx - SPEC['ONLINE_DELAY'], target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['MAP_particle_prob'], \
+                        extra_info['first_time_as_max_imprt_part'], extra_info['sampled_meas_targ_assoc_idx']))
                 else:
                     f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
                         (frame_idx - SPEC['ONLINE_DELAY'], target.id_, fw_spec['obj_class'], left, top, right, bottom))
@@ -888,11 +925,11 @@ class TargetSet:
                         bottom = y_pos + height/2.0      
                         if SAVE_EXTRA_INFO:
                             f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                                (cur_frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['importance_weight'], \
-                                extra_info['first_time_as_max_imprt_part'], self.living_count))
+                                (cur_frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['MAP_particle_prob'], \
+                                extra_info['first_time_as_max_imprt_part'], extra_info['sampled_meas_targ_assoc_idx']))
                             print "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                                (cur_frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['importance_weight'], \
-                                extra_info['first_time_as_max_imprt_part'], self.living_count)
+                                (cur_frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['MAP_particle_prob'], \
+                                extra_info['first_time_as_max_imprt_part'], extra_info['sampled_meas_targ_assoc_idx'])
                         else:
                             f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
                                 (cur_frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom))
@@ -911,11 +948,11 @@ class TargetSet:
                     bottom = y_pos + height/2.0      
                     if SAVE_EXTRA_INFO:
                         f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                            (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['importance_weight'], \
-                            extra_info['first_time_as_max_imprt_part'], self.living_count))
+                            (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['MAP_particle_prob'], \
+                            extra_info['first_time_as_max_imprt_part'], extra_info['sampled_meas_targ_assoc_idx']))
                         print  "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1 %f %s %d\n" % \
-                            (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['importance_weight'], \
-                            extra_info['first_time_as_max_imprt_part'], self.living_count)
+                            (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom, extra_info['MAP_particle_prob'], \
+                            extra_info['first_time_as_max_imprt_part'], extra_info['sampled_meas_targ_assoc_idx'])
                     else:
                         f.write( "%d %d %s -1 -1 2.57 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 1\n" % \
                             (frame_idx, target.id_, fw_spec['obj_class'], left, top, right, bottom))
@@ -1013,7 +1050,8 @@ class Particle:
         self.importance_weight = 1.0/N_PARTICLES
 
         #for debuging
-        self.exact_probability = -1
+        self.exact_log_probability = 0
+        self.cur_conditional_log_prob = -1
         self.proposal_probability = -1
         #end for debugging
 
@@ -1035,6 +1073,9 @@ class Particle:
         #bool for debugging, indicating maximum importance weight from previous time instance
         self.max_importance_weight = False 
 
+        self.sampled_meas_targ_assoc_idx = -99 #garbage value
+
+
     def create_child(self):
         global NEXT_PARTICLE_ID
         child_particle = Particle(NEXT_PARTICLE_ID, self.fw_spec)
@@ -1046,8 +1087,9 @@ class Particle:
         child_particle.all_dead_targets = copy.deepcopy(self.all_dead_targets)
         return child_particle
 
-    def create_new_target(self, measurement, width, height, cur_time):
-        self.targets.create_new_target(measurement, width, height, cur_time)
+    def create_new_target(self, measurement, width, height, cur_time, img_features, meas_assoc_gt_obj_id):
+        self.targets.create_new_target(measurement, width, height, cur_time,img_features=img_features,\
+            meas_assoc_gt_obj_id=meas_assoc_gt_obj_id)
 
     def update_target_death_probabilities(self, cur_time, prev_time):
         for target in self.targets.living_targets:
@@ -1061,19 +1103,27 @@ class Particle:
         print "sampled association c = ", self.c_debug, "importance reweighting factor = ", self.imprt_re_weight_debug
         self.plot_all_target_locations()
 
-    def process_meas_grp_assoc(self, birth_value, measurement_association, meas_grp_mean, meas_grp_cov, cur_time):
+    def process_meas_grp_assoc(self, birth_value, measurement_association, meas_grp_mean, meas_grp_cov, cur_time, \
+                               img_features=None, meas_assoc_gt_obj_id=None):
         """
         - meas_source_index: the index of the measurement source being processed (i.e. in SCORE_INTERVALS)
+        - meas_assoc_gt_obj_id: 
+            - when SPEC['proposal_distr'] == 'ground_truth_assoc':
+                the track_id of the ground truth object this measurement is 
+                associated with, or -1 if the measurement is clutter
+            - when SPEC['proposal_distr'] != 'ground_truth_assoc': None
 
         """
         #create new target
         if(measurement_association == birth_value):
-            self.create_new_target(meas_grp_mean[0:2], meas_grp_mean[2], meas_grp_mean[3], cur_time)
+            self.create_new_target(meas_grp_mean[0:2], meas_grp_mean[2], meas_grp_mean[3], cur_time, \
+                img_features=img_features, meas_assoc_gt_obj_id=meas_assoc_gt_obj_id)
             new_target = True 
         #update the target corresponding to the association we have sampled
         elif((measurement_association >= 0) and (measurement_association < birth_value)):
             self.targets.living_targets[measurement_association].update(meas_grp_mean[0:2], meas_grp_mean[2], \
-                            meas_grp_mean[3], cur_time, meas_grp_cov[0:2, 0:2])
+                            meas_grp_mean[3], cur_time, meas_grp_cov[0:2, 0:2], img_features=img_features,\
+                            meas_assoc_gt_obj_id=meas_assoc_gt_obj_id)
         else:
             #otherwise the measurement was associated with clutter
             assert(measurement_association == -1), ("measurement_association = ", measurement_association)
@@ -1149,11 +1199,13 @@ class Particle:
 
 
         if SPEC['use_general_num_dets'] == True:
-            (meas_grp_associations, meas_grp_means, meas_grp_covs, dead_target_indices, imprt_re_weight, exact_probability, proposal_probability) = \
+            (meas_grp_associations, meas_grp_means, meas_grp_covs, meas_grp_img_feats, dead_target_indices, imprt_re_weight, exact_log_probability, proposal_probability, meas_assoc_gt_obj_ids, sampled_meas_targ_assoc_idx) = \
             sample_and_reweight(self, measurement_lists,  widths, heights, SPEC['det_names'], \
                 cur_time, measurement_scores, params)
+            self.sampled_meas_targ_assoc_idx = sampled_meas_targ_assoc_idx
             #debug
-#            self.exact_probability = exact_probability
+            self.exact_log_probability += exact_log_probability
+            self.cur_conditional_log_prob = exact_log_probability
 #            self.proposal_probability = proposal_probability
             #end debug
 
@@ -1167,8 +1219,20 @@ class Particle:
             else:
                 self.importance_weight *= imprt_re_weight #update particle's importance weight            
             assert(len(meas_grp_associations) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
+            if meas_assoc_gt_obj_ids != None:            
+                assert(len(meas_grp_associations) == len(meas_assoc_gt_obj_ids))
             for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
-                self.process_meas_grp_assoc(birth_value, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx], cur_time)
+                cur_meas_assoc_gt_obj_id = None
+                if meas_assoc_gt_obj_ids != None:
+                    cur_meas_assoc_gt_obj_id = meas_assoc_gt_obj_ids[meas_grp_idx]
+
+                if params.SPEC['condition_emission_prior_img_feat']:
+                    self.process_meas_grp_assoc(birth_value, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx], \
+                                            cur_time, img_features=meas_grp_img_feats[meas_grp_idx], meas_assoc_gt_obj_id=cur_meas_assoc_gt_obj_id)
+                else:
+                    self.process_meas_grp_assoc(birth_value, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx], \
+                                            cur_time, img_features=None, meas_assoc_gt_obj_id=cur_meas_assoc_gt_obj_id)
+
         else:
             (measurement_associations, dead_target_indices, imprt_re_weight) = \
                 sample_and_reweight(self, measurement_lists, \
@@ -1248,7 +1312,7 @@ def normalize_importance_weights(particle_set):
         imp_weight_sum += particle.importance_weight
         print particle.importance_weight,
     print        
-    assert(np.abs(imp_weight_sum - 1.0) > .0001), (normalization_constant, SPEC['normalize_log_importance_weights'], 'normalize_importance_weights called when weights appear normalized')
+    assert(np.abs(imp_weight_sum - 1.0) > .0001), (SPEC['normalize_log_importance_weights'], 'normalize_importance_weights called when weights appear normalized')
     #####end debugging#########
 
 
@@ -1817,6 +1881,21 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         assignment_log_prob = np.trace(np.dot(log_prob_matrices[cur_particle_idx], cur_assignment_matrix.T))
         if params.SPEC['proposal_distr'] == 'modified_SIS_gumbel':
             new_particle.importance_weight = assignment_log_prob - particle_neg_log_probs[cur_particle_idx] #log prob
+            if math.isnan(new_particle.importance_weight):
+                print np.isnan(log_prob_matrices[cur_particle_idx]).any()
+                random_number = np.random.random()
+                matrix_file_name = './inspect_matrices%f' % random_number
+                print "saving matrices in %s" % matrix_file_name
+                f = open(matrix_file_name, 'w')
+                pickle.dump((log_prob_matrices[cur_particle_idx], cur_assignment_matrix.T), f)
+                f.close()                  
+
+            if np.isnan(log_prob_matrices[cur_particle_idx]).any():
+                for ii in range(log_prob_matrices[cur_particle_idx].shape[0]):
+                    for jj in range(log_prob_matrices[cur_particle_idx].shape[1]):
+                        if np.isnan(log_prob_matrices[cur_particle_idx][ii][jj]):
+                            print "isnan at location:", ii, jj
+            assert(not math.isnan(new_particle.importance_weight)), (assignment_log_prob, particle_neg_log_probs[cur_particle_idx], log_prob_matrices[cur_particle_idx], cur_assignment_matrix.T)
 
 
         elif params.SPEC['proposal_distr'] == 'modified_SIS_wo_replacement_approx':
@@ -1891,10 +1970,117 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         num_targets_killed = len(dead_target_indices)
         assert(new_particle.targets.living_count == original_num_targets + num_targets_born - num_targets_killed)
         #done checking if something funny is happening
+
         new_particle_set.append(new_particle)
         assert(new_particle.parent_particle != None)
 
     return (new_particle_set, invalid_low_prob_sample_count)
+
+def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_time, params):
+    '''
+    perform exact sampling without replacement using upper bounds on the permanent
+    '''
+    #housekeeping, should make this nicer somehow
+    meas_groups = []
+    for det_idx, det_name in enumerate(SPEC['det_names']):
+        group_detections(meas_groups, det_name, measurement_lists[det_idx], widths[det_idx], heights[det_idx], params)
+
+    M = len(meas_groups) #number of measurement groups
+    #now that we have estimates of p(x_1:k-1|y_1:k-1), perform modified SIS step
+    particle_group_log_probs = {}
+#    for idx in range(N_PARTICLES): 
+
+    invalid_low_prob_sample_count = 0 
+
+    zero_assignments = [] #particle group(s) exist with zero targets and we have zero measurements
+    for particle in particle_set:
+        assert(particle.importance_weight == 1.0/N_PARTICLES)
+        T = len(particle.targets.living_targets)
+        print "T =", T
+        assert(T == particle.targets.living_count)
+        #should clean this up
+        p_target_deaths = []
+        for target in particle.targets.living_targets:
+            p_target_deaths.append(target.death_prob)
+            assert(p_target_deaths[len(p_target_deaths) - 1] >= 0 and p_target_deaths[len(p_target_deaths) - 1] <= 1)
+
+
+        (cur_log_probs, conditional_birth_probs, conditional_death_probs) = construct_log_probs_matrix4(particle, meas_groups, T, p_target_deaths, params)
+        assert((cur_log_probs <= .000001).all()), (cur_log_probs)
+
+        if cur_log_probs.shape[0] > 0:
+            (sampled_association, sample_of_logZ, cur_permanentUB) = sample_log_permanent_with_gumbels(matrix=np.exp(cur_log_probs), clear_caches_new_matrix=True)
+        else:
+            sampled_association = []
+
+        meas_grp_associations = []
+        dead_target_indices = []
+        sampled_association.sort() #sort by m_indices 
+        print "M =", M
+        print "T =", T
+        print "sampled_association:", sampled_association
+        for assoc_idx, (m_idx, t_idx) in enumerate(sampled_association):
+            assert(assoc_idx == m_idx), (sampled_association, assoc_idx, m_idx, t_idx)
+            if m_idx < M and t_idx < T: #measurement-target association
+                meas_grp_associations.append(t_idx)
+            elif m_idx < M and t_idx >= T: #measurement is clutter or birth
+                assert(t_idx < M+T)
+                birth_prob = conditional_birth_probs[m_idx]
+                print 'birth_prob =', birth_prob
+                if np.random.rand() < birth_prob:
+                    meas_grp_associations.append(T) #sampled birth
+                else:
+                    meas_grp_associations.append(-1) #sampled clutter
+            elif m_idx >= M and t_idx < T: #target is unnassociated
+                assert(m_idx < M+T)
+                print "unnassociated target:", t_idx
+                death_prob = conditional_death_probs[t_idx]
+                if np.random.rand() < death_prob:
+                    dead_target_indices.append(t_idx) #sampled target dies
+            else:
+                assert(t_idx >= T and t_idx < M+T and m_idx >= M and m_idx < M+T)
+                #dummy variable to dummy variable assignment, don't need to do anything
+        dead_target_indices.sort()
+
+    ############ MESSY ############
+        #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+        #of the position of meas_groups[i]
+        meas_grp_covs = []   
+        meas_grp_means2D = []
+        meas_grp_means = []
+        for (index, detection_group) in enumerate(meas_groups):
+            (combined_meas_mean, combined_covariance) = combine_4d_detections(params.posAndSize_inv_covariance_blocks, 
+                                params.meas_noise_mean, detection_group)
+            combined_meas_pos = combined_meas_mean[0:2]
+            meas_grp_means2D.append(combined_meas_pos)
+            meas_grp_means.append(combined_meas_mean)
+            meas_grp_covs.append(combined_covariance)
+    ############ END MESSY ############
+
+
+        particle.all_measurement_associations.append(meas_grp_associations)
+        particle.all_dead_targets.append(dead_target_indices)  
+        assert(len(meas_grp_associations) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
+        for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
+            particle.process_meas_grp_assoc(T, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx], cur_time)
+
+        #process target deaths
+        #double check dead_target_indices is sorted
+        assert(all([dead_target_indices[i] <= dead_target_indices[i+1] for i in xrange(len(dead_target_indices)-1)])), dead_target_indices
+        #important to delete larger indices first to preserve values of the remaining indices
+        for index in reversed(dead_target_indices):
+            particle.targets.kill_target(index)
+
+        #checking if something funny is happening
+        original_num_targets = T
+        num_targets_born = 0
+        num_targets_born = meas_grp_associations.count(T)
+        num_targets_killed = len(dead_target_indices)
+        assert(particle.targets.living_count == original_num_targets + num_targets_born - num_targets_killed)
+        #done checking if something funny is happening
+
+    return (particle_set, invalid_low_prob_sample_count)
+
 
 
 def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths, heights, cur_time, params):
@@ -2077,12 +2263,13 @@ def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths,
 
 
 
-def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec):
+def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec, filename=None):
     """
     Measurement class designed to only have 1 measurement/time instance
     Input:
     - target_sets: a list where target_sets[i] is a TargetSet containing measurements from
         the ith measurement source
+    - filename: (string) filename to write run info to
     Output:
     - max_weight_target_set: TargetSet from a (could be multiple with equal weight) maximum
         importance weight particle after processing all measurements
@@ -2104,6 +2291,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec)
     iter = 0 # for plotting only occasionally
     number_resamplings = 0
 
+    online_conditional_log_probability_sum = 0
     #debugging, checking how serious a bug was
     incorrect_max_weight_particle_count = 0
 
@@ -2187,7 +2375,9 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec)
         new_target_list = [] #for debugging, list of booleans whether each particle created a new target
         pIdxDebugInfo = 0
 
-        if params.SPEC['proposal_distr'] in ['modified_SIS_gumbel', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
+        if params.SPEC['proposal_distr'] in ['exact_sampling']:
+            (particle_set, cur_invalid_low_prob_sample_count) = exact_sampling_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
+        elif params.SPEC['proposal_distr'] in ['modified_SIS_gumbel', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
             (particle_set, cur_invalid_low_prob_sample_count) = modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
             invalid_low_prob_sample_count += cur_invalid_low_prob_sample_count
 #            particle_set = modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
@@ -2202,7 +2392,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec)
                 new_target_list.append(new_target)
                 pIdxDebugInfo += 1
 
-        if not params.SPEC['proposal_distr'] in ['modified_SIS_exact','modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
+        if not params.SPEC['proposal_distr'] in ['modified_SIS_exact','modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique', 'exact_sampling']:
             print "about to normalize importance weights"
             #Using MHT sampling without replacement, we care about importance weights, normalize so they don't get too small            
             normalize_importance_weights(particle_set)
@@ -2253,10 +2443,13 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec)
 
 
                 (particle_group_probs, particle_groups) = group_particles(particle_set, SPEC['ONLINE_DELAY'], SPEC['ONLINE_DELAY'])
+                print '#'*80
+                print len(particle_groups), 'particle_groups'
 
                 MAP_particle_key = None
                 MAP_particle_prob = -1
                 for key, prob in particle_group_probs.iteritems():
+                    print len(particle_groups[key].targets.living_targets), 'living targets in particle with probability', prob
                     if prob > MAP_particle_prob:
                         MAP_particle_prob = prob
                         MAP_particle_key = key
@@ -2270,7 +2463,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec)
                 #Really, this is the MAP particle group, would be better to change names after checking severity of previous problem
                 cur_max_weight_particle = MAP_particle
                 cur_max_weight_target_set = cur_max_weight_particle.targets
-
+                online_conditional_log_probability_sum += cur_max_weight_particle.cur_conditional_log_prob
 
 
             if params.SPEC['proposal_distr'] in ['modified_SIS_gumbel', 'modified_SIS_min_cost', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
@@ -2336,7 +2529,9 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec)
             #write current time step's results to results file
             if time_instance_index >= SPEC['ONLINE_DELAY']:
                 extra_info = {'importance_weight': max_imprt_weight,
-                          'first_time_as_max_imprt_part': prv_max_weight_particle != cur_max_weight_particle}
+                          'first_time_as_max_imprt_part': prv_max_weight_particle != cur_max_weight_particle,
+                          'MAP_particle_prob': MAP_particle_prob,
+                          'sampled_meas_targ_assoc_idx': MAP_particle.sampled_meas_targ_assoc_idx}
                 frm_idx = int(round(time_stamp/DEFAULT_TIME_STEP))
                 print "time_stamp =", time_stamp
                 print "frm_idx =", frm_idx
@@ -2395,8 +2590,14 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec)
 
     run_info = [number_resamplings]
 
+    stdout = sys.stdout
+    sys.stdout = open(filename, 'a')
     print "Using the max_weight importance weight we would have made mistakes on", incorrect_max_weight_particle_count,\
         "out of", number_time_instances, "time instances"
+    print "log probability of final MAP particle=", cur_max_weight_particle.exact_log_probability
+    print "sum of online MAP particle log probabilities =", online_conditional_log_probability_sum
+    sys.stdout.close()
+    sys.stdout = stdout
 
 
     return (max_weight_target_set, run_info, number_resamplings, incorrect_max_weight_particle_count, number_time_instances, invalid_low_prob_sample_count)
@@ -2569,9 +2770,13 @@ def match_target_ids(particle1_targets, particle2_targets):
         cost_matrix=[[]]
 
     # associate
-    association_matrix = hm.compute(cost_matrix)
+#    lin_assign = linear_assignment.LinearAssignment(cost_matrix)
+#    solution = lin_assign.solution
+#    association_list = zip([i for i in range(len(solution))], solution)    
+    association_list = hm.compute(cost_matrix)
+
     associations = {}
-    for row,col in association_matrix:
+    for row,col in association_list:
         c = cost_matrix[row][col]
         if c < max_cost:
             associations[particle1_targets[row].id_] = particle2_targets[col].id_
@@ -2822,6 +3027,7 @@ class RunRBPF(FireTaskBase):
             if sort_dets_on_intervals:
                 score_interval_dict_all_det = {\
                     'mscnn' : [float(i)*.1 for i in range(3,10)],              
+                    'subcnn' : [float(i)*.1 for i in range(3,10)],              
                     'regionlets' : [i for i in range(2, 20)],
                     '3dop' : [float(i)*.1 for i in range(2,10)],            
                     'mono3d' : [float(i)*.1 for i in range(2,10)],            
@@ -2835,6 +3041,7 @@ class RunRBPF(FireTaskBase):
                 score_interval_dict_all_det = {\
     #            'mscnn' = [.5],                                
                 'mscnn' : [.3],
+                'subcnn' : [.3],
                 'regionlets' : [2],
                 '3dop' : [.2],
                 'mono3d' : [.2],
@@ -2855,6 +3062,19 @@ class RunRBPF(FireTaskBase):
                 assert(SPEC['train_test'] == 'generated_data')
                 training_sequences = [i for i in range(21)]
     
+            def get_gt_objects(fw_spec):
+                '''
+                call evaluate to get gt_objects, where gt_objects[i][j] is a list of gtObjects in frame j of sequence i  
+                '''
+                mail = mailpy.Mail("") #this is silly and could be cleaned up
+            
+                (gt_objects, cur_det_objects) = evaluate(fw_spec, fw_spec['data_path'], fw_spec['pickled_data_dir'], min_score=0, \
+                            det_method='DPM', mail=mail, obj_class=fw_spec['obj_class'], include_ignored_gt=False,\
+                            include_dontcare_in_gt=False, include_ignored_detections=True)
+                return gt_objects
+
+            if SPEC['proposal_distr'] == 'ground_truth_assoc':
+                SPEC['gt_obects'] = get_gt_objects(SPEC)
 
             SCORE_INTERVALS = []
             for det_name in det_names:
@@ -2919,8 +3139,8 @@ class RunRBPF(FireTaskBase):
                          SPEC['K_NEAREST_TARGETS'], SPEC['scale_prior_by_meas_orderings'], SPEC)
 
             if SPEC['train_test'] == 'test':
-                measurementTargetSetsBySequence = get_meas_target_sets_test(SCORE_INTERVALS_DET_USED, det_names, \
-                                                                            obj_class = "car")
+                measurementTargetSetsBySequence = get_meas_target_sets_test(fw_spec['data_path'], SCORE_INTERVALS_DET_USED, det_names, \
+                                                                            obj_class = SPEC['obj_class'])
 
             sequenceMeasurementTargetSet = measurementTargetSetsBySequence[seq_idx]
 
@@ -2974,15 +3194,42 @@ class RunRBPF(FireTaskBase):
                 else:
 
                     (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes, invalid_low_prob_sample_count) = \
-                    run_rbpf_on_targetset([meas_target_set], results_filename, params, fw_spec)
-            else:       
-                if PROFILE:
-                    cProfile.runctx('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec)',
-                        {'sequenceMeasurementTargetSet': sequenceMeasurementTargetSet,
-                        'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset, 'fw_spec':fw_spec}, {})
+                    run_rbpf_on_targetset([meas_target_set], results_filename, params, fw_spec, filename=indicate_run_complete_filename)
+            else:  
+                if SPEC['condition_emission_prior_img_feat'] == True:
+                    if SPEC['train_test'] == 'train':
+                        seq_det_feature_arrays = get_deepsort_feature_arrays(seq_names_file='/atlas/u/jkuck/%s/kitti_format/training_seq_names.txt'%SPEC['DATA_SET_NAME'],\
+                            det_names=det_names, feature_folder='/atlas/u/jkuck/deep_sort/resources/detections/%s_train'%SPEC['DATA_SET_NAME'])
+                    elif SPEC['train_test'] == 'test':
+                        seq_det_feature_arrays = get_deepsort_feature_arrays(seq_names_file='/atlas/u/jkuck/%s/kitti_format/testing_seq_names.txt'%SPEC['DATA_SET_NAME'],\
+                            det_names=det_names, feature_folder='/atlas/u/jkuck/deep_sort/resources/detections/%s_test'%SPEC['DATA_SET_NAME'])
+                    params.SPEC['seq_det_feature_arrays'] = seq_det_feature_arrays                       
+                    x = tf.placeholder(tf.float32, shape=[None, SPEC['emission_prior_k_NN']])
+                    keep_prob = tf.placeholder(tf.float32)
+                    with tf.Session() as sess:
+                        priors = load_emmision_prior_model(sess, x, keep_prob)
+                        tf_emission_priors = {'priors': priors,
+                                              'x': x,
+                                              'keep_prob': keep_prob}
+                        params.SPEC['tf_emission_priors'] = tf_emission_priors
+                        if PROFILE:
+                            cProfile.runctx('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec)',
+                                {'sequenceMeasurementTargetSet': sequenceMeasurementTargetSet,
+                                'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset, 'fw_spec':fw_spec}, {})
+                        else:
+                            (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes, invalid_low_prob_sample_count) = \
+                                    run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec, filename=indicate_run_complete_filename)
                 else:
-                    (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes, invalid_low_prob_sample_count) = \
-                    run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec)
+                    if PROFILE:
+                        cProfile.runctx('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec)',
+                            {'sequenceMeasurementTargetSet': sequenceMeasurementTargetSet,
+                            'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset, 'fw_spec':fw_spec}, {})
+                    else:
+                        (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes, invalid_low_prob_sample_count) = \
+                                run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec, filename=indicate_run_complete_filename)
+                    print 'hi there'
+                    print 'invalid_low_prob_sample_count =', invalid_low_prob_sample_count
+
             print "done processing sequence: ", seq_idx
             
             tB = time.time()
@@ -3009,7 +3256,7 @@ class RunRBPF(FireTaskBase):
             t1 = time.time()
 
             stdout = sys.stdout
-            sys.stdout = open(indicate_run_complete_filename, 'w')
+            sys.stdout = open(indicate_run_complete_filename, 'a')
 
             print "This run is finished (and this file indicates the fact)\n"
             print "Resampling was performed %d times\n" % number_resamplings
