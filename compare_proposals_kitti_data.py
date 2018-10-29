@@ -80,7 +80,7 @@ from fireworks import Firework, Workflow, FWorker, LaunchPad
 from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 
-LOCAL_TESTING = False
+LOCAL_TESTING = True
 if LOCAL_TESTING:
     from fireworks.core.rocket_launcher import rapidfire
 else:
@@ -108,11 +108,11 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
+#SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
 #SEQUENCES_TO_PROCESS = [4]
 # SEQUENCES_TO_PROCESS = [0,1,2,3,4,5,6]
 # SEQUENCES_TO_PROCESS = range(56)
-# SEQUENCES_TO_PROCESS = [34]
+SEQUENCES_TO_PROCESS = [34]
 #SEQUENCES_TO_PROCESS = [0,2,3,4,5,6,10]
 #SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [11]
@@ -121,16 +121,16 @@ SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
 #NUM_PARTICLES_TO_TEST = [5, 10, 20, 50, 100]
 #NUM_PARTICLES_TO_TEST = [1]
 # NUM_PARTICLES_TO_TEST = [10]#, 20, 50, 100]
-NUM_PARTICLES_TO_TEST = [100]
+NUM_PARTICLES_TO_TEST = [10]#, 100]
 # NUM_PARTICLES_TO_TEST = [10]
 #NUM_PARTICLES_TO_TEST = [5, 20, 50, 100]
 
 
 ###################################### Experiment Organization ######################################
 # DATA_SET_NAME = 'MOT17'
-# DATA_SET_NAME = 'KITTI_split'
+DATA_SET_NAME = 'KITTI_split'
 # DATA_SET_NAME = 'MOT17_split'
-DATA_SET_NAME = 'KITTI'
+# DATA_SET_NAME = 'KITTI'
 #DIRECTORY_OF_ALL_RESULTS = '%sSUMMER_2018/reproduce3_%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
 # DIRECTORY_OF_ALL_RESULTS = '%sSUMMER_2018/save_MAP_particle_weights%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
 
@@ -337,14 +337,11 @@ if __name__ == "__main__":
         obj_class = 'car'
         pickled_data_dir = "%sKITTI_helpers/learn_params1_pickled_data" % RBPF_HOME_DIRECTORY
         data_path = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
-        # det_sets_to_run = [['regionlets'], ['mscnn'], ['3dop'], ['mono3d'], ['mv3d'],\
-        #                     ['mscnn', '3dop'],\
-        #                     ['mscnn', '3dop', 'mono3d'],\
-        #                     ['mscnn', '3dop', 'mono3d', 'mv3d'],\
-        #                     ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
-        det_sets_to_run = [['regionlets'], ['mscnn'],\
+        det_sets_to_run = [['regionlets'], ['mscnn'], ['3dop'], ['mono3d'], ['mv3d'],\
+                            ['mscnn', '3dop'],\
+                            ['mscnn', '3dop', 'mono3d'],\
+                            ['mscnn', '3dop', 'mono3d', 'mv3d'],\
                             ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
-
     elif DATA_SET_NAME == 'KITTI_split':
         obj_class = 'car'
         pickled_data_dir = "%sKITTI_helpers/data_split/learn_params1_pickled_data" % RBPF_HOME_DIRECTORY
@@ -398,7 +395,7 @@ if __name__ == "__main__":
     for train_test in ['train']:
         for online_delay in [0]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'box_overlap')]:
-            for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'distance'), ('min_cost_corrected', 'distance')]:
+            for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'distance')]:#, ('min_cost_corrected', 'distance')]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('min_cost_corrected', 'box_overlap'), ('exact_sampling', 'box_overlap')]:
             #for (proposal_distr, targ_meas_assoc_metric) in [('ground_truth_assoc', 'box_overlap')]:
             #for (proposal_distr, targ_meas_assoc_metric) in [('ground_truth_assoc', 'box_overlap'), ('min_cost', 'box_overlap')]:
