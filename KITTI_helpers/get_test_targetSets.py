@@ -179,7 +179,7 @@ class trackingEvaluation(object):
              missed         - number of missed targets (FN)
     """
 
-    def __init__(self, cutoff_score, det_method, gt_path=DATA_PATH + "/training_ground_truth", min_overlap=0.5, max_truncation = 0.15, mail=None, cls="car"):
+    def __init__(self, data_path, cutoff_score, det_method, gt_path=DATA_PATH + "/training_ground_truth", min_overlap=0.5, max_truncation = 0.15, mail=None, cls="car"):
         #jdk parameters to learn
         self.cutoff_score = cutoff_score
         self.clutter_count_list = []
@@ -227,7 +227,7 @@ class trackingEvaluation(object):
         # get number of sequences and
         # get number of frames per sequence from test mapping
         # (created while extracting the benchmark)
-        filename_test_mapping = DATA_PATH + "/evaluate_tracking.seqmap.test"
+        filename_test_mapping = data_path + "/evaluate_tracking.seqmap.test"
         self.n_frames         = []
         self.sequence_name    = []
         with open(filename_test_mapping, "r") as fh:
@@ -248,7 +248,7 @@ class trackingEvaluation(object):
         self.gt_path           = os.path.join(gt_path, "label_02")
 
         self.det_method = det_method
-        self.t_path            = os.path.join(DATA_PATH + "/object_detections", self.det_method, "testing/det_02")
+        self.t_path            = os.path.join(data_path + "/object_detections", self.det_method, "testing/det_02")
         self.n_gt              = 0
         self.n_gt_trajectories = 0
         self.n_gt_seq          = []
@@ -336,9 +336,13 @@ class trackingEvaluation(object):
         for seq, s_name in enumerate(self.sequence_name):
             i              = 0
             filename       = os.path.join(root_dir, "%s.txt" % s_name)
+            print 'filename:', filename
             f              = open(filename, "r") 
 
             f_data         = [[] for x in xrange(self.n_frames[seq])] # current set has only 1059 entries, sufficient length is checked anyway
+            print "self.n_frames[seq]", self.n_frames[seq]
+            print "self.n_frames", self.n_frames
+
             ids            = []
             n_in_seq       = 0
             id_frame_cache = []
@@ -430,6 +434,7 @@ class trackingEvaluation(object):
             seq_data.append(f_data)
             f.close()
 
+        print 'loading_groundtruth:', loading_groundtruth
         if not loading_groundtruth:
             print "hi2!"
             self.tracker=seq_data
@@ -669,7 +674,7 @@ class trackingEvaluation(object):
         self.printSep()
         dump.close()
 
-def get_det_objs1(min_score, det_method,mail,obj_class = "car"):
+def get_det_objs1(data_path, min_score, det_method,mail,obj_class = "car"):
     """
     Output:
     - gt_objects: gt_objects[i][j] is a list of all ground truth objects in the jth frame of the ith video sequence
@@ -705,7 +710,7 @@ def get_det_objs1(min_score, det_method,mail,obj_class = "car"):
     mail.msg("Processing Result for KITTI Tracking Benchmark")
     classes = []
     assert(obj_class == "car" or obj_class == "pedestrian")
-    e = trackingEvaluation(min_score, det_method=det_method, mail=mail,cls=obj_class)
+    e = trackingEvaluation(data_path=data_path, cutoff_score=min_score, det_method=det_method, mail=mail,cls=obj_class)
     # load tracker data and check provided classes
     e.loadDetections()
     mail.msg("Evaluate Object Class: %s" % obj_class.upper())
@@ -780,7 +785,7 @@ class Measurement:
         self.time = time
 
 
-def get_meas_target_set(score_intervals, det_method="lsvm", obj_class="car"):
+def get_meas_target_set(data_path, score_intervals, det_method="lsvm", obj_class="car"):
     """
     Input:
     - doctor_clutter_probs: if True, replace 0 probabilities with .0000001/float(20+num_zero_probs) and extend
@@ -809,7 +814,7 @@ def get_meas_target_set(score_intervals, det_method="lsvm", obj_class="car"):
 
     print score_intervals
 
-    (det_objects) = get_det_objs1(score_intervals[0], det_method,mail, obj_class="car")
+    (det_objects) = get_det_objs1(data_path, score_intervals[0], det_method,mail, obj_class=obj_class)
 
     measurementTargetSetsBySequence = []
 
@@ -847,7 +852,7 @@ def get_meas_target_set(score_intervals, det_method="lsvm", obj_class="car"):
     return (measurementTargetSetsBySequence)
 
 
-def get_meas_target_sets_test(score_intervals, detection_names, \
+def get_meas_target_sets_test(data_path, score_intervals, detection_names, \
     obj_class = "car"):
 
 
@@ -863,8 +868,8 @@ def get_meas_target_sets_test(score_intervals, detection_names, \
 
     for det_name in detection_names:
         print "getting measurement target set for", det_name, "detections"
-        (cur_measurementTargetSetsBySequence) = get_meas_target_set(score_intervals[det_name], \
-            det_name)
+        (cur_measurementTargetSetsBySequence) = get_meas_target_set(data_path, score_intervals[det_name], \
+            det_name, obj_class=obj_class)
         measurementTargetSetsBySequence[det_name] = cur_measurementTargetSetsBySequence
 
 
@@ -912,7 +917,7 @@ if __name__ == "__main__":
     training_sequences = [i for i in range(21)]
     detection_names = ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']
 
-    returnTargSets = get_meas_target_sets_test(score_interval_dict_all_det, detection_names, \
+    returnTargSets = get_meas_target_sets_test(DATA_PATH, score_interval_dict_all_det, detection_names, \
     obj_class = "car")
 
     print returnTargSets

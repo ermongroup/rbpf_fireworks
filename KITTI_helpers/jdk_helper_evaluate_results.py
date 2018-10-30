@@ -11,6 +11,10 @@ try:
 except:
     from collections import OrderedDict # only included from python 2.7 on
 
+import matplotlib
+matplotlib.use('Agg')
+#uncomment for plotting
+import matplotlib.pyplot as plt
 
 import numpy as np
 import glob
@@ -254,7 +258,7 @@ class trackingEvaluation(object):
                 # (frame,tracklet_id,objectType,truncation,occlusion,alpha,x1,y1,x2,y2,h,w,l,X,Y,Z,ry)
                 line = line.strip()
                 fields            = line.split(" ")
-                print "len(fields) =", len(fields)
+                #print "len(fields) =", len(fields)
                 # classes that should be loaded (ignored neighboring classes)
                 if "car" in cls.lower():
                     classes = ["car","van"]
@@ -283,6 +287,7 @@ class trackingEvaluation(object):
                 t_data.Y            = float(fields[14])         # Y [m]
                 t_data.Z            = float(fields[15])         # Z [m]
                 t_data.yaw          = float(fields[16])         # yaw angle [rad]
+                print "len(fields) =", len(fields)
                 if not loading_groundtruth:
                     if len(fields) == 17:
                         t_data.score = -1
@@ -290,10 +295,11 @@ class trackingEvaluation(object):
                         t_data.score  = float(fields[17])     # detection score
                     elif len(fields) == 21:
                         t_data.score  = float(fields[17])     # detection score                        
-                        self.imprt_weight = float(fields[18]) #importance weight of the particle
+                        t_data.imprt_weight = float(fields[18]) #importance weight of the particle
+                        print "t_data.imprt_weight:", t_data.imprt_weight
                         #boolean, true if this time instane is the first when this particle has the max importance weight
-                        self.frst_time_max_imprt_wt = fields[19].lower()
-                        self.target_count = int(fields[20]) #the number of targets that are believed to be alive at this time instance
+                        t_data.frst_time_max_imprt_wt = fields[19].lower()
+                        t_data.target_count = int(fields[20]) #the number of targets that are believed to be alive at this time instance
 
                     else:
                         self.mail.msg("file is not in KITTI format")
@@ -417,6 +423,23 @@ class trackingEvaluation(object):
         fr, ids = 0,0 
 #        for seq_idx in range(len(self.groundtruth)):
 #        for seq_idx in [6, 7, 8, 9, 10, 11, 15, 16, 17, 18, 19, 20]:
+
+        TEST_all_frame_fn = 0
+        TEST_all_frame_fp = 0
+        TEST_all_frame_id_switches = 0
+        TEST_all_frame_n_gt = 0
+
+        assert(self.fn == 0)
+        assert(self.fp == 0)
+        assert(self.id_switches == 0)
+        assert(self.n_gt == 0)
+
+        #list of importance weights for each frame
+        importance_weights_by_frame = []
+        #list of mota scores for each frame
+        mota_by_frame = []
+
+
         for seq_idx in self.seq_idx_to_eval:
             if not self.corrected_version:
                 cur_annotated_file = self.t_path + "annotated_results/" + ("%04d.txt" % seq_idx)
@@ -436,18 +459,26 @@ class trackingEvaluation(object):
             last_ids = [[],[]]
             tmp_frags = 0
             for f in range(len(seq_gt)):
+                #MOTA  = 1 - (self.fn + self.fp + self.id_switches)/float(self.n_gt)
+                cur_frame_fn = 0
+                cur_frame_fp = 0
+                cur_frame_id_switches = 0
+                cur_frame_n_gt = 0
+
                 g = seq_gt[f]
                 dc = seq_dc[f]
                         
                 t = seq_tracker[f]
                 # counting total number of ground truth and tracker objects
                 self.n_gt += len(g)
+                cur_frame_n_gt += len(g)
                 self.n_tr += len(t)
 
                 # use hungarian method to associate, using boxoverlap 0..1 as cost
                 # build cost matrix
                 cost_matrix = []
                 this_ids = [[],[]]
+
                 for gg in g:
                     # save current ids
                     this_ids[0].append(gg.track_id)
@@ -502,6 +533,11 @@ class trackingEvaluation(object):
                         seqcost         += 1-c
                         tmpc            += 1-c
                         seq_trajectories[g[row].track_id][-1] = t[col].track_id
+                        if len(seq_trajectories[g[row].track_id]) > 1 and \
+                          seq_trajectories[g[row].track_id][-2] != t[col].track_id and\
+                          seq_trajectories[g[row].track_id][-2] != -1:                         
+                            cur_frame_id_switches += 1
+
 
                         # true positives are only valid associations
                         self.tp += 1
@@ -510,6 +546,7 @@ class trackingEvaluation(object):
                     else:
                         g[row].tracker = -1
                         self.fn       += 1
+                        cur_frame_fn += 1
                         tmpfn         += 1
 
                 # check for id switches or fragmentations
@@ -611,20 +648,25 @@ class trackingEvaluation(object):
                 # ignored TP are shown as tracked in visualization
                 tmptp -= nignoredtp
                 self.n_gt -= (ignoredfn + nignoredtp)
+                cur_frame_n_gt -= (ignoredfn + nignoredtp)
 
                 # false negatives = associated gt bboxes exceding association threshold + non-associated gt bboxes
                 tmpfn   += len(g)-len(association_matrix)-ignoredfn
                 self.fn += len(g)-len(association_matrix)-ignoredfn
+                cur_frame_fn += len(g)-len(association_matrix)-ignoredfn
 
                 # false positives = tracker bboxes - associated tracker bboxes
                 if self.corrected_version:
                     # mismatches (mme_t)
                     tmpfp   += len(t) - tmptp - nignoredtp
                     self.fp += len(t) - tmptp - nignoredtp
+                    cur_frame_fp += len(t) - tmptp - nignoredtp
+
                 else:
                     # mismatches (mme_t) 
                     tmpfp   += len(t) - tmptp - nignoredtracker - nignoredtp
                     self.fp += len(t) - tmptp - nignoredtracker - nignoredtp
+                    cur_frame_fp += len(t) - tmptp - nignoredtracker - nignoredtp
 
 
                 #jdk
@@ -677,6 +719,25 @@ class trackingEvaluation(object):
                 if tmptp!=0:
                     MODP_t = tmpc/float(tmptp)
                 self.MODP_t.append(MODP_t)
+
+
+                TEST_all_frame_fn += cur_frame_fn
+                TEST_all_frame_fp += cur_frame_fp
+                TEST_all_frame_id_switches += cur_frame_id_switches
+                TEST_all_frame_n_gt += cur_frame_n_gt
+                if cur_frame_n_gt > 0 and len(t) > 0:
+                    cur_frame_MOTA = 1 - (cur_frame_fn + cur_frame_fp + cur_frame_id_switches)/float(cur_frame_n_gt)
+                    mota_by_frame.append(cur_frame_MOTA)
+
+                    frame_importance_weight = t[0].imprt_weight #importance weight for this frame
+                    print "frame_importance_weight: ", frame_importance_weight
+                    for tt in t: #debug, make sure these are all equal
+                        assert(tt.imprt_weight == frame_importance_weight)
+                    importance_weights_by_frame.append(frame_importance_weight)
+                # else:
+                #     mota_by_frame.append(-1)
+                #     importance_weights_by_frame.append(-1)
+
 
             # remove empty lists for current gt trajectories
             self.gt_trajectories[seq_idx]  = seq_trajectories
@@ -768,6 +829,10 @@ class trackingEvaluation(object):
             self.MOTA = -float("inf")
             self.MODA = -float("inf")
         else:
+            assert(TEST_all_frame_fn == self.fn), (TEST_all_frame_fn, self.fn)
+            assert(TEST_all_frame_fp == self.fp), (TEST_all_frame_fp, self.fp)
+            # assert(TEST_all_frame_id_switches == self.id_switches), (TEST_all_frame_id_switches, self.id_switches)
+            assert(TEST_all_frame_n_gt == self.n_gt), (TEST_all_frame_n_gt, self.n_gt)
             self.MOTA  = 1 - (self.fn + self.fp + self.id_switches)/float(self.n_gt)
             self.MODA  = 1 - (self.fn + self.fp) / float(self.n_gt)
         if self.tp==0:
@@ -785,6 +850,25 @@ class trackingEvaluation(object):
             self.MODP = "n/a"
         else:
             self.MODP = sum(self.MODP_t)/float(sum(self.n_frames.values()))
+
+
+        print "importance_weights_by_frame:", importance_weights_by_frame
+        print "mota_by_frame:", mota_by_frame
+        print "len(importance_weights_by_frame):", len(importance_weights_by_frame)
+        print "len(mota_by_frame):", len(mota_by_frame)
+
+        fig = plt.figure()
+        ax = plt.subplot(111)
+        ax.plot(importance_weights_by_frame, mota_by_frame, 'r+' , markersize=10)
+
+        plt.title('Frame by Frame Importance Weight vs. MOTA')
+        plt.xlabel('importance weight')
+        plt.ylabel('MOTA')
+        fig.savefig("./frameByFrame_imprtWeight_vs_MOTA", bbox_inches='tight')    
+        plt.close()
+
+        print "correlation:", np.corrcoef(importance_weights_by_frame, mota_by_frame)
+
         return True
 
     def print_results(self):
@@ -1036,6 +1120,9 @@ def eval_results(data_path, all_run_results, seq_idx_to_eval, SPEC=None, gt_path
     - metric_medians: a dictionary whose keys are metric names and values are medians 
         of the corresponding metric over the runs
     """
+    if SPEC is None:
+        SPEC = {'train_test': 'train',
+                'obj_class': 'car'}
     print "debugging jdk_helpers_evaluate_results.py eval_results:"
     print "all_run_results:"
     print all_run_results
@@ -1226,6 +1313,27 @@ class CoordAscentEval(FireTaskBase):
         return FWAction(stored_data=metric_medians, mod_spec=[{'_set': {delta_name: metric_medians[objective]}}])
 
 if __name__ == "__main__":
+    # find_and_eval_results(data_path='/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/data_split', \
+    #                       directory_to_search='/atlas/u/jkuck/rbpf_fireworks/SUMMER_2018/subcnn_KITTI_split',\
+    #                       seq_idx_to_eval=range(90), info_by_run=None)
+    # find_and_eval_results(data_path='/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/data_split', \
+    #                       directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI_split/no_img_features/mscnn3dopmono3dmv3dregionlets_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=box_overlap,check_k_nearest=False,gumbel_scale=0.000000',
+    #                       seq_idx_to_eval=range(34)+range(35,90))
+ 
+    find_and_eval_results(data_path='/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/data', \
+                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
+                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=exact_sampling,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
+                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling114KITTI/no_img_features/mscnn3dopmono3dmv3d_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=exact_sampling,targ_meas_assoc_metric=box_overlap,check_k_nearest=False,gumbel_scale=0.000000',
+                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling114KITTI',                          
+                          seq_idx_to_eval=range(21))
+ 
+
+    # find_and_eval_results(data_path='/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/data_split', \
+    #                       directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI_split/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
+    #                       seq_idx_to_eval=range(90))
+
+    exit(0)
+
     if len(sys.argv)!=3:
         print "Supply the directory to evaluate and bool whether to use the corrected evaluation metric"
         sys.exit(1);

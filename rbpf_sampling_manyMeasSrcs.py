@@ -1,23 +1,25 @@
 from __future__ import division
 from scipy.stats import multivariate_normal
 from scipy.stats import poisson
+from scipy import spatial
 import numpy as np
 from numpy.linalg import inv
 import numpy.linalg
 import random
 from sets import ImmutableSet
-from munkres import Munkres
 from collections import defaultdict
 from itertools import combinations
 from itertools import permutations
 from operator import itemgetter
-
+from pymatgen.optimization import linear_assignment
+from munkres import Munkres
 import cvxpy as cvx
 import sys
 import math
 from cluster_config import RBPF_HOME_DIRECTORY
 sys.path.insert(0, "%sgeneral_tracking" % RBPF_HOME_DIRECTORY)
 from global_params import INFEASIBLE_COST
+from global_params import DEFAULT_TIME_STEP
 
 
 #if we have prior of 0, return PRIOR_EPSILON
@@ -239,7 +241,7 @@ def group_detections(meas_groups, det_name, detection_locations, det_widths, det
     Take a list of detections and try to associate them with detection groups from other measurement sources
     Inputs:
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
-        in the group, key='det_name', value=detection
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
     - det_name: name of the detection source we are currently associating with current detection groups
     - detections: a list of detections from a specific measurement source, sequence, and frame
     - seq_idx: the sequence index
@@ -248,7 +250,6 @@ def group_detections(meas_groups, det_name, detection_locations, det_widths, det
     Outputs:
     None, but meas_groups will be modified, with the new detections added (passed by reference)
     """
-
     hm = Munkres()
     max_cost = 1e9
 
@@ -283,11 +284,15 @@ def group_detections(meas_groups, det_name, detection_locations, det_widths, det
     if len(detections) is 0:
         cost_matrix=[[]]
     # associate
-    association_matrix = hm.compute(cost_matrix)
+    #switch to linear_assignment for speed, but need to deal with more rows than columns
+    #lin_assign = linear_assignment.LinearAssignment(cost_matrix)
+    #solution = lin_assign.solution
+    #association_list = zip([i for i in range(len(solution))], solution)
+    association_list = hm.compute(cost_matrix)
 
     associated_detection_indices = []
     check_det_count = 0
-    for row,col in association_matrix:
+    for row,col in association_list:
         # apply gating on boxoverlap
         c = cost_matrix[row][col]
         if c < max_cost:
@@ -315,24 +320,24 @@ def group_detections(meas_groups, det_name, detection_locations, det_widths, det
             check_det_count += 1
     assert(check_det_count == len(detections))
 
+ 
 
-
-def sample_and_reweight(particle, measurement_lists, widths, heights, det_names, \
+def sample_and_reweight(particle, measurement_locations, widths, heights, det_names, \
     cur_time, measurement_scores, params):
     """
     Input:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle
-    - measurement_lists: a list where measurement_lists[i] is a list of all measurements from the current
+    - measurement_locations: a list where measurement_locations[i] is a list of all measurement locations from the current
         time instance from the ith measurement source (i.e. different object detection algorithms
         or different sensors)
-    - det_names: a list of names of measurement sources, where det_names[i] corresponds to measurement_lists[i]
+    - det_names: a list of names of measurement sources, where det_names[i] corresponds to measurement_locations[i]
     - measurement_scores: a list where measurement_scores[i] is a list containing scores for every measurement in
         measurement_list[i]
     - params: type Parameters, gives prior probabilities and other parameters we are using
 
     Output:
     - measurement_associations: A list where measurement_associations[i] is a list of association values
-        for each measurements in measurement_lists[i].  Association values correspond to:
+        for each measurements in measurement_locations[i].  Association values correspond to:
         measurement_associations[i][j] = -1 -> measurement is clutter
         measurement_associations[i][j] = particle.targets.living_count -> measurement is a new target
         measurement_associations[i][j] in range [0, particle.targets.living_count-1] -> measurement is of
@@ -343,6 +348,15 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
         new_importance_weight = old_importance_weight * imprt_re_weight
     - targets_to_kill: a list containing the indices of targets that should be killed, beginning
         with the smallest index in increasing order, e.g. [0, 4, 6, 33]
+
+    - meas_grp_img_feats: list of 1d image feature arrays (of length 128) for each measurement
+
+    - meas_assoc_gt_obj_ids: 
+        - when SPEC['proposal_distr'] == 'ground_truth_assoc':
+            list containing the track_id of the ground truth object each measurement is 
+            associated with, or -1 if the measurement is clutter
+        - when SPEC['proposal_distr'] != 'ground_truth_assoc': None
+
     """
 
     #get death probabilities for each target in a numpy array
@@ -356,16 +370,52 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
     # used in prior calculation to count the number of ordered vectors given
     # an unordered association set
     meas_counts_by_source = [] 
-    for meas_list in measurement_lists:
+    for meas_list in measurement_locations:
         meas_counts_by_source.append(len(meas_list))
 
-    meas_groups = []
-    for det_idx, det_name in enumerate(det_names):
-        group_detections(meas_groups, det_name, measurement_lists[det_idx], widths[det_idx], heights[det_idx], params)
+    ASSOCIATE_MEASUREMENTS_TO_GT_BEFORE_GROUPING = True
+    if params.SPEC['proposal_distr'] == 'ground_truth_assoc' and ASSOCIATE_MEASUREMENTS_TO_GT_BEFORE_GROUPING: #evaluate best possible ground truth associations
+        frame_idx = int(round(cur_time/DEFAULT_TIME_STEP))
+        seq_idx=params.SPEC['seq_idx']
+        meas_groups_helper = defaultdict(list) #key: gt index, val:list of pairs (meas_src_name, detection)
 
-    (targets_to_kill, meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, 
-        unassociated_target_death_probs) =  sample_grouped_meas_assoc_and_death(particle, 
-        meas_groups, particle.targets.living_count, p_target_deaths, cur_time, measurement_scores, params, meas_counts_by_source)
+        for meas_source_index, cur_src_measurements in enumerate(measurement_locations):
+            meas_source_name = params.SPEC['det_names'][meas_source_index]
+            det_gt_association_pairs = group_detectionSource_to_groundTruth(gt_objects=params.SPEC['gt_obects'][seq_idx][frame_idx],\
+                detection_locations=cur_src_measurements, det_widths=widths[meas_source_index], det_heights=heights[meas_source_index])
+            for det_idx, gt_idx in enumerate(det_gt_association_pairs):
+                meas_groups_helper[gt_idx].append((meas_source_name, np.array([measurement_locations[meas_source_index][det_idx][0], measurement_locations[meas_source_index][det_idx][1], widths[meas_source_index][det_idx], heights[meas_source_index][det_idx]])))
+
+        meas_groups = []
+        for gt_idx, meas_list in meas_groups_helper.iteritems():
+            cur_det_grp = {}
+            for meas_source_name, measurement in meas_list:
+                cur_det_grp[meas_source_name] = measurement
+            meas_groups.append(cur_det_grp)
+    else:
+        meas_groups = []
+        for det_idx, det_name in enumerate(det_names):
+            group_detections(meas_groups, det_name, measurement_locations[det_idx], widths[det_idx], heights[det_idx], params)
+
+    frame_idx = int(round(cur_time/DEFAULT_TIME_STEP))
+    if params.SPEC['condition_emission_prior_img_feat']:
+        #list of length len(meas_groups) containing image features for each measurement group
+        meas_grp_img_feats = []
+        for grp_idx, meas_grp in enumerate(meas_groups):
+            for det_name in params.SPEC['det_names']:
+                if det_name in meas_grp:
+                    det = meas_grp[det_name]
+                    debug_info = {'seq_idx': params.SPEC['seq_idx'], 'det_name': det_name}
+                    meas_grp_img_feats.append(get_det_features(params.SPEC['seq_det_feature_arrays'][(det_name, params.SPEC['seq_idx'])], det, frame_idx, debug_info))
+                    break
+    else:
+        meas_grp_img_feats = None
+
+    meas_assoc_gt_obj_ids = None
+    (targets_to_kill, meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, meas_assoc_gt_obj_ids, sampled_meas_targ_assoc_idx) =  \
+        sample_grouped_meas_assoc_and_death(particle, meas_groups, particle.targets.living_count, \
+        p_target_deaths, cur_time, measurement_scores, params, meas_counts_by_source=meas_counts_by_source,\
+        measurement_locations=measurement_locations, widths=widths, heights=heights)
 
 
 
@@ -383,12 +433,12 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
     if params.SPEC['use_log_probs'] in ['False', 'Compare']:
         likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
                                        meas_grp_associations, params, log=False)
-        assoc_prior = get_assoc_prior(particle.targets.living_count, meas_groups, meas_grp_associations, params, meas_counts_by_source, log=False)
+        assoc_prior = get_assoc_prior(particle, meas_groups, meas_grp_associations, params, meas_counts_by_source, log=False, cur_time=cur_time)
         death_prior = calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices, log=False)
         exact_probability = likelihood * assoc_prior * death_prior
 
         if params.SPEC['normalize_log_importance_weights']:
-            imprt_re_weight = math.log(exact_probability/proposal_probability)
+            imprt_re_weight = ln_zero_approx(exact_probability/proposal_probability)
         else:
             imprt_re_weight = exact_probability/proposal_probability
 
@@ -396,19 +446,22 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
     if params.SPEC['use_log_probs'] in ['True', 'Compare']:        
         log_likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
                                        meas_grp_associations, params, log=True)
-        log_assoc_prior = get_assoc_prior(particle.targets.living_count, meas_groups, meas_grp_associations, params, meas_counts_by_source, log=True)
-        log_death_prior = calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices, log=True)
+        log_assoc_prior = get_assoc_prior(particle, meas_groups, meas_grp_associations, params, meas_counts_by_source, log=True, cur_time=cur_time)
+        if params.SPEC['proposal_distr'] != 'ground_truth_assoc':
+            log_death_prior = calc_death_prior(living_target_indices, p_target_deaths, unassociated_target_indices, log=True)
+        else:
+            log_death_prior = 0.0
         log_exact_probability = log_likelihood + log_assoc_prior + log_death_prior
 
         if params.SPEC['normalize_log_importance_weights']:
-            imprt_re_weight = log_exact_probability - math.log(proposal_probability)
+            imprt_re_weight = log_exact_probability - ln_zero_approx(proposal_probability)
         else:
-            imprt_re_weight = math.exp(log_exact_probability - math.log(proposal_probability))    
+            imprt_re_weight = math.exp(log_exact_probability - ln_zero_approx(proposal_probability))    
 
 
     if params.SPEC['use_log_probs'] == 'Compare':
         imprt_re_weightA = exact_probability/proposal_probability
-        imprt_re_weightB = math.exp(log_exact_probability - math.log(proposal_probability))    
+        imprt_re_weightB = math.exp(log_exact_probability - ln_zero_approx(proposal_probability))    
         assert(np.abs(imprt_re_weightA -imprt_re_weightB) < .000001), (imprt_re_weightA, imprt_re_weightB, exact_probability, log_exact_probability, proposal_probability)
 
     assert(num_targs == particle.targets.living_count)
@@ -421,17 +474,16 @@ def sample_and_reweight(particle, measurement_lists, widths, heights, det_names,
 #    particle.likelihood_DOUBLE_CHECK_ME = exact_probability
 
 #    print "imprt_re_weight:", imprt_re_weight
-
-    return (meas_grp_associations, meas_grp_means, meas_grp_covs, targets_to_kill, imprt_re_weight, log_exact_probability, proposal_probability)
+    return (meas_grp_associations, meas_grp_means, meas_grp_covs, meas_grp_img_feats, targets_to_kill, imprt_re_weight, log_exact_probability, proposal_probability, meas_assoc_gt_obj_ids, sampled_meas_targ_assoc_idx)
 
 def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_count, 
-    p_target_deaths, cur_time, measurement_scores, params, meas_counts_by_source=None):
+    p_target_deaths, cur_time, measurement_scores, params, meas_counts_by_source=None, 
+    measurement_locations=None, widths=None, heights=None):
     """
-    Try sampling associations with each measurement sequentially
     Input:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
-        in the group, key='det_name', value=detection
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
     - measurement_scores: type list, measurement_scores[i] is a list containing scores for every measurement in
         measurement_list[i]
     - total_target_count: the number of living targets on the previous time instace
@@ -439,6 +491,15 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
         p_target_deaths[i] = the probability that target i has died between the last
         time instance and the current time instance
     - params: type Parameters, gives prior probabilities and other parameters we are using
+    - measurement_locations: a list where measurement_locations[i] is a list of all measurement locations from the current
+        time instance from the ith measurement source (i.e. different object detection algorithms
+        or different sensors)
+    - measurement_widths: a list where measurement_widths[i] is a list of all measurement widths from the current
+        time instance from the ith measurement source (i.e. different object detection algorithms
+        or different sensors)
+    - measurement_heights: a list where measurement_heights[i] is a list of all measurement locations from the current
+        time instance from the ith measurement source (i.e. different object detection algorithms
+        or different sensors)
 
     Output:
     - targets_to_kill: a list of targets that have been sampled to die (not killed yet)
@@ -448,29 +509,36 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
     - meas_grp_covs: list, each element is the combined measurment covariance (np array)
     - proposal_probability: proposal probability of the sampled deaths and associations
     - meas_counts_by_source: just used by associate_meas_optimal, probably not
+    - meas_assoc_gt_obj_ids: 
+        - when SPEC['proposal_distr'] == 'ground_truth_assoc':
+            list containing the track_id of the ground truth object each measurement is 
+            associated with, or -1 if the measurement is clutter
+        - when SPEC['proposal_distr'] != 'ground_truth_assoc': None
+
     """
-#    assert(len(measurement_lists) == len(measurement_scores))
+#    assert(len(measurement_locations) == len(measurement_scores))
 #    measurement_associations = []
 #    proposal_probability = 1.0
-#    for meas_source_index in range(len(measurement_lists)):
+#    for meas_source_index in range(len(measurement_locations)):
 #        (cur_associations, cur_proposal_prob) = associate_measurements_sequentially\
-#            (particle, meas_source_index, measurement_lists[meas_source_index], \
+#            (particle, meas_source_index, measurement_locations[meas_source_index], \
 #             total_target_count, p_target_deaths, measurement_scores[meas_source_index],\
 #             params)
 #        measurement_associations.append(cur_associations)
 #        proposal_probability *= cur_proposal_prob
 #
-#    assert(len(measurement_associations) == len(measurement_lists))
+#    assert(len(measurement_associations) == len(measurement_locations))
 #
 #    FIXME measurement_associations, proposal_probability
 ############################################################################################################
     #New implementation
-    assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost', 'min_cost_corrected', 'optimal', 'traditional_SIR_gumbel'])
+    meas_assoc_gt_obj_ids = None
+    assert(params.SPEC['proposal_distr'] in ['sequential', 'min_cost', 'min_cost_corrected', 'optimal', 'traditional_SIR_gumbel', 'ground_truth_assoc'])
     if params.SPEC['proposal_distr'] == 'traditional_SIR_gumbel':
         (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, targets_to_kill) = \
             associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params,\
-            meas_counts_by_source)
-#            associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params)        
+            meas_counts_by_source, cur_time=cur_time)
+#            associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params, cur_time=cur_time)        
 
         unassociated_target_death_probs = []
         for i in range(total_target_count):
@@ -491,13 +559,16 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
             associate_measurements_sequentially(particle, meas_groups, total_target_count, \
             p_target_deaths, params)
 
+        elif params.SPEC['proposal_distr'] == 'ground_truth_assoc':
+            (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, targets_to_kill, meas_assoc_gt_obj_ids) = \
+            get_gt_assoc(particle, meas_groups, cur_time, total_target_count, params, measurement_locations=measurement_locations, widths=widths, heights=heights)
         elif params.SPEC['proposal_distr'] == 'min_cost':
             (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
             associate_meas_min_cost(particle, meas_groups, total_target_count, \
-            p_target_deaths, params)
+            p_target_deaths, params, cur_time=cur_time, meas_counts_by_source=meas_counts_by_source)
 
         elif params.SPEC['proposal_distr'] == 'min_cost_corrected':
-            (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
+            (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, sampled_meas_targ_assoc_idx) = \
             associate_meas_min_cost_corrected(particle, meas_groups, total_target_count, \
             p_target_deaths, params)        
 
@@ -505,33 +576,36 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
             assert(params.SPEC['proposal_distr'] == 'optimal')
             (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
             associate_meas_optimal(particle, meas_groups, total_target_count, \
-            p_target_deaths, params, meas_counts_by_source)
+            p_target_deaths, params, meas_counts_by_source, cur_time=cur_time)
 
 
     ############################################################################################################
 
     ############################################################################################################
-        #sample target deaths from unassociated targets
-        unassociated_targets = []
-        unassociated_target_death_probs = []
+        if params.SPEC['proposal_distr'] != 'ground_truth_assoc':
+            #sample target deaths from unassociated targets
+            unassociated_targets = []
+            unassociated_target_death_probs = []
 
-        for i in range(total_target_count):
-            if i in meas_grp_associations:
-                target_unassociated = False
-            else:
-                target_unassociated = True            
-            if target_unassociated:
-                unassociated_targets.append(i)
-                unassociated_target_death_probs.append(p_target_deaths[i])
-            else:
-                unassociated_target_death_probs.append(0.0)
+            for i in range(total_target_count):
+                if i in meas_grp_associations:
+                    target_unassociated = False
+                else:
+                    target_unassociated = True            
+                if target_unassociated:
+                    unassociated_targets.append(i)
+                    unassociated_target_death_probs.append(p_target_deaths[i])
+                else:
+                    unassociated_target_death_probs.append(0.0)
 
-        (targets_to_kill, death_probability) =  \
-            sample_target_deaths(particle, unassociated_targets, cur_time)
+#            (targets_to_kill, death_probability) =  \
+#                sample_target_deaths(particle, unassociated_targets, cur_time)
+            ####QUICK TEST KILLING ALL UNASSOCIATED TARGETS########
+            (targets_to_kill, death_probability) = (unassociated_targets, 1.0)
 
-        #probability of sampling all associations
-        proposal_probability *= death_probability
-        assert(proposal_probability != 0.0)
+            #probability of sampling all associations
+            proposal_probability *= death_probability
+            assert(proposal_probability != 0.0)
 
         #debug
         for i in range(total_target_count):
@@ -539,7 +613,7 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
                    meas_grp_associations.count(i) == 1), (meas_grp_associations,  measurement_list, total_target_count, p_target_deaths)
         #done debug
 
-        return (targets_to_kill, meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, unassociated_target_death_probs)
+        return (targets_to_kill, meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, meas_assoc_gt_obj_ids, sampled_meas_targ_assoc_idx)
 
 
 
@@ -582,10 +656,13 @@ def min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_as
     if len(meas_grp_means4D) is 0:
         cost_matrix=[[]]
     # associate
-    association_matrix = hm.compute(cost_matrix)
-
+    #lin_assign = linear_assignment.LinearAssignment(cost_matrix)
+    #solution = lin_assign.solution
+    #association_list = zip([i for i in range(len(solution))], solution)
+    association_list = hm.compute(cost_matrix)
+    
     measurement_assoc = [-1 for i in range(len(meas_grp_means4D))]
-    for row,col in association_matrix:
+    for row,col in association_list:
         # apply gating on boxoverlap
         c = cost_matrix[row][col]
         if c < max_cost:
@@ -601,14 +678,14 @@ def min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_as
 
     return measurement_assoc
 
-def associate_meas_optimal(particle, meas_groups, total_target_count, p_target_deaths, params, meas_counts_by_source):
+def associate_meas_optimal(particle, meas_groups, total_target_count, p_target_deaths, params, meas_counts_by_source, cur_time):
     '''
     Sample measurement associations from the optimal proposal distribution p(c_k | e_{1-k-1}, c_{1:k-1}, y_{1:k}).
     Generally computationally intractable.
     Inputs:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle     
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
-        in the group, key='det_name', value=detection
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
     - total_target_count: the number of living targets on the previous time instace
     - p_target_deaths: a list of length len(total_target_count) where 
         p_target_deaths[i] = the probability that target i has died between the last
@@ -672,7 +749,7 @@ def associate_meas_optimal(particle, meas_groups, total_target_count, p_target_d
 
                         cur_likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
                                                        cur_meas_association, params, log=False)
-                        cur_assoc_prior = get_assoc_prior(particle.targets.living_count, meas_groups, cur_meas_association, params, meas_counts_by_source, log=False)
+                        cur_assoc_prior = get_assoc_prior(particle, meas_groups, cur_meas_association, params, meas_counts_by_source, log=False, cur_time=cur_time)
                         cur_proposal_probability = cur_likelihood * cur_assoc_prior 
                         proposal_probabilities.append(cur_proposal_probability)
  
@@ -778,7 +855,7 @@ def associate_meas_gumbel(particle, meas_groups, total_target_count, p_target_de
     Inputs:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle     
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
-        in the group, key='det_name', value=detection
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
     - total_target_count: the number of living targets on the previous time instace
     - p_target_deaths: a list of length len(total_target_count) where 
         p_target_deaths[i] = the probability that target i has died between the last
@@ -846,7 +923,7 @@ def construct_log_probs_matrix(particle, meas_groups, total_target_count, p_targ
     Inputs:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle         
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
-        in the group, key='det_name', value=detection
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
     - total_target_count: the number of living targets on the previous time instace
     - p_target_deaths: a list of length len(total_target_count) where 
         p_target_deaths[i] = the probability that target i has died between the last
@@ -872,10 +949,10 @@ def construct_log_probs_matrix(particle, meas_groups, total_target_count, p_targ
             likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
             assert(likelihood >= 0.0), likelihood
             if likelihood > 0.0:
-                cur_prob = math.log(likelihood)
+                cur_prob = ln_zero_approx(likelihood)
             else:
                 cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
-            cur_prob += math.log(p_target_emits) 
+            cur_prob += ln_zero_approx(p_target_emits) 
             log_probs[m_idx][t_idx] = cur_prob
 
     #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
@@ -887,8 +964,8 @@ def construct_log_probs_matrix(particle, meas_groups, total_target_count, p_targ
             cur_death_prob = .999999999999 #sloppy should define an epsilon or something
         else:
             cur_death_prob = particle.targets.living_targets[t_idx].death_prob
-        log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
-        log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
+        log_probs[lives_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(1.0 - cur_death_prob)
+        log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(cur_death_prob)
 
     #add birth/clutter measurement association entries to the log-prob matrix
     clutter_col = total_target_count
@@ -897,10 +974,10 @@ def construct_log_probs_matrix(particle, meas_groups, total_target_count, p_targ
 
     assert(params.SPEC['birth_clutter_likelihood'] == 'aprox1')
     for m_idx in range(len(meas_groups)):
-        log_probs[m_idx][clutter_col] = math.log(params.clutter_lambda) + \
-            math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
-        log_probs[m_idx][birth_col] = math.log(params.birth_lambda) + \
-            math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
+        log_probs[m_idx][clutter_col] = ln_zero_approx(params.clutter_lambda) + \
+            ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
+        log_probs[m_idx][birth_col] = ln_zero_approx(params.birth_lambda) + \
+            ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
    
     return log_probs
 
@@ -956,7 +1033,7 @@ def construct_log_probs_matrix2(particle, meas_groups, total_target_count, p_tar
     Inputs:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle         
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
-        in the group, key='det_name', value=detection
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
     - total_target_count: the number of living targets on the previous time instace
     - p_target_deaths: a list of length len(total_target_count) where 
         p_target_deaths[i] = the probability that target i has died between the last
@@ -987,10 +1064,10 @@ def construct_log_probs_matrix2(particle, meas_groups, total_target_count, p_tar
             likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
             assert(likelihood >= 0.0), likelihood
             if likelihood > 0.0:
-                cur_prob = math.log(likelihood)
+                cur_prob = ln_zero_approx(likelihood)
             else:
                 cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
-            cur_prob += math.log(params.target_groupEmission_priors[get_immutable_set_meas_names(meas_groups[m_idx])]) 
+            cur_prob += ln_zero_approx(params.target_groupEmission_priors[get_immutable_set_meas_names(meas_groups[m_idx])]) 
             log_probs[m_idx][t_idx] = cur_prob
 
         #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
@@ -1004,8 +1081,8 @@ def construct_log_probs_matrix2(particle, meas_groups, total_target_count, p_tar
         if cur_death_prob == 1.0:
             log_probs[lives_row_idx][t_idx] = -999
         else:
-            log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
-            log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
+            log_probs[lives_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(1.0 - cur_death_prob)
+            log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(cur_death_prob)
 
     print 'log_probs2:'
     print log_probs
@@ -1018,10 +1095,10 @@ def construct_log_probs_matrix2(particle, meas_groups, total_target_count, p_tar
         clutter_col = T + 2*m_idx
         birth_col = T + 1 + 2*m_idx
         assert(params.SPEC['birth_clutter_likelihood'] == 'aprox1')
-        log_probs[m_idx][clutter_col] = math.log(params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
-            math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
-        log_probs[m_idx][birth_col] = math.log(params.birth_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
-            math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
+        log_probs[m_idx][clutter_col] = ln_zero_approx(params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
+            ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
+        log_probs[m_idx][birth_col] = ln_zero_approx(params.birth_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
+            ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
     print 'log_probs4:'
     print log_probs
 
@@ -1165,7 +1242,7 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
     Inputs:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle         
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
-        in the group, key='det_name', value=detection
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
     - total_target_count: the number of living targets on the previous time instace
     - p_target_deaths: a list of length len(total_target_count) where 
         p_target_deaths[i] = the probability that target i has died between the last
@@ -1177,6 +1254,8 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
         np.trace(np.dot(log_probs,A.T) will be the log probability of an assignment A, given our
         Inputs.  (Where an assignment defines measurement associations to targets, and is marginalized
     '''
+    construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_target_deaths, params)
+    
     #construct a (2*M+2*T)x(2*M+2*T) matrix of log probabilities
     M = len(meas_groups)
     T = total_target_count
@@ -1196,12 +1275,12 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
             likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
             assert(likelihood >= 0.0), likelihood
             if likelihood > 0.0:
-                cur_prob = math.log(likelihood)
+                cur_prob = ln_zero_approx(likelihood)
             else:
                 cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
-            cur_prob += math.log(params.target_groupEmission_priors[get_immutable_set_meas_names(meas_groups[m_idx])]) 
+            cur_prob += ln_zero_approx(params.target_groupEmission_priors[get_immutable_set_meas_names(meas_groups[m_idx])]) 
             log_probs[m_idx][t_idx] = cur_prob
-
+            assert(not math.isnan(log_probs[m_idx][t_idx]))
         #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
         lives_row_idx = M + 2*t_idx
         dies_row_idx = M + 1 + 2*t_idx
@@ -1217,8 +1296,11 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
             cur_death_prob = 10**-100
 
         assert(p_target_does_not_emit > 0 and cur_death_prob > 0 and cur_death_prob < 1.0), (p_target_does_not_emit, cur_death_prob)
-        log_probs[lives_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(1.0 - cur_death_prob)
-        log_probs[dies_row_idx][t_idx] = math.log(p_target_does_not_emit) + math.log(cur_death_prob)
+        log_probs[lives_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(1.0 - cur_death_prob)
+        log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(cur_death_prob)
+        assert(not math.isnan(log_probs[lives_row_idx][t_idx]))
+        assert(not math.isnan(log_probs[dies_row_idx][t_idx]))
+
 
 #    print 'log_probs2:'
 #    print log_probs
@@ -1244,13 +1326,17 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
             clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100
 
 
-        log_probs[m_idx][clutter_col] = math.log(clutter_lambda) + \
-            math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
-        log_probs[m_idx][birth_col] = math.log(birth_lambda) + \
-            math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
+        log_probs[m_idx][clutter_col] = ln_zero_approx(clutter_lambda) + \
+            ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
+        assert(not math.isnan(log_probs[m_idx][clutter_col]))    
+
+
+        log_probs[m_idx][birth_col] = ln_zero_approx(birth_lambda) + \
+            ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
+        assert(not math.isnan(log_probs[m_idx][birth_col]))            
         #HACKING BELOW!!!
-#        log_probs[m_idx][birth_col] = math.log(params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
-#            math.log(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
+#        log_probs[m_idx][birth_col] = ln_zero_approx(params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]) + \
+#            ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
 #    print 'log_probs4:'
 #    print log_probs
 
@@ -1261,7 +1347,159 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
 #    print 'log_probs5:'
 #    print log_probs
 
+
     return log_probs
+
+
+
+def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_target_deaths, params):
+    '''
+    M = #measurements
+    T = #targets
+
+
+    Inputs:
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle         
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
+    - total_target_count: the number of living targets on the previous time instace
+    - p_target_deaths: a list of length len(total_target_count) where 
+        p_target_deaths[i] = the probability that target i has died between the last
+        time instance and the current time instance
+    - params: type Parameters, gives prior probabilities and other parameters we are using
+
+    Outputs:
+    - log_probs: numpy matrix with dimensions (M+T)x(M+T) with probabilities (note we return the natural log of these values!):
+        [a_11    ...     a_1T   um_1 0   ...  0]
+        [.               .      0   .          ]
+        [.               .      .      .       ]
+        [.               .      .         .    ]
+        [a_M1    ...     a_MT   0    ...   um_M]
+        [ut_1    ...     ut_T   1    ...      1]
+        [.               .      .             .]
+        [.               .      .             .]
+        [ut_1    ...     ut_T   1    ...      1]    
+        - upper left quadrant is a MxT submatrix and composed of a_ij = the association probability of
+          measurement i to target j
+        - upper right quadrant is an MxM submatrix.  Row i is composed of M repetitions of 
+          um_i = the probability that measurement i is unassociated with a target (marginalized over whether the
+          measurement is clutter or a birth)
+        - lower left quadrant is a TxT submatrix.  It is a diagonal matrix with elements ut_i = the
+          probability that target i doesn't emit a measuremnt (marginalized over
+          whether it lives or dies)
+        - lower right quadrant is an TxM submatrix of all 1's
+
+    - conditional_birth_probs: numpy array of length (#measurement groups).  conditional_birth_probs[i] is the probability
+        that measurement group i is a birth, given that it is not associated with any target. (1 - conditional_birth_probs[i]) 
+        is the probability that measurement group i is clutter, given that it is not associated with any target.
+    - conditional_death_probs: numpy array of length (#targets).  conditional_death_probs[i] is the probability
+        that target i dies, given that it is not associated with a measurement. (1 - conditional_death_probs[i]) 
+        is the probability that target i lives, given that it is not associated with a measurement.
+
+
+
+    '''
+    M = len(meas_groups)
+    T = total_target_count
+    log_probs = np.ones((M + T, M + T))
+    log_probs *= -1*INFEASIBLE_COST #setting all entries to very negative value
+
+    p_target_does_not_emit = params.target_groupEmission_priors[ImmutableSet([])]
+    
+    conditional_birth_probs = np.ones(M)
+    conditional_death_probs = np.ones(T)
+#    print 'log_probs1:'
+#    print log_probs
+
+    #calculate log probs for target association entries in the log-prob matrix
+
+    for t_idx in range(T):
+        for m_idx in range(M):
+        #calculate log probs for measurement-target association entries in the log-prob matrix
+            likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
+            assert(likelihood >= 0.0), likelihood
+            if likelihood > 0.0:
+                cur_prob = ln_zero_approx(likelihood)
+            else:
+                cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
+            cur_prob += ln_zero_approx(params.target_groupEmission_priors[get_immutable_set_meas_names(meas_groups[m_idx])]) 
+            log_probs[m_idx][t_idx] = cur_prob
+            assert(not math.isnan(log_probs[m_idx][t_idx]))
+        #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
+        #would probably be better to kill offscreen targets before association
+        if(particle.targets.living_targets[t_idx].offscreen == True):
+            cur_death_prob = .999999999999 #sloppy should define an epsilon or something
+        else:
+            cur_death_prob = particle.targets.living_targets[t_idx].death_prob
+        if(cur_death_prob == 1.0):
+            cur_death_prob = .99999999999 #still getting an error with domain error, trying this
+
+        if(cur_death_prob == 0):
+            cur_death_prob = 10**-100
+
+        assert(p_target_does_not_emit > 0 and cur_death_prob > 0 and cur_death_prob < 1.0), (p_target_does_not_emit, cur_death_prob)
+        log_probs[M:,t_idx] = ln_zero_approx(p_target_does_not_emit)
+        # log_probs[lives_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(1.0 - cur_death_prob)
+        # log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(cur_death_prob)
+        conditional_death_probs[t_idx] = cur_death_prob
+
+#    print 'log_probs2:'
+#    print log_probs
+
+    #add birth/clutter measurement association entries to the log-prob matrix
+    for m_idx in range(M):
+#        print 'log_probs3:'
+#        print log_probs
+
+        assert(params.SPEC['birth_clutter_likelihood'] == 'aprox1')
+
+        if get_immutable_set_meas_names(meas_groups[m_idx]) in params.birth_lambdas_by_group:
+            birth_lambda = params.birth_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]
+        if not get_immutable_set_meas_names(meas_groups[m_idx]) in params.birth_lambdas_by_group or birth_lambda == 0:
+            #use a small value if we never saw one of these groups in our training data            
+            birth_lambda = min(params.birth_lambdas_by_group.itervalues())/100
+
+        if get_immutable_set_meas_names(meas_groups[m_idx]) in params.clutter_lambdas_by_group:
+            clutter_lambda = params.clutter_lambdas_by_group[get_immutable_set_meas_names(meas_groups[m_idx])]
+        if not get_immutable_set_meas_names(meas_groups[m_idx]) in params.clutter_lambdas_by_group or clutter_lambda == 0:
+            clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100
+
+
+        log_clutter_prob = ln_zero_approx(clutter_lambda) + \
+            ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
+
+
+        log_birth_prob = ln_zero_approx(birth_lambda) + \
+            ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
+
+        log_birth_or_clutter_prob = ln_zero_approx(np.exp(log_clutter_prob) + np.exp(log_birth_prob))
+        log_probs[m_idx][T +  m_idx] = log_birth_or_clutter_prob
+        assert(not math.isnan(log_probs[m_idx][T +  m_idx]))
+        conditional_birth_probs[m_idx] = np.exp(log_birth_prob)/(np.exp(log_birth_prob) + np.exp(log_clutter_prob))
+
+    #set bottom right quadrant to 0's
+    for row_idx in range(M, M+T):
+        for col_idx in range(T, T+M):
+            log_probs[row_idx][col_idx] = 0.0
+#    print 'log_probs5:'
+#    print log_probs
+
+    # print "!"*80
+    # print "log_probs4 matrix:"
+    # for row in range(log_probs.shape[0]):
+    #     for col in range(log_probs.shape[1]):
+    #         print log_probs[row][col],
+    #     print 
+    # print
+
+    return log_probs, conditional_birth_probs, conditional_death_probs
+
+def ln_zero_approx(x):
+    #return a small number instead of -infinity for ln(0)
+    if x == 0:
+        return -sys.maxint
+    else:
+        return math.log(x)
 
 def convert_assignment_matrix3(assignment_matrix, M, T):
     '''  
@@ -1466,7 +1704,7 @@ def solve_gumbel_perturbed_assignment3(log_probs, M, T):
 
 
 
-def associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params, meas_counts_by_source):
+def associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_target_deaths, params, meas_counts_by_source, cur_time):
     '''
     Sample measurement associations from the optimal proposal distribution 
     p(c_k | e_{1-k-1}, c_{1:k-1}, y_{1:k})
@@ -1476,7 +1714,7 @@ def associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_tar
     Inputs:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle     
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
-        in the group, key='det_name', value=detection
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
     - total_target_count: the number of living targets on the previous time instace
     - p_target_deaths: a list of length len(total_target_count) where 
         p_target_deaths[i] = the probability that target i has died between the last
@@ -1538,7 +1776,7 @@ def associate_meas_gumbel_exact(particle, meas_groups, total_target_count, p_tar
                     all_norm_probs[idx]
 
         (a, b, c, d, check_partition_val, check_proposal_distribution, check_proposal_distr_dict) = associate_meas_optimal(particle, meas_groups, \
-            total_target_count, p_target_deaths, params, meas_counts_by_source)
+            total_target_count, p_target_deaths, params, meas_counts_by_source, cur_time=cur_time)
         
         for assoc, check_prob in check_proposal_distr_dict.iteritems():
             assert(assoc in matrix_proposal_excluding_deaths)
@@ -1822,7 +2060,7 @@ def enumerate_measurement_associations(target_count, measurement_count):
 def get_immutable_set_meas_names(meas_group):
     '''
     Inputs:
-    - meas_group: a dictionary of detections, key='det_name', value=detection
+    - meas_group: a dictionary of detections, key='det_name', value=detObject
 
     Outputs:
     - meas_names_set: an ImmutableSet of the det_names in this group (all the keys in meas_group)
@@ -1843,7 +2081,7 @@ def unnormalized_marginal_meas_target_assoc(particle, meas_groups, total_target_
     Input:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle     
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
-        in the group, key='det_name', value=detection
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
     - total_target_count: the number of living targets on the previous time instace
     - params: type Parameters, gives prior probabilities and other parameters we are using
 
@@ -2023,7 +2261,7 @@ def associate_meas_min_cost_corrected(particle, meas_groups, total_target_count,
     Input:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle     
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
-        in the group, key='det_name', value=detection
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
     - total_target_count: the number of living targets on the previous time instace
     - p_target_deaths: a list of length len(total_target_count) where 
         p_target_deaths[i] = the probability that target i has died between the last
@@ -2083,21 +2321,661 @@ def associate_meas_min_cost_corrected(particle, meas_groups, total_target_count,
     assert(meas_targ_assoc.count(total_target_count) == total_birth_count)
     assert(meas_targ_assoc.count(-1) == total_clutter_count)
 
-    return(meas_targ_assoc, meas_grp_means4D, meas_grp_covs, proposal_probability)
+    return(meas_targ_assoc, meas_grp_means4D, meas_grp_covs, proposal_probability, sampled_meas_targ_assoc_idx)
 
 
-def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_deaths, params):
+def get_det_features(seq_det_feature_array, det, frame_idx, debug_info):
+    '''
+    Get image features for a single object detection
+    
+    Inputs:
+    - seq_det_feature_array: array, output by deepsort with dimensions
+        (# of detections in the corresponding MOT sequence) x 135 containing
+        features for detections from a specific object detection algorithm
+        on a specific training sequence.
+        Each row corresponds to a single detection in the particular training sequence, 
+        the first 10 dimensions contain information about detection:
+        [1 indexed frame_idx, junk, bb_left, bb_top, bb_width, bb_height, detection confidence score]
+        The next 128 elements are extracted image features
+    
+    - det: type numpy array, the object detection whose features we will return
+          [x_position, y_position, width, height]
+    
+    - frame_idx: int, the 0 indexed frame det occurs in
+    Outputs:
+    - features: 1d array of length 128, containing the
+        features stored in seq_det_feature_array corresponding to det
+    '''
+    det_width = det[2]
+    det_height = det[3]
+    det_x1 = det[0] - det_width/2
+    det_y1 = det[1] - det_height/2
+
+    for det_idx in range(seq_det_feature_array.shape[0]):
+        #MOT stores frame indices indexed from 1 so we subtract 1 below
+        if seq_det_feature_array[det_idx][0] - 1 == frame_idx and \
+              np.abs(seq_det_feature_array[det_idx][2] - det_x1) < .001 and\
+              np.abs(seq_det_feature_array[det_idx][3] - det_y1) < .001 and\
+              np.abs(seq_det_feature_array[det_idx][4] - det_width) < .001 and\
+              np.abs(seq_det_feature_array[det_idx][5] - det_height) < .001:
+            features = seq_det_feature_array[det_idx, 7:]
+            assert(features.shape == (128,)), features.shape
+#            print "detection found"
+            return features
+        
+    print "couldn't find detection: seq_idx=", debug_info['seq_idx'], 'det_name=', debug_info['det_name'], 
+    print 'frame_idx=', frame_idx, seq_det_feature_array[0][0] - 1, frame_idx==seq_det_feature_array[0][0] - 1
+    print "det.x1", det.x1, seq_det_feature_array[0][2], det.x1==seq_det_feature_array[0][2]
+    print "det.y1", det.y1, seq_det_feature_array[0][3], det.y1==seq_det_feature_array[0][3]
+    print "det.width ", det.width, seq_det_feature_array[0][4], det.width==seq_det_feature_array[0][4]
+    print "det.height", det.height, seq_det_feature_array[0][5], det.height==seq_det_feature_array[0][5]
+    
+    #f = open('./debug.quick', 'r')
+    #[frame_idx, frame_idx_f, x1, x1_f,  y1, y1_f,  width, width_f,  height, height_f] = pickle.load(f)
+    #f.close()
+    f = open('./debug.quick', 'w')
+    pickle.dump([frame_idx, seq_det_feature_array[0][0] - 1, det.x1, seq_det_feature_array[0][2],  det.y1, seq_det_feature_array[0][3],  det.width, seq_det_feature_array[0][4],  det.height, seq_det_feature_array[0][5]], f)
+    f.close()                
+    
+    np.set_printoptions(precision=2, suppress=True)
+    print seq_det_feature_array[0:10, 0:10]
+    
+    assert(False), 'detection not found'
+
+
+
+def obj_l2_dist(a,b):
+    x_dist = a.x - b.x
+    y_dist = a.y - b.y
+    distance = math.sqrt(x_dist**2 + y_dist**2)
+    return distance
+
+def obj_boxoverlap(a,b,criterion="union"):
+    """
+        boxoverlap computes intersection over union for bbox a and b in KITTI format.
+        Criterion only implemented for 'union', overlap = (a inter b) / a union b).
+        Inputs:
+        - a: type gtObject or detObject
+        - b: type gtObject or detObject
+    """
+    x1 = max(a.x1, b.x1)
+    y1 = max(a.y1, b.y1)
+    x2 = min(a.x2, b.x2)
+    y2 = min(a.y2, b.y2)
+    
+    w = x2-x1
+    h = y2-y1
+
+    if w<=0. or h<=0.:
+        return 0.
+    inter = w*h
+    aarea = (a.x2-a.x1) * (a.y2-a.y1)
+    barea = (b.x2-b.x1) * (b.y2-b.y1)
+    # intersection over union overlap
+    if criterion.lower()=="union":
+        o = inter / float(aarea+barea-inter)
+    else:
+        raise TypeError("Unkown type for criterion")
+    return o
+
+def obj_dist(a, b, distance_metric):
+    if distance_metric == 'euclidean':
+        return obj_l2_dist(a,b)
+    elif distance_metric == 'bb_overlap':
+        return 1-obj_boxoverlap(a,b,criterion="union")
+    else:
+        raise TypeError("Unkown type for distance_metric")
+
+
+
+def get_k_NN(obj, all_neighbor_objs, k, distance_metric):
+    '''
+    return indices of and distances to the k nearest neighbors of obj in all_neighbor_objs
+    
+    Inputs:
+    - obj: type BoundingBoxLocation
+    - all_neighbor_objs: type list of BoundingBoxLocations
+    - k: int, find nearest k neighbors
+    - distance_metric: type string, either 'euclidean' or 'bb_overlap'
+
+    Outputs:
+    - neigbor_indices: length k of neigbor indices
+        --nearest_k_neighbors[i] is the index in all_neighbor_objs of the ith nearest neighbor to obj
+    '''
+    #list of tuples with
+    # -neighbor_dists[i][0]: index of a neighbor obj
+    # -neighbor_dists[i][1]: distance between obj and the other obj
+    neighbor_dists = []
+
+    #find nearest neighbor objects to obj
+    for neighbor_idx, neighbor_obj in enumerate(all_neighbor_objs):
+        neighbor_dists.append((neighbor_idx, obj_dist(obj, neighbor_obj, distance_metric)))
+    sorted_neighbor_dists = sorted(neighbor_dists, key=lambda x: x[1]) #sort by distance, the second element in each tuple
+    nearest_k_neighbors = sorted_neighbor_dists[0:k]
+    neigbor_indices = []
+    for nn_idx, nn_dist in nearest_k_neighbors:
+        neigbor_indices.append(nn_idx)
+    #debugging
+    assert(len(neigbor_indices) == min(k, len(all_neighbor_objs))), (len(neigbor_indices), k, len(all_neighbor_objs))
+    for nn in neigbor_indices:
+        assert(nn!=None)
+    #end debugging
+    return neigbor_indices
+
+class BoundingBoxLocation:
+    '''
+    Position and size of a bounding box
+    '''
+    def __init__(self, x, y, width, height):
+        self.x = x #x position of bounding box center
+        self.y = y #y position of bounding box center
+        self.width = width
+        self.height = height
+
+        self.x1 = x - width/2
+        self.x2 = x + width/2
+        self.y1 = y - width/2
+        self.y2 = y + width/2
+
+
+def get_target_emission_prior_conditionImgFt(target_img_feats, target_BB, target_assoc,\
+    meas_grp_img_feats, meas_grp_BBs, params):
+    '''
+
+    Inputs:
+    - target_img_feats: 2d array with dimension (1,128), image features for the target whose prior emission/association probability conditioned
+        on image features we are calculating
+    - target_BB: type BoundingBoxLocation for for the target whose prior emission/association probability conditioned
+        on image features we are calculating
+    - target_assoc: int, index in (meas_grp_img_feats) of the measurement group this target is associated with, or -1
+        if unassociated
+    - meas_grp_img_feats: list of length len(meas_groups) containing image features for each measurement group
+    - meas_grp_BBs: list of length len(meas_groups) containing bounding boxes for each measurement group's combined bounding box
+        order same as meas_grp_img_feats    
+
+    Outputs:
+    - emission_prob: the prior probabiltiy, conditioned on image features, that this target emits a measurement
+        with image features meas_grp_img_feats[target_assoc] or doesn't emit a measurement (if target_assoc = -1)
+    '''
+    #k_NN: int, the number of nearest neighbor detections to each target we compute association priors for
+    k_NN=params.SPEC['emission_prior_k_NN']
+    #distance_metric: type string, either 'euclidean' or 'bb_overlap'
+    distance_metric=params.SPEC['emission_prior_distance_metric']
+    #tf_emission_priors: dictionary containing tensor flow model and placeholders    
+    tf_emission_priors=params.SPEC['tf_emission_priors']
+
+    #nn_meas is a list containing the nearest neighbor measurements to target i
+    #nn_meas[i] is the integer index in meas_grp_img_feats/meas_grp_BBs of the ith nearest measurement 
+    nn_meas = get_k_NN(obj=target_BB, all_neighbor_objs=meas_grp_BBs, k=k_NN, distance_metric=distance_metric)
+    #if the target is associated with a measurement that is not one of its k_NN nearest neighbors, replace
+    #its most distant measurement nearest neighbor with the associated measurement
+    if target_assoc != -1 and not target_assoc in nn_meas:
+        nn_meas[-1] = target_assoc
+
+    cos_distances = []
+    for meas_idx in nn_meas:
+        cos_distances.append(spatial.distance.cosine(target_img_feats, meas_grp_img_feats[meas_idx]))
+
+    #in case the target has less than k_NN nearest neighbors, pad cos_distances with 1's
+    if len(cos_distances) < k_NN:
+        num_missing_NN = k_NN - len(cos_distances)
+        for i in range(num_missing_NN):
+            cos_distances.append(1)
+
+    cos_distances = np.array([cos_distances]) #make 2d array
+
+    emission_priors = tf_emission_priors['priors'].eval(feed_dict={tf_emission_priors['x']: cos_distances,\
+                                                                   tf_emission_priors['keep_prob']: 1.0})
+    assert(emission_priors.size == k_NN+1), (emission_priors.size, k_NN+1)
+    if target_assoc == -1:
+        emission_prob = emission_priors[0, k_NN]
+    else:
+        emission_prob = emission_priors[0, nn_meas.index(target_assoc)]
+    return emission_prob
+
+def get_all_targets_emission_prior_conditionImgFt(particle, meas_groups, \
+                    measurement_assoc,frame_idx, params):
+    '''
+    get the prior probability of all targets emitting/not emitting and associating with measurements as 
+    specified in measurement_assoc, conditioned on bounding box image features
+    Inputs:
+    - particle: type Particle, get association/emission priors for every target in this Particle
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detOdetection (should be numpy array of [x,y,width,height])
+    - measurement_assoc: list of length=#measurement groups.  measurement_assoc[i] = j means
+        that the ith measurement group is associated with the jth target.  -1 means the ith
+        measurement is not associated with any living target.    
+    - frame_idx: int, the 0 indexed current frame 
+    - params: type Parameters
+    Outputs:
+    - total_emission_prior: product of individual target emissions priors (modelling as independent)
+    '''
+
+    #seq_det_feature_arrays: dictionary with
+    #    key: ('det_name', seq_idx)
+    #    value: array output by deepsort with dimensions
+    #        (# of detections in the corresponding MOT sequence) x 135 containing
+    #        features for detections from the object detection algorithm specified
+    #        by 'det_name' on a specific training sequence.
+    #        Each row corresponds to a single detection in the particular training sequence, 
+    #        the first 10 dimensions contain information about detection:
+    #        [1 indexed frame_idx, junk, bb_left, bb_top, bb_width, bb_height, detection confidence score]
+    #        The next 128 elements are extracted image features    
+    seq_det_feature_arrays=params.SPEC['seq_det_feature_arrays']
+    #seq_idx: int, index of the current sequence
+    seq_idx=params.SPEC['seq_idx']
+    meas_grp_means4D = []
+    for (index, detection_group) in enumerate(meas_groups):
+        (combined_meas_mean, combined_covariance) = combine_arbitrary_number_measurements_4d(params.posAndSize_inv_covariance_blocks, 
+                            params.meas_noise_mean, detection_group)
+        meas_grp_means4D.append(combined_meas_mean)
+
+
+
+    #list of length len(meas_groups) containing image features for each measurement group
+    meas_grp_img_feats = []
+    #list of length len(meas_groups) containing bounding boxes for each measurement group's combined bounding box
+    meas_grp_BBs = []
+    for grp_idx, meas_grp in enumerate(meas_groups):
+        meas_grp_BBs.append(BoundingBoxLocation(x=meas_grp_means4D[grp_idx][0],
+                                                y=meas_grp_means4D[grp_idx][1],
+                                                width=meas_grp_means4D[grp_idx][2],
+                                                height=meas_grp_means4D[grp_idx][3]))
+        for det_name in params.SPEC['det_names']:
+            if det_name in meas_grp:
+                det = meas_grp[det_name]
+                debug_info = {'seq_idx': params.SPEC['seq_idx'], 'det_name': det_name}
+                meas_grp_img_feats.append(get_det_features(seq_det_feature_arrays[(det_name, seq_idx)], det, frame_idx, debug_info))
+                break
+
+    #list of length (#living targets) containing image features for each living target
+    #ordered in the standard order of particle.targets.living_targets
+    all_target_img_feats = []
+    #list of length (#living targets) containing bounding boxes for each living target
+    #ordered in the standard order of particle.targets.living_targets
+    target_BBs = []    
+    for target_index in range(particle.targets.living_count):
+        target = particle.targets.living_targets[target_index]            
+        all_target_img_feats.append(target.img_features)
+        target_BBs.append(BoundingBoxLocation(x=target.x[0][0],
+                                              y=target.x[2][0],
+                                              width=target.width,
+                                              height=target.height))
+
+
+    target_NN_dets = []
+    total_emission_prior = 1.0
+    for t_idx in range(particle.targets.living_count):
+        if not t_idx in measurement_assoc:
+            target_assoc = -1 #target isn't associated with a measurement
+        else:
+            target_assoc = measurement_assoc.index(t_idx) #index of measurement the target is associated with
+
+        cur_target_emission_prior = get_target_emission_prior_conditionImgFt(target_img_feats=all_target_img_feats[t_idx], \
+            target_BB=target_BBs[t_idx], target_assoc=target_assoc,\
+            meas_grp_img_feats=meas_grp_img_feats, meas_grp_BBs=meas_grp_BBs, params=params)
+        total_emission_prior *= cur_target_emission_prior
+
+    return total_emission_prior
+
+
+
+def min_cost_BB_assoc(bb_lA, bb_lB, distance_metric='bb_overlap', max_assoc_cost=.5):
+    """
+    Take two lists of bounding boxes and associate so the sum of associated distances is minimized.
+
+    Inputs:
+    - bb_lA: list of BoundingBoxLocations
+    - bb_lB: list of BoundingBoxLocations
+    - distance_metric: string 'bb_overlap' or 'euclidean'
+    - max_assoc_cost: association costs (distances) greater than this value are not allowed
+
+    Outputs:
+    - measurement_assoc: list of length=len(bb_lA).  measurement_assoc[i] = j means
+        that the ith bounding box from bb_lA is associated with the jth bounding box 
+        from bb_lB.  -1 means the ith bounding box form bb_lA is not associated with 
+        any bounding box from bb_lB.
+    """
+
+    hm = Munkres()
+    max_cost = 1e9
+
+    # use hungarian method to associate, using boxoverlap 0..1 as cost
+    # build cost matrix
+    cost_matrix = []
+    this_ids = [[],[]]
+
+    for bb_A in bb_lA:
+        cost_row = []
+        for bb_B in bb_lB:
+            c = obj_dist(bb_A, bb_B, distance_metric)
+            # gating for boxoverlap
+            if c<=max_assoc_cost:
+                cost_row.append(c)
+            else:
+                cost_row.append(max_cost)
+        cost_matrix.append(cost_row)
+    
+    if len(bb_lA) is 0:
+        cost_matrix=[[]]
+    # associate
+    #lin_assign = linear_assignment.LinearAssignment(cost_matrix)
+    #solution = lin_assign.solution
+    #association_list = zip([i for i in range(len(solution))], solution)
+    association_list = hm.compute(cost_matrix)
+    
+    measurement_assoc = [-1 for i in range(len(bb_lA))]
+    for row,col in association_list:
+        # apply gating on boxoverlap
+        c = cost_matrix[row][col]
+        if c < max_cost:
+            bb_A = bb_lA[row]
+            bb_B = bb_lB[col]
+            measurement_assoc[row] = col
+            if np.abs(c - obj_dist(bb_A, bb_B, distance_metric)) > .000001:
+                print "bb_lA:"
+                for bb_A in bb_lA:
+                    print bb_A.x, bb_A.y, bb_A.width, bb_A.height
+                print "bb_lB:"
+                for bb_B in bb_lB:
+                    print bb_B.x, bb_B.y, bb_B.width, bb_B.height
+                print "association_list:", association_list
+            assert(np.abs(c - obj_dist(bb_A, bb_B, distance_metric)) < .000001), (c, obj_dist(bb_A, bb_B, distance_metric), cost_matrix, bb_lA, bb_lB)
+
+    return measurement_assoc
+
+
+def group_detectionSource_to_groundTruth(gt_objects, detection_locations, det_widths, det_heights):
+    """
+    Take a list of detections and try to associate them with ground truth bounding boxes
+
+    Inputs:
+    
+
+    Outputs:
+    - det_gt_association_pairs: (list of pairs of ints) each pair represents an association between 
+        a detection and a ground truth object.  The pair specifies the indices (in input lists) of
+        the (detection, ground truth object).
+    """
+    hm = Munkres()
+    max_cost = 1e9
+
+    # use hungarian method to associate, using boxoverlap 0..1 as cost
+    # build cost matrix
+    cost_matrix = []
+    this_ids = [[],[]]
+
+    assert(len(detection_locations) == len(det_widths) and len(det_widths) == len(det_heights))
+    #combine into 4d detections
+    detections = []
+    for det_idx, det_loc in enumerate(detection_locations):
+        detections.append(np.array([det_loc[0], det_loc[1], det_widths[det_idx], det_heights[det_idx]]))
+
+    ground_truth = []
+    for gt_object in gt_objects:
+        ground_truth.append(np.array([gt_object.x, gt_object.y, gt_object.width, gt_object.height]))
+
+    for cur_detection in detections:
+        cost_row = []
+        for cur_gt in ground_truth:
+            c = 1-boxoverlap(cur_detection, cur_gt)
+            # gating for boxoverlap
+            if c<=.5:
+                cost_row.append(c)
+            else:
+                cost_row.append(max_cost)
+
+        cost_matrix.append(cost_row)
+    
+    if len(detections) is 0:
+        cost_matrix=[[]]
+    # associate
+    #switch to linear_assignment for speed, but need to deal with more rows than columns
+    #lin_assign = linear_assignment.LinearAssignment(cost_matrix)
+    #solution = lin_assign.solution
+    #association_list = zip([i for i in range(len(solution))], solution)
+    association_list = hm.compute(cost_matrix)
+
+    det_gt_association_pairs = []
+
+    for det_idx,gt_idx in association_list:
+        # apply gating on boxoverlap
+        c = cost_matrix[det_idx][gt_idx]
+        if c < max_cost:
+            det_gt_association_pairs.append((det_idx, gt_idx))
+    return det_gt_association_pairs
+
+def get_gt_assoc(particle, meas_groups, cur_time, total_target_count, params, measurement_locations=None, widths=None, heights=None):
+    """
+    Check upper bound on our tracking performance by calculating ground truth measurement associations.
+    Steps:
+        1. combine meas_groups to form a single bounding box for each group and and associate
+           with ground truth in gt_objects[seq_idx][frame_idx]
+        2. associate the state of all targets (particle.targets.living_targets) at frame_idx-1 
+            ground truth in gt_objects[seq_idx][frame_idx-1]
+        3. associate measurements with targets based on results from 1 and 2
+
+    Input:
+    - particle: type Particle, we will perform sampling and importance reweighting on this particle     
+    - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
+    - cur_time: float, frame_idx*DEFAULT_TIME_STEP where frame_idx is 0 indexed
+    - total_target_count: the number of living targets on the previous time instace, used
+    - params: type Parameters, gives prior probabilities and other parameters we are using
+
+    Output:
+    - gt_associations: list of ground truth associations for each measurement group:
+        -1: clutter
+        [0, total_target_count-1]: target association
+        total_target_count: birth
+    - 
+    - meas_assoc_gt_obj_ids: list containing the track_id of the ground truth object each measurement is 
+        associated with, or -1 if the measurement is clutter
+
+        
+    """
+    frame_idx = int(round(cur_time/DEFAULT_TIME_STEP))
+    seq_idx=params.SPEC['seq_idx']
+
+    #meas_grp_means4D: list of numpy arrays of combined measurment group x,y,width,height
+    meas_grp_covs = []   
+    meas_grp_means2D = []
+    meas_grp_means4D = []
+    for (index, detection_group) in enumerate(meas_groups):
+        (combined_meas_mean, combined_covariance) = combine_arbitrary_number_measurements_4d(params.posAndSize_inv_covariance_blocks, 
+                            params.meas_noise_mean, detection_group)
+        combined_meas_pos = combined_meas_mean[0:2]
+        meas_grp_means2D.append(combined_meas_pos)
+        meas_grp_means4D.append(combined_meas_mean)
+        meas_grp_covs.append(combined_covariance)
+
+    #list of type BoundingBoxLocation for meas_groups
+    meas_group_BBs = []
+    #we assume iteration order over python dictionaries is consistent.
+    #this should be fine since we aren't changing any values, but is somewhat dangerous.
+    for det_group in meas_grp_means4D:
+        print "det_group shape:", det_group.shape
+        meas_group_BBs.append(BoundingBoxLocation(det_group[0], \
+                                                  det_group[1], \
+                                                  det_group[2], \
+                                                  det_group[3]))
+
+    #list of type boundingboxlocation for particle.targets.living_targets at frame_idx-1
+    prv_target_BBs = []
+    #list of type boundingboxlocation for particle.targets.living_targets at frame_idx
+    cur_target_BBs = []
+    #list of integers of the track_ids of the gt_objects each target at frame_idx was last associated with
+    cur_target_last_gt_assocs = []
+    for cur_target in particle.targets.living_targets:
+        x = cur_target.all_states[-2][0][0][0]
+        y = cur_target.all_states[-2][0][2][0]
+        width = cur_target.all_states[-2][1]
+        height = cur_target.all_states[-2][2]
+        prv_target_BBs.append(BoundingBoxLocation(x, y, width, height))
+
+        x = cur_target.all_states[-1][0][0][0]
+        y = cur_target.all_states[-1][0][2][0]
+        width = cur_target.all_states[-1][1]
+        height = cur_target.all_states[-1][2]
+        cur_target_BBs.append(BoundingBoxLocation(x, y, width, height))
+        cur_target_last_gt_assocs.append(cur_target.last_gt_assoc)
+    gt_objects = params.SPEC['gt_obects']
+    #list of type BoundingBoxLocation for gt_objects[seq_idx][frame_idx]
+    cur_gt_BBs = []
+    #list of track_ids for gt_objects[seq_idx][frame_idx]
+    cur_gt_IDs = []
+    for gt_obj in gt_objects[seq_idx][frame_idx]:
+        cur_gt_BBs.append(BoundingBoxLocation(gt_obj.x, \
+                                              gt_obj.y, \
+                                              gt_obj.width, \
+                                              gt_obj.height))
+        cur_gt_IDs.append(gt_obj.track_id)
+
+    #list of type BoundingBoxLocation for gt_objects[seq_idx][frame_idx-1]
+    prv_gt_BBs = []
+    #list of track_ids for gt_objects[seq_idx][frame_idx-1]
+    prv_gt_IDs = []
+    for gt_obj in gt_objects[seq_idx][frame_idx-1]:
+        prv_gt_BBs.append(BoundingBoxLocation(gt_obj.x, \
+                                              gt_obj.y, \
+                                              gt_obj.width, \
+                                              gt_obj.height))
+        prv_gt_IDs.append(gt_obj.track_id)
+
+    #meas_gt_assoc_list[i] = j means meas_group i is associated with cur_gt j
+    #meas_gt_assoc_list[i] = -1 means meas_group i clutter.
+    meas_gt_assoc_list = min_cost_BB_assoc(meas_group_BBs, cur_gt_BBs, distance_metric='bb_overlap', max_assoc_cost=.5)
+    #gt_target_assoc_list[i] = j means prv_gt i is associated with target j at frame_idx-1
+    #gt_target_assoc_list[i] = -1 means prv_gt i is unassociated with any target at frame_idx-1.
+    gt_target_assoc_list = min_cost_BB_assoc(prv_gt_BBs, prv_target_BBs, distance_metric='bb_overlap', max_assoc_cost=.5)
+
+    MinCostAssoc_gtDeaths = False
+    if MinCostAssoc_gtDeaths:
+######### QUICK CHECK Min-cost associations and ground truth deaths #############
+        #gt_target_assoc_list[i] = j means meas_group i is associated with target j at frame_idx
+        #gt_target_assoc_list[i] = -1 means meas_group i is unassociated with any target at frame_idx.
+        meas_target_assoc_list = min_cost_BB_assoc(meas_group_BBs, cur_target_BBs, distance_metric='bb_overlap', max_assoc_cost=.5)
+        gt_associations = []
+        #a list containing the track_id of the ground truth object each measurement is 
+        #associated with, or -1 if the measurement is clutter
+        meas_assoc_gt_obj_ids = []
+        for meas_idx, target_idx in enumerate(meas_target_assoc_list):
+            cur_gt_idx = meas_gt_assoc_list[meas_idx]
+            if cur_gt_idx == -1: #this is a clutter measurement
+                meas_assoc_gt_obj_ids.append(-1)
+            else:
+                gt_id = cur_gt_IDs[cur_gt_idx]
+                meas_assoc_gt_obj_ids.append(gt_id)
+    
+            if target_idx == -1: #measurement unassociated with a target, clutter or birth
+                gt_id = cur_gt_IDs[cur_gt_idx]
+                if cur_gt_idx == -1: #this is a clutter measurement
+                    gt_associations.append(-1)
+                else:#this is a birth measurement
+                    gt_associations.append(total_target_count)
+    
+            else:
+                gt_associations.append(target_idx)
+######### END QUICK CHECK Min-cost associations and ground truth deaths #############
+
+    else:
+        #associate measurements:
+        # -clutter: if the measurement is not associated with any ground truth obect at frame_idx
+        # -target: if the measurement is associated with a ground truth object at frame_idx and
+        #   that same ground truth object is associated with a target at frame_idx-1
+        # -birth: if the measurement is associated with a ground truth object at frame_idx and
+        #   that ground truth obect is not associated with any targets at frame_idx-1
+        gt_associations = []
+        #a list containing the track_id of the ground truth object each measurement is 
+        #associated with, or -1 if the measurement is clutter
+        meas_assoc_gt_obj_ids = []
+        for meas_idx, cur_gt_idx in enumerate(meas_gt_assoc_list):
+            if cur_gt_idx == -1: #this is a clutter measurement
+                gt_associations.append(-1)
+                meas_assoc_gt_obj_ids.append(-1)
+            else:
+                gt_id = cur_gt_IDs[cur_gt_idx]
+                meas_assoc_gt_obj_ids.append(gt_id)
+                if gt_id in prv_gt_IDs:
+                    prv_gt_idx = prv_gt_IDs.index(gt_id)
+                    target_idx = gt_target_assoc_list[prv_gt_idx]
+                    if target_idx == -1: #this is a birth measurement
+                        gt_associations.append(total_target_count)
+                    else:
+                        gt_associations.append(target_idx)
+                else: #this is a birth measurement
+                    gt_associations.append(total_target_count)
+
+    #Find ground truth target deaths as follows:
+    # 1. Remove ground truth objects that have been associated with a measurement at frame_idx from cur_gt_BBs
+    # 2. Remove associated targets from target_BBs
+    # 3. Associate remaining targets with ground truth objects at frame_idx
+    # 4a. Ground truth target deaths are targets that are still
+    #     unassociated after 3.
+    # 4b. Alternatively, ground truth target deaths are unassociated targets after 3. AND
+    #     targets that are associated with a ground truth object other than the ground
+    #     truth object they were last associated with
+    USE_4B = True
+
+    #indices of targets that have died
+    gt_target_death_indices = []
+    # 1. Find ground truth bounding boxes that have not been associated with a measurement at frame_idx 
+    associated_gt_indices = [] #indices in cur_gt_BBs of unassociated gt objects
+    for meas_idx, cur_gt_idx in enumerate(meas_gt_assoc_list):
+        associated_gt_indices.append(cur_gt_idx)
+    unassociated_gt_BBs = [] #bounding boxes of unassociated gt objects 
+    unassociated_gt_track_ids = [] #track_ids of unassociated gt objects 
+    for cur_gt_idx, cur_gt_bb in enumerate(cur_gt_BBs):
+        if not cur_gt_idx in associated_gt_indices:
+            unassociated_gt_BBs.append(cur_gt_bb)
+            unassociated_gt_track_ids.append(cur_gt_IDs[cur_gt_idx])
+    # 2. Find targets that have not been associated with a measurement at frame_idx
+    unassociated_target_BBs = []
+    unassociated_target_indices = []
+    unassociated_target_last_gt_assoc_ids = [] #track_ids of gt object targets were last associated with
+    for target_idx, target_BB in enumerate(cur_target_BBs):
+        if not target_idx in gt_associations:
+            unassociated_target_BBs.append(target_BB)
+            unassociated_target_indices.append(target_idx)
+            unassociated_target_last_gt_assoc_ids.append(cur_target_last_gt_assocs[target_idx])
+#####    Quick test of killing all unassociated targets immediately    
+#####            gt_target_death_indices.append(target_idx)
+#####    proposal_probability = 1.0
+#####    assert(len(meas_assoc_gt_obj_ids) == len(gt_associations))
+#####    return(gt_associations, meas_grp_means4D, meas_grp_covs, proposal_probability, gt_target_death_indices, meas_assoc_gt_obj_ids)
+
+    # 3. Associate remaining targets with remaining ground truth objects at frame_idx
+    #unassoc_target_gt_assoc_list[i] = j means unassociated target i is associated with unassociated cur_gt j
+    #unassoc_target_gt_assoc_list[i] = -1 means unassociated target i is unassociated and is dead
+    unassoc_target_gt_assoc_list = min_cost_BB_assoc(unassociated_target_BBs, unassociated_gt_BBs, distance_metric='bb_overlap', max_assoc_cost=.5)
+    for target_idx, target_assoc in enumerate(unassoc_target_gt_assoc_list):
+        if target_assoc == -1:
+            gt_target_death_indices.append(unassociated_target_indices[target_idx])
+        elif USE_4B: #apply 4b
+            last_gt_assoc_id = unassociated_target_last_gt_assoc_ids[target_idx]
+            cur_gt_assoc_id = unassociated_gt_track_ids[target_assoc]
+            if last_gt_assoc_id != cur_gt_assoc_id:
+                gt_target_death_indices.append(unassociated_target_indices[target_idx])
+
+    proposal_probability = 1.0
+
+    assert(len(meas_assoc_gt_obj_ids) == len(gt_associations))
+    return(gt_associations, meas_grp_means4D, meas_grp_covs, proposal_probability, gt_target_death_indices, meas_assoc_gt_obj_ids)
+
+
+def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_deaths, params, cur_time, meas_counts_by_source):
 
     """
     Input:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle     
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
-        in the group, key='det_name', value=detection
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
     - total_target_count: the number of living targets on the previous time instace
     - p_target_deaths: a list of length len(total_target_count) where 
         p_target_deaths[i] = the probability that target i has died between the last
         time instance and the current time instance
     - params: type Parameters, gives prior probabilities and other parameters we are using
+    - cur_time: float, frame_idx*DEFAULT_TIME_STEP where frame_idx is 0 indexed
 
     Output:
     - list_of_measurement_associations: list of associations for each measurement group
@@ -2123,6 +3001,22 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
         meas_grp_covs.append(combined_covariance)
 
 
+    sampled_assoc_idx = np.random.choice(2, p=[params.SPEC['prob_sample_assoc_uniform'], 1-params.SPEC['prob_sample_assoc_uniform']])
+    if(sampled_assoc_idx == 0): #sample associations uniformly at random, so proposal distribution has full support
+        possible_measurement_associations = [i for i in range(-1, total_target_count+1)]
+        final_measurement_associations = []
+        joint_proposal_probability = params.SPEC['prob_sample_assoc_uniform']
+        for meas_idx in range(len(meas_groups)):
+            cur_meas_assoc = np.random.choice(possible_measurement_associations)
+            final_measurement_associations.append(cur_meas_assoc)
+            joint_proposal_probability *= 1.0/len(possible_measurement_associations)
+            if cur_meas_assoc!=-1 and cur_meas_assoc!=total_target_count: #targets are associated at most once
+                possible_measurement_associations.remove(cur_meas_assoc)
+
+
+        return(final_measurement_associations, meas_grp_means4D, meas_grp_covs, joint_proposal_probability)
+
+    #otherwise, sample from min_cost measurement-target associations
     #get list of target bounding boxes  
     target_pos4D = []
     for target_index in range(total_target_count):
@@ -2132,7 +3026,10 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
 
 
     complete_association_possibilities = []
-    complete_association_probs = []
+
+    conditional_proposal_probabilities = []
+    marginal_proposal_distribution = []
+
 #    for idx, max_assoc_cost in enumerate(params.SPEC['target_detection_max_dists']):
     if params.SPEC['targ_meas_assoc_metric'] == 'distance':
         max_costs = params.SPEC['target_detection_max_dists']
@@ -2140,9 +3037,13 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
         assert(params.SPEC['targ_meas_assoc_metric'] == 'box_overlap')
         max_costs = params.SPEC['target_detection_max_overlaps']
 
+    print '#'*80, "measurement associations to sample from"
     for max_assoc_cost in max_costs:
         list_of_measurement_associations = min_cost_measGrp_target_assoc(meas_grp_means4D, target_pos4D, params, max_assoc_cost)
-        proposal_probability = 1.0
+        print list_of_measurement_associations
+        #the proposal probability of birth/clutter associations conditioned on list_of_measurement_associations
+        #target-measurement associations
+        conditional_proposal_probability = 1.0
 
         remaining_meas_count = list_of_measurement_associations.count(-1)
         for (index, detection_group) in enumerate(meas_groups):
@@ -2236,23 +3137,47 @@ def associate_meas_min_cost(particle, meas_groups, total_target_count, p_target_
                     assert(list_of_measurement_associations[index] == -1) #already -1 from min_cost_measGrp_target_assoc
                     clutter_count += 1
 
-                proposal_probability *= proposal_distribution[sampled_assoc_idx]
-
+                conditional_proposal_probability *= proposal_distribution[sampled_assoc_idx]
                 remaining_meas_count -= 1
+
         complete_association_possibilities.append(list_of_measurement_associations)
-        complete_association_probs.append(proposal_probability)
+        conditional_proposal_probabilities.append(conditional_proposal_probability)
 
-    conditional_proposal_distribution = np.asarray(complete_association_probs)
-    assert(np.sum(conditional_proposal_distribution) != 0.0)
-#    print conditional_proposal_distribution
-    conditional_proposal_distribution /= float(np.sum(conditional_proposal_distribution))
+        #calculate the exact association probability, (marginalized over target death)
+        if params.SPEC['use_log_probs'] == 'False':
+            likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
+                                           measurement_associations=list_of_measurement_associations, params=params, log=False)
+            assoc_prior = get_assoc_prior(particle, meas_groups, meas_grp_associations=list_of_measurement_associations, \
+                                          params=params, meas_counts_by_source=meas_counts_by_source, log=False, cur_time=cur_time)
+            exact_probability = likelihood * assoc_prior    
+            marginal_proposal_distribution.append(exact_probability)
+    
+        else:        
+            log_likelihood = get_likelihood(particle, meas_groups, particle.targets.living_count,
+                                           measurement_associations=list_of_measurement_associations, params=params, log=True)
+            log_assoc_prior = get_assoc_prior(particle, meas_groups, meas_grp_associations=list_of_measurement_associations, \
+                                              params=params, meas_counts_by_source=meas_counts_by_source, log=True, cur_time=cur_time)
+            log_exact_probability = log_likelihood + log_assoc_prior
+            marginal_proposal_distribution.append(log_exact_probability)
 
-    sampled_idx = np.random.choice(len(conditional_proposal_distribution),
-                                            p=conditional_proposal_distribution)
+
+    marginal_proposal_distribution = np.asarray(marginal_proposal_distribution)
+    if params.SPEC['use_log_probs'] == 'True': #exponentiate elements, dividing each by the largest before exponentiation to avoid 0's
+        max_log_prob = np.max(marginal_proposal_distribution)
+        marginal_proposal_distribution = marginal_proposal_distribution - max_log_prob
+        marginal_proposal_distribution = np.exp(marginal_proposal_distribution)    
+
+#   assert(np.sum(marginal_proposal_distribution) != 0.0), marginal_proposal_distribution
+    if np.sum(marginal_proposal_distribution) == 0.0: #everything unlikely, sample uniformly
+        marginal_proposal_distribution = np.ones(marginal_proposal_distribution.size)
+    marginal_proposal_distribution /= float(np.sum(marginal_proposal_distribution))
+    sampled_idx = np.random.choice(len(marginal_proposal_distribution),
+                                                p=marginal_proposal_distribution)
 
 
     final_measurement_associations = complete_association_possibilities[sampled_idx]
-    joint_proposal_probability = complete_association_probs[sampled_idx]*conditional_proposal_distribution[sampled_idx]
+    joint_proposal_probability = marginal_proposal_distribution[sampled_idx]*conditional_proposal_probabilities[sampled_idx]*\
+                                 (1-params.SPEC['prob_sample_assoc_uniform'])
 
 #    print 'returnHI'
     assert(remaining_meas_count == 0)
@@ -2267,7 +3192,7 @@ def associate_measurements_sequentially(particle, meas_groups, total_target_coun
     Input:
     - particle: type Particle, we will perform sampling and importance reweighting on this particle     
     - meas_groups: a list of detection groups, where each detection group is a dictionary of detections 
-        in the group, key='det_name', value=detection
+        in the group, key='det_name', value=detection (should be numpy array of [x,y,width,height])
     - total_target_count: the number of living targets on the previous time instace
     - p_target_deaths: a list of length len(total_target_count) where 
         p_target_deaths[i] = the probability that target i has died between the last
@@ -2489,7 +3414,8 @@ def sample_target_deaths(particle, unassociated_targets, cur_time):
     - unassociated_targets: a list of target indices that have not been associated with a measurement
 
     Output:
-    - targets_to_kill: a list of targets that have been sampled to die (not killed yet)
+    - targets_to_kill: a list of targets (integer indices in particle.targets.living_targets)
+        that have been sampled to die (not killed yet)
     - probability_of_deaths: the probability of the sampled deaths
     """
     targets_to_kill = []
@@ -2519,10 +3445,10 @@ def calc_death_prior(living_target_indices, p_target_deaths, unassociated_target
         log_death_prior = 0.0
         for (cur_target_index, cur_target_death_prob) in enumerate(p_target_deaths):
             if not(cur_target_index in living_target_indices):
-                log_death_prior += math.log(cur_target_death_prob)
+                log_death_prior += ln_zero_approx(cur_target_death_prob)
                 assert((cur_target_death_prob) != 0.0), cur_target_death_prob        
             elif cur_target_index in unassociated_target_indices:
-                log_death_prior += math.log((1.0 - cur_target_death_prob))
+                log_death_prior += ln_zero_approx((1.0 - cur_target_death_prob))
                 assert((1.0 - cur_target_death_prob) != 0.0), cur_target_death_prob
 
         return log_death_prior
@@ -2643,7 +3569,7 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, d
     -meas_noise_mean: a dictionary where meas_noise_mean['meas_namei'] = the mean measurement noise for measurement
     source with name 'meas_namei'
 
-    -detection_group: dictionary of detections to combine, key='det_name', value=detection
+    -detection_group: dictionary of detections to combine, key='det_name', value=detObject
 
     """
     meas_count = len(detection_group) #number of associated measurements
@@ -2670,16 +3596,17 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, d
 
 
 
-def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, params, meas_counts_by_source, log):
+def get_assoc_prior(particle, meas_groups, meas_grp_associations, params, meas_counts_by_source, log, cur_time):
     """
     Inputs:
+    - particle: type Particle
     - log: Bool, True return log probability, False return actual probability
     - living_target_count: number of living counts, measurement associations that correspond to association
         with a target will be in the range [0, living_target_count)
     - meas_counts_by_source: a list containing the number of measurements detected by each source
     """
-    #get list of detection names present in our detection group
 
+    living_target_count = particle.targets.living_count
     #count the number of unique target associations
     unique_assoc = set(meas_grp_associations)
     if(living_target_count in unique_assoc):
@@ -2698,7 +3625,15 @@ def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, par
         birth_count_by_group = defaultdict(int) #key = measurement source group, value = count of births detected by this group of sources
         clutter_count_by_group = defaultdict(int) #key = measurement source group, value = count of clutter detected by this group of sources
 
-        log_prior = unobserved_target_count*math.log(params.target_groupEmission_priors[ImmutableSet([])])
+        if params.SPEC['condition_emission_prior_img_feat']==True:
+            frame_idx = int(round(cur_time/DEFAULT_TIME_STEP))
+            log_prior = ln_zero_approx(get_all_targets_emission_prior_conditionImgFt(particle=particle, meas_groups=meas_groups, \
+                    measurement_assoc=meas_grp_associations,frame_idx=frame_idx, params=params))
+
+        else:
+            assert(params.SPEC['condition_emission_prior_img_feat']==False)            
+            log_prior = unobserved_target_count*ln_zero_approx(params.target_groupEmission_priors[ImmutableSet([])])
+        
         for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
             #get the names of detection sources in this group
             group_det_names = []
@@ -2706,25 +3641,26 @@ def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, par
                 group_det_names.append(det_name)
             det_names_set = ImmutableSet(group_det_names)          
       
-            if meas_grp_assoc>=0 and meas_grp_assoc < living_target_count: #target association
-                log_prior += math.log(params.target_groupEmission_priors[det_names_set])
+            if params.SPEC['condition_emission_prior_img_feat']==False and \
+               meas_grp_assoc>=0 and meas_grp_assoc < living_target_count: #target association      
+                log_prior += ln_zero_approx(params.target_groupEmission_priors[det_names_set])
             elif meas_grp_assoc == -1: #clutter
-                log_prior += math.log(params.clutter_group_prior(det_names_set))
+                log_prior += ln_zero_approx(params.clutter_group_prior(det_names_set))
                 clutter_count_by_group[det_names_set] += 1
             else: #birth
-                assert(meas_grp_assoc == living_target_count), (meas_grp_assoc, living_target_count)
-                log_prior += math.log(params.birth_group_prior(det_names_set))
+                assert(meas_grp_assoc == living_target_count or params.SPEC['condition_emission_prior_img_feat']==True), (meas_grp_assoc, living_target_count)
+                log_prior += ln_zero_approx(params.birth_group_prior(det_names_set))
                 birth_count_by_group[det_names_set] += 1
 
         birth_count = meas_grp_associations.count(living_target_count)
-        log_prior += math.log(params.birth_groupCount_prior(birth_count))
+        log_prior += ln_zero_approx(params.birth_groupCount_prior(birth_count))
 
         clutter_count = meas_grp_associations.count(-1)
-        log_prior += math.log(params.clutter_groupCount_prior(clutter_count))
+        log_prior += ln_zero_approx(params.clutter_groupCount_prior(clutter_count))
 
         if params.SPEC['scale_prior_by_meas_orderings'] == 'count_multi_src_orderings':
             number_association_orderings = count_association_orderings(meas_counts_by_source, birth_count_by_group, clutter_count_by_group)        
-            log_prior -= math.log(number_association_orderings)
+            log_prior -= ln_zero_approx(number_association_orderings)
 
         return log_prior
 
@@ -2732,7 +3668,14 @@ def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, par
         birth_count_by_group = defaultdict(int) #key = measurement source group, value = count of births detected by this group of sources
         clutter_count_by_group = defaultdict(int) #key = measurement source group, value = count of clutter detected by this group of sources
 
-        prior = params.target_groupEmission_priors[ImmutableSet([])]**unobserved_target_count
+        if params.SPEC['condition_emission_prior_img_feat']==True:
+            frame_idx = int(round(cur_time/DEFAULT_TIME_STEP))
+            prior = get_all_targets_emission_prior_conditionImgFt(particle=particle, meas_groups=meas_groups, \
+                    measurement_assoc=meas_grp_associations,frame_idx=frame_idx, params=params)
+        else:
+            assert(params.SPEC['condition_emission_prior_img_feat']==False)
+            prior = params.target_groupEmission_priors[ImmutableSet([])]**unobserved_target_count
+        
         for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
             #get the names of detection sources in this group
             group_det_names = []
@@ -2740,13 +3683,14 @@ def get_assoc_prior(living_target_count, meas_groups, meas_grp_associations, par
                 group_det_names.append(det_name)
             det_names_set = ImmutableSet(group_det_names)          
       
-            if meas_grp_assoc>=0 and meas_grp_assoc < living_target_count: #target association
+            if params.SPEC['condition_emission_prior_img_feat']==False and \
+               meas_grp_assoc>=0 and meas_grp_assoc < living_target_count: #target association
                 prior *= params.target_groupEmission_priors[det_names_set]
             elif meas_grp_assoc == -1:#clutter
                 prior *= params.clutter_group_prior(det_names_set)
                 clutter_count_by_group[det_names_set] += 1
             else: #birth
-                assert(meas_grp_assoc == living_target_count), (meas_grp_assoc, living_target_count)
+                assert(meas_grp_assoc == living_target_count or params.SPEC['condition_emission_prior_img_feat']==True), (meas_grp_assoc, living_target_count)
                 prior *= params.birth_group_prior(det_names_set)
                 birth_count_by_group[det_names_set] += 1                
 
@@ -3052,7 +3996,7 @@ def get_likelihood(particle, meas_groups, total_target_count,
 
 #            assert(cur_likelihood > 0.0), (cur_likelihood, log_likelihood, params.SPEC['birth_clutter_likelihood'], 'birth')
             if cur_likelihood > 0.0:
-                log_likelihood += math.log(cur_likelihood)
+                log_likelihood += ln_zero_approx(cur_likelihood)
             else:#use very small log probability
                 log_likelihood -= 500
 

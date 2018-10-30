@@ -100,7 +100,9 @@ def k_best_assign_mult_cost_matrices(k, cost_matrices, matrix_costs, M):
         assert(cur_cost_matrix.shape[0] == cur_cost_matrix.shape[1]), (cur_cost_matrix.shape, M)
         for i in range(cur_cost_matrix.shape[0]):
             for j in range(cur_cost_matrix.shape[1]):
-                assert(sys.maxint > cur_cost_matrix[i][j])
+#                assert(sys.maxint > cur_cost_matrix[i][j]), (cur_cost_matrix[i][j], i, j, cur_cost_matrix, k, cost_matrices, matrix_costs, M)
+                if(INFEASIBLE_COST <= cur_cost_matrix[i][j]):
+                    cur_cost_matrix[i][j] = INFEASIBLE_COST
     best_assignments = []
     cur_partition = []
     for (idx, cur_cost_matrix) in enumerate(cost_matrices):

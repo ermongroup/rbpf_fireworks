@@ -34,6 +34,8 @@ SKIP_LEARNING_Q = True
 #Be careful!! If changing data representation, e.g. class gtObject, need to delete pickled data!!
 USE_PICKLED_DATA = True
 
+#be careful with this!!!! check which parameters change the returned values
+USE_PICKLED_DATA_MEAS_TARGET_DANGER = False
 #########################################################################
 # function that does the evaluation
 # input:
@@ -333,9 +335,14 @@ class trackingEvaluation(object):
         if not loading_groundtruth:
             fake_track_id = 0 #we'll assign a unique id to every detected object
 
+        print("self.sequence_name:", self.sequence_name)
+
         for seq, s_name in enumerate(self.sequence_name):
+            print('beginning seq:', seq)
             i              = 0
+
             filename       = os.path.join(root_dir, "%s.txt" % s_name)
+            
             f              = open(filename, "r") 
 
             f_data         = [[] for x in xrange(self.n_frames[seq])] # current set has only 1059 entries, sufficient length is checked anyway
@@ -343,6 +350,7 @@ class trackingEvaluation(object):
             n_in_seq       = 0
             id_frame_cache = []
             for line in f:
+
                 if not loading_groundtruth:
                     fake_track_id += 1
                 # KITTI tracking benchmark data format:
@@ -365,6 +373,7 @@ class trackingEvaluation(object):
                     t_data.track_id     = int(float(fields[1]))     # id
                 else: 
                     t_data.track_id = fake_track_id
+
                 t_data.obj_type     = fields[2].lower()         # object type [car, pedestrian, cyclist, ...]
                 t_data.truncation   = float(fields[3])          # truncation [0..1]
                 t_data.occlusion    = int(float(fields[4]))     # occlusion  [0,1,2]
@@ -388,7 +397,7 @@ class trackingEvaluation(object):
                         if t_data.score <= self.cutoff_score:
                             continue
                     else:
-                        self.mail.msg("file is not in KITTI format")
+                        print("file is not in KITTI format")
                         return
 
                 # do not consider objects marked as invalid
@@ -403,15 +412,15 @@ class trackingEvaluation(object):
                 try:
                     id_frame = (t_data.frame,t_data.track_id)
                     if id_frame in id_frame_cache and not loading_groundtruth:
-                        self.mail.msg("track ids are not unique for sequence %d: frame %d" % (seq,t_data.frame))
-                        self.mail.msg("track id %d occured at least twice for this frame" % t_data.track_id)
-                        self.mail.msg("Exiting...")
+                        print("track ids are not unique for sequence %d: frame %d" % (seq,t_data.frame))
+                        print("track id %d occured at least twice for this frame" % t_data.track_id)
+                        print("Exiting...")
                         #continue # this allows to evaluate non-unique result files
                         return False
                     id_frame_cache.append(id_frame)
                     f_data[t_data.frame].append(copy.copy(t_data))
                 except:
-                    print len(f_data), idx
+                    print(len(f_data), idx)
                     raise
 
                 if t_data.track_id not in ids and t_data.obj_type!="dontcare":
@@ -425,11 +434,16 @@ class trackingEvaluation(object):
                 if not loading_groundtruth and eval_3d is True and(t_data.X==-1000 or t_data.Y==-1000 or t_data.Z==-1000):
                     eval_3d = False
 
+            print('0 ending seq:', seq)
             # only add existing frames
             n_trajectories_seq.append(n_in_seq)
             seq_data.append(f_data)
             f.close()
 
+            print('ending seq:', seq)
+
+
+        print('hi again, loading_groundtruth:', loading_groundtruth)
         if not loading_groundtruth:
             print "hi2!"
             self.tracker=seq_data
@@ -1093,12 +1107,15 @@ def evaluate(fw_spec, data_path, pickled_data_dir, min_score, det_method,mail,ob
         gt_path=data_path + "/training_ground_truth", mail=mail,cls=obj_class)
     # load tracker data and check provided classes
     e.loadDetections()
-    mail.msg("Evaluate Object Class: %s" % obj_class.upper())
+    print('-'*80)
+    print("Evaluate Object Class: %s" % obj_class.upper())
+    print("1 len(e.tracker):", len(e.tracker))
     classes.append(obj_class)
     # load groundtruth data for this class
     if not e.loadGroundtruth(include_dontcare_in_gt):
         raise ValueError("Ground truth not found.")
     mail.msg("Loading Groundtruth - Success")
+    print("2 len(e.tracker):", len(e.tracker))
     # sanity checks
     if len(e.groundtruth) is not len(e.tracker):
         mail.msg("The uploaded data does not provide results for every sequence.")
@@ -2660,7 +2677,8 @@ def boxoverlap(a,b,criterion="union"):
 
 class MultiDetections_many:
     def __init__(self, gt_objects, all_det_objects, training_sequences):
-        self.gt_objects = gt_objects #list of lists where gt_objects[i][j] is the jth gt_object in sequence i
+        #gt_objects[i][j] is a list of gtObjects in frame j of sequence i        
+        self.gt_objects = gt_objects 
         #dictionary where all_det_objects['det_name'] contains the detected objects of type 'det_name'
         self.all_det_objects = all_det_objects
         #self.clutter_detections[seq_idx][frame_idx], clutter_groups for the specified sequence and frame
@@ -2675,9 +2693,9 @@ class MultiDetections_many:
             self.clutter_detections.append(seq_clutter_detections)
 
 
-        #self.detection_groups[seq_idx][frame_idx], detection_groups for the specified sequence and frame
-        #detection_groups, list where each element is a detection_group
-        #detection_group, dictionary of detections in the group, key='det_name', value=detection
+        #self.detection_groups[seq_idx][frame_idx], detection_groups_list for the specified sequence and frame
+        #detection_groups_list, list where each element is a detection_group
+        #detection_group, dictionary of detections in the group, key='det_name', value=detObject
         self.detection_groups = []
         for seq_idx in range(len(self.gt_objects)):
             seq_detection_groups = []
@@ -2728,7 +2746,7 @@ class MultiDetections_many:
         Take a list of detections and try to associate them with detection groups from other measurement sources
         Inputs:
         - frame_detection_groups: a list of detection groups, where each detection group is a dictionary of detections 
-            in the group, key='det_name', value=detection
+            in the group, key='det_name', value=detObject
         - det_name: name of the detection source we are currently associating with current detection groups
         - detections: a list of detections from a specific measurement source, sequence, and frame
         - seq_idx: the sequence index
@@ -2878,7 +2896,7 @@ class MultiDetections_many:
 #        sleep(5)
         #self.detection_groups[seq_idx][frame_idx], detection_groups for the specified sequence and frame
         #detection_groups, list where each element is a detection_group
-        #detection_group, dictionary of detections in the group, key='det_name', value=detection
+        #detection_group, dictionary of detections in the group, key='det_name', value=detObject
 
 
     def store_associations_in_gt(self):
@@ -3455,6 +3473,26 @@ def get_meas_target_sets_general(fw_spec, obj_class, data_path, pickled_data_dir
     -bounding_box_size_var: variance in bounding box size among all ground_truth or clutter objects, used for data generation
 
     """
+    print("get_meas_target_sets_general called for detections:", detection_names)
+    if USE_PICKLED_DATA_MEAS_TARGET_DANGER:
+        if not os.path.exists(pickled_data_dir):
+            os.makedirs(pickled_data_dir)
+
+        data_filename = pickled_data_dir + "/measTargetSetInfoDANGER.pickle"
+        lock_filename = data_filename + "_lock"
+
+        if os.path.isfile(data_filename) and (not os.path.isfile(lock_filename)): 
+            f = open(data_filename, 'r')
+            (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group,
+            birth_count_priors, birth_lambdas_by_group, death_probs_near_border, death_probs_not_near_border, 
+            posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks,
+            clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize) = pickle.load(f)
+            f.close()
+            return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group,
+            birth_count_priors, birth_lambdas_by_group, death_probs_near_border, death_probs_not_near_border, 
+            posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks,
+            clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize)
+
 
     #Should have a score interval for each detection type
     assert(len(detection_names) == len(score_intervals))
@@ -3551,6 +3589,21 @@ def get_meas_target_sets_general(fw_spec, obj_class, data_path, pickled_data_dir
     #return (returnTargSets, target_emission_probs, clutter_probabilities, birth_probabilities, meas_noise_covs, death_probs_near_border, death_probs_not_near_border)
 
     #BIRTH AND CLUTTER PROBS ARE NOT DOCTORED, NEED TO DO LATER, e.g. replace any missing dictionary entry with epsilon when called
+
+    if USE_PICKLED_DATA_MEAS_TARGET_DANGER and (not os.path.isfile(lock_filename)):
+        #use a better locking idea
+        f_lock = open(lock_filename, 'w')
+        f_lock.write("locked\n")
+        f_lock.close()
+
+        f = open(data_filename, 'w')
+        pickle.dump((returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group,
+            birth_count_priors, birth_lambdas_by_group, death_probs_near_border, death_probs_not_near_border, 
+            posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks,
+            clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize), f)
+        f.close()  
+
+        os.remove(lock_filename)
 
     if return_bb_size_info:
         return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group,
@@ -3718,7 +3771,7 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, d
     -meas_noise_mean: a dictionary where meas_noise_mean['meas_namei'] = the mean measurement noise for measurement
     source with name 'meas_namei'
 
-    -detection_group: dictionary with key='det_name', value=detection. The group of detections that will be combined, 
+    -detection_group: dictionary with key='det_name', value=detObject. The group of detections that will be combined, 
     can have an arbitrary number of detections
 
     """

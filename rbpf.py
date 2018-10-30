@@ -36,7 +36,7 @@ from collections import defaultdict
 from sets import ImmutableSet
 
 sys.path.insert(0, '/atlas/u/jkuck/gumbel_sample_permanent')
-from nestingUB_gumbel_sample_permanent import sample_log_permanent_with_gumbels
+from tracking_specific_nestingUB_gumbel_sample_permanent import associationMatrix, multi_matrix_sample_associations_without_replacement
 
 from cluster_config import RBPF_HOME_DIRECTORY
 sys.path.insert(0, "%sKITTI_helpers" % RBPF_HOME_DIRECTORY)
@@ -1303,7 +1303,7 @@ class Particle:
 
 
 
-def normalize_importance_weights(particle_set):
+def normalize_importance_weights(particle_set, check_normalization_before_call=False):
 
     #####debugging#########
     print 'particle weights before normalization:',
@@ -1311,8 +1311,9 @@ def normalize_importance_weights(particle_set):
     for particle in particle_set:
         imp_weight_sum += particle.importance_weight
         print particle.importance_weight,
-    print        
-    assert(np.abs(imp_weight_sum - 1.0) > .0001), (SPEC['normalize_log_importance_weights'], 'normalize_importance_weights called when weights appear normalized')
+    print  
+    if check_normalization_before_call:      
+        assert(np.abs(imp_weight_sum - 1.0) > .0001), (SPEC['normalize_log_importance_weights'], 'normalize_importance_weights called when weights appear normalized')
     #####end debugging#########
 
 
@@ -1557,7 +1558,7 @@ def group_particles(particle_set, min_delay, max_delay):
     total_prob = 0.0
     for key, prob in particle_group_probs.iteritems():
         total_prob += prob
-    assert(np.isclose(total_prob, 1, rtol=1e-04, atol=1e-04)), total_prob
+    # assert(np.isclose(total_prob, 1, rtol=1e-04, atol=1e-04)), total_prob
     ############done testing############
     return(particle_group_probs, particle_groups)
 
@@ -1981,6 +1982,10 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
     perform exact sampling without replacement using upper bounds on the permanent
     '''
     #housekeeping, should make this nicer somehow
+    print '-'*80
+    print 'beginning exact_sampling_step for cur_time =', cur_time
+    print 
+    
     meas_groups = []
     for det_idx, det_name in enumerate(SPEC['det_names']):
         group_detections(meas_groups, det_name, measurement_lists[det_idx], widths[det_idx], heights[det_idx], params)
@@ -1993,8 +1998,9 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
     invalid_low_prob_sample_count = 0 
 
     zero_assignments = [] #particle group(s) exist with zero targets and we have zero measurements
+
+    all_association_matrices = []
     for particle in particle_set:
-        assert(particle.importance_weight == 1.0/N_PARTICLES)
         T = len(particle.targets.living_targets)
         print "T =", T
         assert(T == particle.targets.living_count)
@@ -2008,38 +2014,19 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
         (cur_log_probs, conditional_birth_probs, conditional_death_probs) = construct_log_probs_matrix4(particle, meas_groups, T, p_target_deaths, params)
         assert((cur_log_probs <= .000001).all()), (cur_log_probs)
 
-        if cur_log_probs.shape[0] > 0:
-            (sampled_association, sample_of_logZ, cur_permanentUB) = sample_log_permanent_with_gumbels(matrix=np.exp(cur_log_probs), clear_caches_new_matrix=True)
-        else:
-            sampled_association = []
+        cur_a_matrix = associationMatrix(matrix=np.exp(cur_log_probs), M=M, T=T,\
+            conditional_birth_probs=conditional_birth_probs, conditional_death_probs=conditional_death_probs,\
+            prior_prob=particle.importance_weight)
+        all_association_matrices.append(cur_a_matrix)
 
-        meas_grp_associations = []
-        dead_target_indices = []
-        sampled_association.sort() #sort by m_indices 
-        print "M =", M
-        print "T =", T
-        print "sampled_association:", sampled_association
-        for assoc_idx, (m_idx, t_idx) in enumerate(sampled_association):
-            assert(assoc_idx == m_idx), (sampled_association, assoc_idx, m_idx, t_idx)
-            if m_idx < M and t_idx < T: #measurement-target association
-                meas_grp_associations.append(t_idx)
-            elif m_idx < M and t_idx >= T: #measurement is clutter or birth
-                assert(t_idx < M+T)
-                birth_prob = conditional_birth_probs[m_idx]
-                print 'birth_prob =', birth_prob
-                if np.random.rand() < birth_prob:
-                    meas_grp_associations.append(T) #sampled birth
-                else:
-                    meas_grp_associations.append(-1) #sampled clutter
-            elif m_idx >= M and t_idx < T: #target is unnassociated
-                assert(m_idx < M+T)
-                print "unnassociated target:", t_idx
-                death_prob = conditional_death_probs[t_idx]
-                if np.random.rand() < death_prob:
-                    dead_target_indices.append(t_idx) #sampled target dies
-            else:
-                assert(t_idx >= T and t_idx < M+T and m_idx >= M and m_idx < M+T)
-                #dummy variable to dummy variable assignment, don't need to do anything
+    sampled_associations = multi_matrix_sample_associations_without_replacement(num_samples=len(particle_set), all_association_matrices=all_association_matrices)
+
+
+    new_particle_set = []
+    for sampled_association in sampled_associations:
+        meas_grp_associations = sampled_association.meas_grp_associations
+        dead_target_indices = sampled_association.dead_target_indices
+
         dead_target_indices.sort()
 
     ############ MESSY ############
@@ -2057,29 +2044,34 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
             meas_grp_covs.append(combined_covariance)
     ############ END MESSY ############
 
+        new_particle = particle_set[sampled_association.matrix_index].create_child()
+        T = len(new_particle.targets.living_targets)
 
-        particle.all_measurement_associations.append(meas_grp_associations)
-        particle.all_dead_targets.append(dead_target_indices)  
+        new_particle.importance_weight = sampled_association.complete_assoc_probability
+        new_particle.all_measurement_associations.append(meas_grp_associations)
+        new_particle.all_dead_targets.append(dead_target_indices)  
         assert(len(meas_grp_associations) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
         for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
-            particle.process_meas_grp_assoc(T, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx], cur_time)
+            new_particle.process_meas_grp_assoc(T, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx], cur_time)
 
         #process target deaths
         #double check dead_target_indices is sorted
         assert(all([dead_target_indices[i] <= dead_target_indices[i+1] for i in xrange(len(dead_target_indices)-1)])), dead_target_indices
         #important to delete larger indices first to preserve values of the remaining indices
         for index in reversed(dead_target_indices):
-            particle.targets.kill_target(index)
+            new_particle.targets.kill_target(index)
 
         #checking if something funny is happening
         original_num_targets = T
         num_targets_born = 0
         num_targets_born = meas_grp_associations.count(T)
         num_targets_killed = len(dead_target_indices)
-        assert(particle.targets.living_count == original_num_targets + num_targets_born - num_targets_killed)
+        assert(new_particle.targets.living_count == original_num_targets + num_targets_born - num_targets_killed)
         #done checking if something funny is happening
 
-    return (particle_set, invalid_low_prob_sample_count)
+        new_particle_set.append(new_particle)
+
+    return (new_particle_set, invalid_low_prob_sample_count)
 
 
 
@@ -2392,7 +2384,8 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec,
                 new_target_list.append(new_target)
                 pIdxDebugInfo += 1
 
-        if not params.SPEC['proposal_distr'] in ['modified_SIS_exact','modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique', 'exact_sampling']:
+        # if not params.SPEC['proposal_distr'] in ['modified_SIS_exact','modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique', 'exact_sampling']:
+        if not params.SPEC['proposal_distr'] in ['modified_SIS_exact','modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
             print "about to normalize importance weights"
             #Using MHT sampling without replacement, we care about importance weights, normalize so they don't get too small            
             normalize_importance_weights(particle_set)
@@ -2466,7 +2459,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec,
                 online_conditional_log_probability_sum += cur_max_weight_particle.cur_conditional_log_prob
 
 
-            if params.SPEC['proposal_distr'] in ['modified_SIS_gumbel', 'modified_SIS_min_cost', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
+            if params.SPEC['proposal_distr'] in ['exact_sampling', 'modified_SIS_gumbel', 'modified_SIS_min_cost', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
                 if time_instance_index>0 and cur_max_weight_particle.parent_particle != prv_max_weight_particle:
                     (target_associations, duplicate_ids) = \
                     match_target_ids(cur_max_weight_particle.parent_particle.targets.living_targets,\
@@ -2525,11 +2518,12 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec,
                             cur_target.id_ = target_associations[cur_target.id_]
 
 
+            bool_first_time_as_max_imprt_part = prv_max_weight_particle != cur_max_weight_particle and prv_max_weight_particle != cur_max_weight_particle.parent_particle
 
             #write current time step's results to results file
             if time_instance_index >= SPEC['ONLINE_DELAY']:
                 extra_info = {'importance_weight': max_imprt_weight,
-                          'first_time_as_max_imprt_part': prv_max_weight_particle != cur_max_weight_particle,
+                          'first_time_as_max_imprt_part': bool_first_time_as_max_imprt_part,
                           'MAP_particle_prob': MAP_particle_prob,
                           'sampled_meas_targ_assoc_idx': MAP_particle.sampled_meas_targ_assoc_idx}
                 frm_idx = int(round(time_stamp/DEFAULT_TIME_STEP))
@@ -2551,7 +2545,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec,
         
         #Using modified_SIS_MHT_gumbel, sampling with replacement, importance weights may vary but DON'T resample because sampling
         #was done without replacement
-        if (not params.SPEC['proposal_distr'] in ['modified_SIS_gumbel', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique'] \
+        if (not params.SPEC['proposal_distr'] in ['exact_sampling', 'modified_SIS_gumbel', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique'] \
             and get_eff_num_particles(particle_set) < N_PARTICLES/RESAMPLE_RATIO):
 
             perform_resampling(particle_set)

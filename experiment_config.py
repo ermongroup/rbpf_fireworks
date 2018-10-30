@@ -47,24 +47,36 @@
 #MONGODB_PORT = 57621
 #MONGODB_NAME = 'atlas_compare_sis_approximations'
 
-#MONGODB_HOST = 'ds153179.mlab.com'
-#MONGODB_PORT = 53179
-#MONGODB_NAME = 'local_testing'
+MONGODB_HOST = 'ds153179.mlab.com'
+MONGODB_PORT = 53179
+MONGODB_NAME = 'local_testing'
 
 #MONGODB_HOST = 'ds149844.mlab.com'
 #MONGODB_PORT = 49844
 #MONGODB_NAME = 'cvpr_prep_atlas'
 
-MONGODB_HOST = 'ds145019.mlab.com'
-MONGODB_PORT = 45019
-MONGODB_NAME = 'cvpr_prep_atlas_mot16'
+#MONGODB_HOST = 'ds145019.mlab.com'
+#MONGODB_PORT = 45019
+#MONGODB_NAME = 'cvpr_prep_atlas_mot16'
+
+#MONGODB_HOST = 'ds243325.mlab.com'
+#MONGODB_PORT = 43325
+#MONGODB_NAME = 'cvpr_prep_mot17'
 
 
+#MONGODB_HOST = 'ds259105.mlab.com'
+#MONGODB_PORT = 59105
+#MONGODB_NAME = 'cvpr_prep_atlas_mot_test'
+
+#MONGODB_HOST = 'ds259325.mlab.com'
+#MONGODB_PORT = 59325
+#MONGODB_NAME = 'cvpr_prep_atlas_mot_test_few_particles'
 
 
+#MONGODB_HOST = 'ds141406.mlab.com'
+#MONGODB_PORT = 41406
+#MONGODB_NAME = 'mot_gt_assoc'
 
-
-
-
-
-
+#MONGODB_HOST = 'ds141786.mlab.com'
+#MONGODB_PORT = 41786
+#MONGODB_NAME = 'mot_gt_targetassoc_alldeath'

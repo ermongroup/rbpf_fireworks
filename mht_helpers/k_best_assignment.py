@@ -35,7 +35,7 @@ def k_best_assignments(k, cost_matrix):
             assert(sys.maxint > cost_matrix[i][j])
 
     init_node = Node(cost_matrix, [], [], 0)
-    best_assignments = [init_node.get_min_cost_assignment()]
+    best_assignments = [init_node.get_min_cost_assignment()[:2]]
     cur_partition = init_node.partition()
     for itr in range(1, k):
         min_cost = sys.maxint
@@ -81,7 +81,8 @@ def k_best_assignments(k, cost_matrix):
             print
             print
 
-        best_assignments.append(cur_partition[min_cost_idx].get_min_cost_assignment())
+        best_assignments.append(cur_partition[min_cost_idx].get_min_cost_assignment()[:2])
+        assert(len(best_assignments[-1])==2)
         if DEBUG:
             print "iter", itr, "-"*80
             print "best assignment: ", best_assignments[-1]
@@ -223,7 +224,7 @@ class Node:
 
         #we will transform the cost matrix into the "remaining cost matrix" as described in [1]
         self.remaining_cost_matrix = self.construct_remaining_cost_matrix()
-        assert((self.remaining_cost_matrix > 0).all()), self.remaining_cost_matrix
+        assert((self.remaining_cost_matrix > -.000001).all()), self.remaining_cost_matrix
         #solve the assignment problem for the remaining cost matrix
         hm = Munkres()
         # we get a list of (row, col) associations, or 1's in the minimum assignment matrix
