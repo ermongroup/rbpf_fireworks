@@ -128,14 +128,15 @@ NUM_PARTICLES_TO_TEST = [100]
 
 ###################################### Experiment Organization ######################################
 # DATA_SET_NAME = 'MOT17'
-# DATA_SET_NAME = 'KITTI_split'
+DATA_SET_NAME = 'KITTI_split'
 # DATA_SET_NAME = 'MOT17_split'
-DATA_SET_NAME = 'KITTI'
+# DATA_SET_NAME = 'KITTI'
 #DIRECTORY_OF_ALL_RESULTS = '%sSUMMER_2018/reproduce3_%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
 # DIRECTORY_OF_ALL_RESULTS = '%sSUMMER_2018/save_MAP_particle_weights%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
 
 # DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/get_prob_matrix%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
-DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/exact_sampling114%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
+# DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/exact_sampling114%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
+DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/reproduceICML_newcode_%s/r_to_0' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
 #CUR_EXPERIMENT_BATCH_NAME = 'full_support_proposal/'
 #CUR_EXPERIMENT_BATCH_NAME = 'imgFeat_killAllUnassoc/'
 #CUR_EXPERIMENT_BATCH_NAME = 'gt_assoc_sourcesToGT_beforeGrping/'
@@ -164,7 +165,10 @@ P_default = np.array([[40.64558317, 0,           0, 0],
 #    R_default = np.array([[ 0.01,   0.0],
 #                          [ 0.0,   0.01]])    
 
-R_DEFAULT = np.array([[40,0],[0,5]])
+# R_DEFAULT = np.array([[40,0],[0,5]])
+R_DEFAULT = np.array([[ 0.01,   0.0],
+                      [ 0.0,   0.01]])    
+
 #learned from all GT
 Q_DEFAULT = np.array([[  60.33442497,  102.95992102,   -5.50458177,   -0.22813535],
                       [ 102.95992102,  179.84877761,  -13.37640528,   -9.70601621],
@@ -352,8 +356,9 @@ if __name__ == "__main__":
         data_path = "%sKITTI_helpers/data_split" % RBPF_HOME_DIRECTORY
         # det_sets_to_run = [['mscnn', 'mv3d'],\
         #                     ['mv3d'], ['mscnn']]
-        det_sets_to_run = [['mscnn']]
+        # det_sets_to_run = [['mscnn']]
         # det_sets_to_run = [['mscnn'], ['subcnn', 'mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
+        det_sets_to_run = [['mscnn'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
         # det_sets_to_run = [['subcnn', 'mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'],\
         #                     ['subcnn'], ['mscnn']]
 
@@ -399,7 +404,7 @@ if __name__ == "__main__":
     for train_test in ['train']:
         for online_delay in [0]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'box_overlap')]:
-            for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'box_overlap'), ('min_cost_corrected', 'box_overlap')]:
+            for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'distance'), ('min_cost_corrected', 'distance')]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('min_cost_corrected', 'box_overlap'), ('exact_sampling', 'box_overlap')]:
             #for (proposal_distr, targ_meas_assoc_metric) in [('ground_truth_assoc', 'box_overlap')]:
             #for (proposal_distr, targ_meas_assoc_metric) in [('ground_truth_assoc', 'box_overlap'), ('min_cost', 'box_overlap')]:
@@ -468,11 +473,11 @@ if __name__ == "__main__":
                                                                         
                         setup_results_folder(results_folder)
                         run_rbpf_fireworks = []
-                        # if DATA_SET_NAME == 'KITTI_split' and train_test == 'train':
-                        #     SEQUENCES_TO_PROCESS = range(training_seq_count['KITTI_split'])
-                        #     #SEQUENCES_TO_PROCESS = range(56)
-                        # elif DATA_SET_NAME == 'KITTI_split' and train_test == 'test':
-                        #     SEQUENCES_TO_PROCESS = range(61)
+                        if DATA_SET_NAME == 'KITTI_split' and train_test == 'train':
+                            SEQUENCES_TO_PROCESS = range(training_seq_count['KITTI_split'])
+                            #SEQUENCES_TO_PROCESS = range(56)
+                        elif DATA_SET_NAME == 'KITTI_split' and train_test == 'test':
+                            SEQUENCES_TO_PROCESS = range(61)
 
                         print 'NUM_RUNS =', NUM_RUNS
                         print 'SEQUENCES_TO_PROCESS:', SEQUENCES_TO_PROCESS            
