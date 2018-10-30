@@ -1330,7 +1330,7 @@ if __name__ == "__main__":
 
     find_and_eval_results(data_path='/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/data_split', \
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI_split/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
-                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduceICML_newcode_KITTI_split/r_to_0/no_img_features/mscnn3dopmono3dmv3dregionlets_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=exact_sampling,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
+                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduce_ICML/CHECK_1_NEAREST_TARGETS/Rto0_4xQ_max1MeasUpdate_online3frameDelay/mscnn_with_score_intervals/',
                           seq_idx_to_eval=range(90))
 
     exit(0)
