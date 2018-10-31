@@ -140,7 +140,7 @@ FIND_MAX_IMPRT_TIMES_LIKELIHOOD = False
 #if true only update a target with at most one measurement
 #(i.e. not regionlets and then lsvm)
 
-RESAMPLE_RATIO = 2.0 #resample when get_eff_num_particles < N_PARTICLES/RESAMPLE_RATIO
+RESAMPLE_RATIO = 4.0 #resample when get_eff_num_particles < N_PARTICLES/RESAMPLE_RATIO
 
 DEBUG = False
 #print stuff for debugging, etc

@@ -1329,7 +1329,8 @@ if __name__ == "__main__":
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduce_ICML_preCVPR2017/compare_proposals_kitti/mscnn_with_score_intervals/100_particles_onine_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=box_overlap,check_k_nearest=None,gumbel_scale=0.000000/',
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduceICML_current_run_experiment/trial_run/mscnn_with_score_intervals/100_particles_onine_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,train_test=train,bc_model=poisson/',
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/reproduceICML_3739c8cda7e29f3b307224e26679ca25356371d9',
-                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
+                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
+                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/try_current_again_resampleRatio4KITTI',
                           #
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling114KITTI',                          
                           # seq_idx_to_eval=range(21))  
