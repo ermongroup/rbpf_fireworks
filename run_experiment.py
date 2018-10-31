@@ -72,7 +72,7 @@ NUM_PARTICLES_TO_TEST = [100]
 
 ###################################### Experiment Organization ######################################
 #DIRECTORY_OF_ALL_RESULTS = './ICML_prep_correctedOnline/propose_k=1_nearest_targets'
-DIRECTORY_OF_ALL_RESULTS = '%sNIPS_prep/' % RBPF_HOME_DIRECTORY
+DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/reproduceICML_current_run_experiment/' % RBPF_HOME_DIRECTORY
 #CUR_EXPERIMENT_BATCH_NAME = 'genData_origRBPF_multMeas_probDet95_clutLambdaPoint1_noise05_noShuffle_beta1'
 #CUR_EXPERIMENT_BATCH_NAME = 'genData_origRBPF_multMeas_fixedRounding_resampleRatio4_scaled_ShuffleMeas_timeScaled_PQdiv100'
 #CUR_EXPERIMENT_BATCH_NAME = 'Rto0_4xQ_multMeas1update_online3frameDelay2'
@@ -80,6 +80,14 @@ CUR_EXPERIMENT_BATCH_NAME = 'trial_run/'
 #CUR_EXPERIMENT_BATCH_NAME = 'CHECK_K_NEAREST_TARGETS=False/Reference/Rto0_4xQ_max1MeasUpdate_online3frameDelay'
 #CUR_EXPERIMENT_BATCH_NAME = '/Reference/Rto0_4xQ_max1MeasUpdate_online0frameDelay'
 #CUR_EXPERIMENT_BATCH_NAME = 'measuredR_1xQ_max1MeasUpdate_online3frameDelay'
+
+obj_class = 'car'
+
+data_path = "%sKITTI_helpers/data" % RBPF_HOME_DIRECTORY
+pickled_data_dir = "%sKITTI_helpers/learn_params1_pickled_data" % RBPF_HOME_DIRECTORY
+training_seq_count=21
+image_widths = [1242 for i in range(training_seq_count)]
+image_heights = [375 for i in range(training_seq_count)]
 
 ###################################### RBPF Parameters ######################################
 #Specify how the proposal distribution should be pruned
@@ -331,8 +339,8 @@ if __name__ == "__main__":
 ####                    for fw in run_rbpf_fireworks:
 ####                        firework_dependencies[fw] = eval_fireworks
     for train_test in ['train']:
-#        for birth_clutter_model in ['poisson']:
-        for birth_clutter_model in ['poisson', 'training_counts']:
+        for birth_clutter_model in ['poisson']:
+        # for birth_clutter_model in ['poisson', 'training_counts']:
             for targ_meas_assoc_metric in ['distance']:
                 for proposal_distr in ['min_cost', 'sequential']:
 #                for proposal_distr in ['sequential']:
@@ -343,7 +351,8 @@ if __name__ == "__main__":
                 #        for birth_clutter_likelihood in ['aprox1']:
                     #        for det_names in [['regionlets'], ['mv3d'], \
                     #                          ['mono3d'], ['3dop'], ['mscnn']]:
-                            for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
+                            for det_names in [['mscnn'], ['regionlets']]:
+                            # for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]:
 #                            for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['regionlets']]:
 #                            for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
         #                                  ['mscnn', '3dop', 'mono3d'], ['mscnn', '3dop'], ['mscnn']]:
@@ -378,6 +387,12 @@ if __name__ == "__main__":
                                                 for seq_idx in SEQUENCES_TO_PROCESS:
                                                     cur_spec = {
                                                             'det_names': det_names,
+                                                            'obj_class': obj_class,              
+                                                            'data_path': data_path,  
+                                                            'pickled_data_dir': pickled_data_dir,
+                                                            'training_seq_count': training_seq_count,                
+                                                            'image_widths': image_widths,
+                                                            'image_heights': image_heights,                                                                                                                      
                                                             'num_particles': num_particles,
                                                             'include_ignored_gt': include_ignored_gt,
                                                             'include_dontcare_in_gt': include_dontcare_in_gt,
@@ -440,7 +455,7 @@ if __name__ == "__main__":
                                                                 'target_detection_max_dists_2': [150, 1.4]
                                                                 },
                                                             'train_test': train_test,
-                                                            'gt_path': None #None for KITTI data, file path (string) for synthetic data
+                                                            'gt_path': None, #None for KITTI data, file path (string) for synthetic data
 
                                                             #training_counts model means we count the number of frames we observe i births (or clutters)
                                                             #and divide by the total number of frames to get the probability of i births.

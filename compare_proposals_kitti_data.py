@@ -109,6 +109,7 @@ from generate_data import GenData
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
 SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
+SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [4]
 # SEQUENCES_TO_PROCESS = [0,1,2,3,4,5,6]
 # SEQUENCES_TO_PROCESS = range(56)
