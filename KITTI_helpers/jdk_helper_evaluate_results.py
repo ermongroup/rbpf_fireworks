@@ -867,7 +867,7 @@ class trackingEvaluation(object):
         fig.savefig("./frameByFrame_imprtWeight_vs_MOTA", bbox_inches='tight')    
         plt.close()
 
-        print "correlation:", np.corrcoef(importance_weights_by_frame, mota_by_frame)
+        # print "correlation:", np.corrcoef(importance_weights_by_frame, mota_by_frame)
 
         return True
 
@@ -1210,19 +1210,19 @@ def find_and_eval_results(data_path, directory_to_search, seq_idx_to_eval=[i for
         if filename == 'results_by_run':
             print "about to eval: ", directory_to_search
 
-            if (not os.path.isfile(directory_to_search + '/OLD_evaluation_metrics.txt')):
+            if (not os.path.isfile(directory_to_search + '/OLD_evaluation_metrics_fewer_sequences.txt')):
                 stdout = sys.stdout
-                sys.stdout = open(directory_to_search + '/OLD_evaluation_metrics.txt', 'w')
+                sys.stdout = open(directory_to_search + '/OLD_evaluation_metrics_fewer_sequences.txt', 'w')
 
                 eval_results(data_path, directory_to_search + "/results_by_run", seq_idx_to_eval, use_corrected_eval=False) # + operateor used for string concatenation!
 
                 sys.stdout.close()
                 sys.stdout = stdout
 
-            if (not os.path.isfile(directory_to_search + '/NEW_evaluation_metrics.txt')):
+            if (not os.path.isfile(directory_to_search + '/NEW_evaluation_metrics_fewer_sequences.txt')):
 
                 stdout = sys.stdout
-                sys.stdout = open(directory_to_search + '/NEW_evaluation_metrics.txt', 'w')
+                sys.stdout = open(directory_to_search + '/NEW_evaluation_metrics_fewer_sequences.txt', 'w')
 
                 eval_results(data_path, directory_to_search + "/results_by_run", seq_idx_to_eval, use_corrected_eval=True) # + operateor used for string concatenation!
 
@@ -1324,9 +1324,15 @@ if __name__ == "__main__":
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=exact_sampling,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling114KITTI/no_img_features/mscnn3dopmono3dmv3d_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=exact_sampling,targ_meas_assoc_metric=box_overlap,check_k_nearest=False,gumbel_scale=0.000000',
-                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduce_ICML_afterFixMAP/r_to_0/trial_run/mscnn3dopmono3dmv3dregionlets_with_score_intervals/100_particles_onine_delay=0,proposal_distr=min_cost,targ_meas_assoc_metric=distance,train_test=train,bc_model=poisson/',
+                          #
+                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduce_ICML_afterFixMAP/r_to_0/trial_run/mscnn_with_score_intervals/100_particles_onine_delay=0,proposal_distr=min_cost,targ_meas_assoc_metric=distance,train_test=train,bc_model=poisson/',
+                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduce_ICML_preCVPR2017/compare_proposals_kitti/mscnn_with_score_intervals/100_particles_onine_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=box_overlap,check_k_nearest=None,gumbel_scale=0.000000/',
+                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduceICML_current_run_experiment/trial_run/mscnn_with_score_intervals/100_particles_onine_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,train_test=train,bc_model=poisson/',
+                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/reproduceICML_16cc42385d0aab9635490907b44df08753016573',
+                          #
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling114KITTI',                          
-                          seq_idx_to_eval=range(21))
+                          # seq_idx_to_eval=range(21))  
+                          seq_idx_to_eval=[0,2,3,4,5,6,8,10,12,13,14,15,16,17,19])
  
 
     # find_and_eval_results(data_path='/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/data_split', \
