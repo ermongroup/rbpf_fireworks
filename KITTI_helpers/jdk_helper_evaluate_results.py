@@ -1328,7 +1328,7 @@ if __name__ == "__main__":
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduce_ICML_afterFixMAP/r_to_0/trial_run/mscnn_with_score_intervals/100_particles_onine_delay=0,proposal_distr=min_cost,targ_meas_assoc_metric=distance,train_test=train,bc_model=poisson/',
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduce_ICML_preCVPR2017/compare_proposals_kitti/mscnn_with_score_intervals/100_particles_onine_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=box_overlap,check_k_nearest=None,gumbel_scale=0.000000/',
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduceICML_current_run_experiment/trial_run/mscnn_with_score_intervals/100_particles_onine_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,train_test=train,bc_model=poisson/',
-                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/reproduceICML_16cc42385d0aab9635490907b44df08753016573',
+                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/reproduceICML_370ff63bec113c18a413182ef842ed29f06c5e08',
                           #
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling114KITTI',                          
                           # seq_idx_to_eval=range(21))  
