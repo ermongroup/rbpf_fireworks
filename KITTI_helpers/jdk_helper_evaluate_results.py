@@ -1320,18 +1320,19 @@ if __name__ == "__main__":
     #                       directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI_split/no_img_features/mscnn3dopmono3dmv3dregionlets_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=box_overlap,check_k_nearest=False,gumbel_scale=0.000000',
     #                       seq_idx_to_eval=range(34)+range(35,90))
  
-    # find_and_eval_results(data_path='/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/data', \
-    #                       # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
-    #                       # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=exact_sampling,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
-    #                       directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling114KITTI/no_img_features/mscnn3dopmono3dmv3d_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=exact_sampling,targ_meas_assoc_metric=box_overlap,check_k_nearest=False,gumbel_scale=0.000000',
-    #                       # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling114KITTI',                          
-    #                       seq_idx_to_eval=range(21))
+    find_and_eval_results(data_path='/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/data', \
+                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
+                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=exact_sampling,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
+                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling114KITTI/no_img_features/mscnn3dopmono3dmv3d_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=exact_sampling,targ_meas_assoc_metric=box_overlap,check_k_nearest=False,gumbel_scale=0.000000',
+                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduce_ICML_afterFixMAP/r_to_0/trial_run/mscnn3dopmono3dmv3dregionlets_with_score_intervals/100_particles_onine_delay=0,proposal_distr=min_cost,targ_meas_assoc_metric=distance,train_test=train,bc_model=poisson/',
+                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling114KITTI',                          
+                          seq_idx_to_eval=range(21))
  
 
-    find_and_eval_results(data_path='/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/data_split', \
-                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI_split/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
-                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduce_ICML/CHECK_1_NEAREST_TARGETS/Rto0_4xQ_max1MeasUpdate_online3frameDelay/mscnn_with_score_intervals/',
-                          seq_idx_to_eval=range(90))
+    # find_and_eval_results(data_path='/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/data_split', \
+    #                       # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI_split/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
+    #                       directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduce_ICML/CHECK_1_NEAREST_TARGETS/Rto0_4xQ_max1MeasUpdate_online3frameDelay/mscnn_with_score_intervals/',
+    #                       seq_idx_to_eval=range(90))
 
     exit(0)
 

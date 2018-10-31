@@ -342,7 +342,7 @@ if __name__ == "__main__":
         for birth_clutter_model in ['poisson']:
         # for birth_clutter_model in ['poisson', 'training_counts']:
             for targ_meas_assoc_metric in ['distance']:
-                for proposal_distr in ['min_cost', 'sequential']:
+                for proposal_distr in ['min_cost_corrected', 'sequential']:
 #                for proposal_distr in ['sequential']:
             #    for online_delay in [0, 1, 3]:
                     for online_delay in [0, 3]:
@@ -390,6 +390,12 @@ if __name__ == "__main__":
                                                             'obj_class': obj_class,              
                                                             'data_path': data_path,  
                                                             'pickled_data_dir': pickled_data_dir,
+                                                            'death_prob_markov_order': 3,
+                                                            'condition_emission_prior_img_feat': False,
+                                                            #for 'min_cost' proposal distribution, sample measurement associations
+                                                            #uniformly at random with probability 'prob_sample_assoc_uniform' so 
+                                                            #that proposal distribution has full support
+                                                            'prob_sample_assoc_uniform': .05,                                                            
                                                             'training_seq_count': training_seq_count,                
                                                             'image_widths': image_widths,
                                                             'image_heights': image_heights,                                                                                                                      

@@ -558,6 +558,7 @@ def sample_grouped_meas_assoc_and_death(particle, meas_groups, total_target_coun
             (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability) = \
             associate_measurements_sequentially(particle, meas_groups, total_target_count, \
             p_target_deaths, params)
+            sampled_meas_targ_assoc_idx = -1
 
         elif params.SPEC['proposal_distr'] == 'ground_truth_assoc':
             (meas_grp_associations, meas_grp_means, meas_grp_covs, proposal_probability, targets_to_kill, meas_assoc_gt_obj_ids) = \
