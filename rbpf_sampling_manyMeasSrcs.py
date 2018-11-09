@@ -32,7 +32,8 @@ class Parameters:
                  USE_PYTHON_GAUSSIAN, USE_CONSTANT_R, score_intervals,\
                  p_birth_likelihood, p_clutter_likelihood, CHECK_K_NEAREST_TARGETS,
                  K_NEAREST_TARGETS, scale_prior_by_meas_orderings, SPEC,
-                 clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize):
+                 clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize,\
+                 fraction_of_group_type_that_is_clutter):
         '''
         Inputs:
         - det_names: list of detection source names
@@ -97,6 +98,8 @@ class Parameters:
         self.K_NEAREST_TARGETS = K_NEAREST_TARGETS
 
         self.scale_prior_by_meas_orderings = scale_prior_by_meas_orderings
+
+        self.fraction_of_group_type_that_is_clutter=fraction_of_group_type_that_is_clutter
 
         self.SPEC = SPEC
 
@@ -267,19 +270,37 @@ def group_detections(meas_groups, det_name, detection_locations, det_widths, det
     for cur_detection in detections:
         cost_row = []
         for cur_detection_group in meas_groups:
-            min_cost = max_cost
+        #     min_cost = max_cost
+        #     for grpd_det_name, grouped_detection in cur_detection_group.iteritems():
+        #         # overlap == 1 is cost ==0
+        #         c = 1-boxoverlap(cur_detection, grouped_detection)
+        #         if c < min_cost:
+        #             min_cost = c
+        #     # gating for boxoverlap
+        #     #if min_cost<=params.SPEC['coord_ascent_params'][det_name]:
+        #     if min_cost<=params.SPEC['coord_ascent_params']['det_grouping_min_overlap_%s' % det_name][0]:
+        #         cost_row.append(min_cost)
+        #     else:
+        #         cost_row.append(max_cost)
+        # cost_matrix.append(cost_row)
+            min_group_cost = max_cost
+            max_group_cost = 0
             for grpd_det_name, grouped_detection in cur_detection_group.iteritems():
                 # overlap == 1 is cost ==0
                 c = 1-boxoverlap(cur_detection, grouped_detection)
-                if c < min_cost:
-                    min_cost = c
+                if c < min_group_cost:
+                    min_group_cost = c
+                if c > max_group_cost:
+                    max_group_cost = c
+
             # gating for boxoverlap
-            #if min_cost<=params.SPEC['coord_ascent_params'][det_name]:
-            if min_cost<=params.SPEC['coord_ascent_params']['det_grouping_min_overlap_%s' % det_name][0]:
-                cost_row.append(min_cost)
+            # if min_group_cost<=.5:
+            #     cost_row.append(min_group_cost)
+            if max_group_cost<=.5:
+                cost_row.append(min_group_cost)
             else:
                 cost_row.append(max_cost)
-        cost_matrix.append(cost_row)
+        cost_matrix.append(cost_row)        
     
     if len(detections) is 0:
         cost_matrix=[[]]

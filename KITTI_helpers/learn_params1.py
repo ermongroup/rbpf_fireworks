@@ -2911,6 +2911,13 @@ class MultiDetections_many:
         #detection_group, dictionary of detections in the group, key='det_name', value=detObject
 
     def compute_clutter_based_on_detection_groups_jointly(self, loaded_tracking_eval, posAndSize_inv_covariance_blocks, meas_noise_mean):
+        '''
+
+        Outputs:
+        - fraction_of_group_type_that_is_clutter: (dictionary)
+            key: (Immutable set) of the names of detection sources present in a group type
+            value: (float) #clutter detections/(#clutter detections + #valid detections) for this group type
+        '''
         group_counts = defaultdict(int)
         valid_group_counts = defaultdict(int)
         clutter_group_counts = defaultdict(int)
@@ -3026,13 +3033,13 @@ class MultiDetections_many:
         print "total_group_count:", total_group_count
 
         total_clutter_count = 0
-        fraction_of_group_that_is_clutter = defaultdict(int)
+        fraction_of_group_type_that_is_clutter = defaultdict(int)
         # for det_group_names, clutter_count in clutter_group_counts.iteritems():
         for det_group_names, count in group_counts.iteritems(): #iterate over all det_group_names in case some group has 0 clutter, so we get fraction 1
             clutter_count = clutter_group_counts[det_group_names]
             total_clutter_count += clutter_count
-            # fraction_of_group_that_is_clutter[det_group_names] = clutter_count/group_counts[det_group_names]
-            fraction_of_group_that_is_clutter[det_group_names] = clutter_count/(valid_group_counts[det_group_names] + clutter_count)
+            # fraction_of_group_type_that_is_clutter[det_group_names] = clutter_count/group_counts[det_group_names]
+            fraction_of_group_type_that_is_clutter[det_group_names] = clutter_count/(valid_group_counts[det_group_names] + clutter_count)
         print "total_clutter_count:", total_clutter_count
 
         total_dont_care_count = 0
@@ -3052,7 +3059,7 @@ class MultiDetections_many:
         print "total_ignored_count:", total_ignored_count
 
         list_fraction_clutter = []
-        for det_group_names, fraction_clutter in fraction_of_group_that_is_clutter.iteritems():
+        for det_group_names, fraction_clutter in fraction_of_group_type_that_is_clutter.iteritems():
             list_fraction_clutter.append((fraction_clutter, clutter_group_counts[det_group_names], dont_care_group_counts[det_group_names], valid_group_counts[det_group_names], group_counts[det_group_names], ignored_group_counts[det_group_names], det_group_names))
         sorted_list_fraction_clutter = sorted(list_fraction_clutter)
 
@@ -3064,7 +3071,7 @@ class MultiDetections_many:
             cumulative_valid_count += v[3]
             print v, cumulative_clutter_count, cumulative_valid_count, np.mean(tp_group_overlaps[v[-1]])
 
-        sleep(3)
+        return fraction_of_group_type_that_is_clutter
 
     def store_associations_in_gt(self):
         """
@@ -3782,7 +3789,7 @@ def get_meas_target_sets_general(fw_spec, obj_class, data_path, pickled_data_dir
         gt_bb_size_var)\
         = calc_gaussian_paramaters(fw_spec, 'ground_truth', all_detections.gt_objects, detection_names)
     
-    all_detections.compute_clutter_based_on_detection_groups_jointly(loaded_tracking_eval, posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize)
+    fraction_of_group_type_that_is_clutter = all_detections.compute_clutter_based_on_detection_groups_jointly(loaded_tracking_eval, posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize)
 
     (clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize, clutter_bounding_box_mean_size,
         clutter_bb_size_var)\
@@ -3826,13 +3833,13 @@ def get_meas_target_sets_general(fw_spec, obj_class, data_path, pickled_data_dir
             birth_count_priors, birth_lambdas_by_group, death_probs_near_border, death_probs_not_near_border, 
             posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks,
             clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize, 
-            gt_bounding_box_mean_size, clutter_bounding_box_mean_size, gt_bb_size_var, clutter_bb_size_var)
+            gt_bounding_box_mean_size, clutter_bounding_box_mean_size, gt_bb_size_var, clutter_bb_size_var, fraction_of_group_type_that_is_clutter)
 
     else:
         return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group,
             birth_count_priors, birth_lambdas_by_group, death_probs_near_border, death_probs_not_near_border, 
             posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks,
-            clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize)
+            clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize, fraction_of_group_type_that_is_clutter)
 
 
 def calc_gaussian_paramaters(fw_spec, group_type, gt_objects, detection_names, blocked_cov_inv=None, meas_noise_mean=None, clutter_detections=None):
