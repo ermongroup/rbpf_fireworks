@@ -1235,7 +1235,8 @@ def solve_gumbel_perturbed_assignment2(log_probs, M, T):
 
 
 
-def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_target_deaths, params):
+def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_target_deaths, params, kill_all_unassociated_targets=False,\
+    always_create_target=False):
     '''
     M = #measurements
     T = #targets
@@ -1255,7 +1256,8 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
         np.trace(np.dot(log_probs,A.T) will be the log probability of an assignment A, given our
         Inputs.  (Where an assignment defines measurement associations to targets, and is marginalized
     '''
-    construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_target_deaths, params)
+
+    log_probs4, conditional_birth_probs4, conditional_death_probs4 = construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_target_deaths, params)
     
     #construct a (2*M+2*T)x(2*M+2*T) matrix of log probabilities
     M = len(meas_groups)
@@ -1286,22 +1288,24 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
         lives_row_idx = M + 2*t_idx
         dies_row_idx = M + 1 + 2*t_idx
         #would probably be better to kill offscreen targets before association
-        if(particle.targets.living_targets[t_idx].offscreen == True):
-            cur_death_prob = .999999999999 #sloppy should define an epsilon or something
+        if kill_all_unassociated_targets:
+            cur_death_prob = .99999999999999
         else:
-            cur_death_prob = particle.targets.living_targets[t_idx].death_prob
-        if(cur_death_prob == 1.0):
-            cur_death_prob = .99999999999 #still getting an error with domain error, trying this
+            if(particle.targets.living_targets[t_idx].offscreen == True):
+                cur_death_prob = .999999999999 #sloppy should define an epsilon or something
+            else:
+                cur_death_prob = particle.targets.living_targets[t_idx].death_prob
+            if(cur_death_prob == 1.0):
+                cur_death_prob = .99999999999 #still getting an error with domain error, trying this
 
-        if(cur_death_prob == 0):
-            cur_death_prob = 10**-100
+            if(cur_death_prob == 0):
+                cur_death_prob = 10**-100
 
         assert(p_target_does_not_emit > 0 and cur_death_prob > 0 and cur_death_prob < 1.0), (p_target_does_not_emit, cur_death_prob)
         log_probs[lives_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(1.0 - cur_death_prob)
         log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(cur_death_prob)
         assert(not math.isnan(log_probs[lives_row_idx][t_idx]))
         assert(not math.isnan(log_probs[dies_row_idx][t_idx]))
-
 
 #    print 'log_probs2:'
 #    print log_probs
@@ -1326,9 +1330,11 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
         if not get_immutable_set_meas_names(meas_groups[m_idx]) in params.clutter_lambdas_by_group or clutter_lambda == 0:
             clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100
 
-
-        log_probs[m_idx][clutter_col] = ln_zero_approx(clutter_lambda) + \
-            ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
+        if always_create_target:
+            log_probs[m_idx][clutter_col] = -1 * INFEASIBLE_COST
+        else:
+            log_probs[m_idx][clutter_col] = ln_zero_approx(clutter_lambda) + \
+                ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
         assert(not math.isnan(log_probs[m_idx][clutter_col]))    
 
 
@@ -1345,15 +1351,32 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
     for row_idx in range(M, 2*M+2*T):
         for col_idx in range(T, 2*T+2*M):
             log_probs[row_idx][col_idx] = 0.0
-#    print 'log_probs5:'
-#    print log_probs
+    # print 'construct_log_probs_matrix3 called'
+    # print "log_probs3 before smoothing:"
+    # print log_probs
 
+    if params.SPEC['smooth_assoc_probs'] == True:
+        smoothed_assoc_probs = np.exp(log_probs[:M, :T])
+        smoothed_assoc_probs = 2/(1 + np.exp(-params.SPEC['smoothing_factor']*smoothed_assoc_probs)) - 1 #smoothing_factor should be larger than roughly too, bigger is more smoothing
+        for m_idx in range(M):
+            for t_idx in range(T):
+                log_probs[m_idx, t_idx] = ln_zero_approx(smoothed_assoc_probs[m_idx, t_idx])
+
+
+    # print 'construct_log_probs_matrix3 called'
+    # print "log_probs3 after smoothing:"
+    # print log_probs
+    # print "for comparison, log_probs4:"
+    # print log_probs4
+    # print "conditional_birth_probs4:", conditional_birth_probs4
+    # print "conditional_death_probs4:", conditional_death_probs4
 
     return log_probs
 
 
 
-def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_target_deaths, params):
+def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_target_deaths, params, kill_all_unassociated_targets=False,\
+    always_create_target=False):
     '''
     M = #measurements
     T = #targets
@@ -1427,22 +1450,30 @@ def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_tar
             log_probs[m_idx][t_idx] = cur_prob
             assert(not math.isnan(log_probs[m_idx][t_idx]))
         #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
-        #would probably be better to kill offscreen targets before association
-        if(particle.targets.living_targets[t_idx].offscreen == True):
-            cur_death_prob = .999999999999 #sloppy should define an epsilon or something
+        if kill_all_unassociated_targets:
+            cur_death_prob = .99999999999999
         else:
-            cur_death_prob = particle.targets.living_targets[t_idx].death_prob
-        if(cur_death_prob == 1.0):
-            cur_death_prob = .99999999999 #still getting an error with domain error, trying this
+            if(particle.targets.living_targets[t_idx].offscreen == True):
+                cur_death_prob = .999999999999 #sloppy should define an epsilon or something
+            else:
+                cur_death_prob = particle.targets.living_targets[t_idx].death_prob
+            if(cur_death_prob == 1.0):
+                cur_death_prob = .99999999999 #still getting an error with domain error, trying this
 
-        if(cur_death_prob == 0):
-            cur_death_prob = 10**-100
+            if(cur_death_prob == 0):
+                cur_death_prob = 10**-100
 
         assert(p_target_does_not_emit > 0 and cur_death_prob > 0 and cur_death_prob < 1.0), (p_target_does_not_emit, cur_death_prob)
         log_probs[M:,t_idx] = ln_zero_approx(p_target_does_not_emit)
         # log_probs[lives_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(1.0 - cur_death_prob)
         # log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(cur_death_prob)
         conditional_death_probs[t_idx] = cur_death_prob
+
+    if params.SPEC['smooth_assoc_probs'] == True:
+        smoothed_assoc_probs = np.exp(log_probs[:M, :T])
+        smoothed_assoc_probs = 2/(1 + np.exp(-params.SPEC['smoothing_factor']*smoothed_assoc_probs)) - 1 #smoothing_factor should be larger than roughly too, bigger is more smoothing
+        log_probs[:M, :T] = np.log(smoothed_assoc_probs)
+
 
 #    print 'log_probs2:'
 #    print log_probs
@@ -1465,9 +1496,11 @@ def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_tar
         if not get_immutable_set_meas_names(meas_groups[m_idx]) in params.clutter_lambdas_by_group or clutter_lambda == 0:
             clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100
 
-
-        log_clutter_prob = ln_zero_approx(clutter_lambda) + \
-            ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
+        if always_create_target:
+            log_clutter_prob = -1 * INFEASIBLE_COST
+        else:
+            log_clutter_prob = ln_zero_approx(clutter_lambda) + \
+                ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
 
 
         log_birth_prob = ln_zero_approx(birth_lambda) + \
@@ -3545,7 +3578,7 @@ def count_meas_orderings(M, T, b, c):
     return float(combinations)
 
 
-def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, detection_group):
+def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, detection_group, det_groups_as_detObjs=False):
     """
     
     Inputs:
@@ -3578,10 +3611,17 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, d
     #dictionary containing all measurements in appropriately formatted numpy arrays
     reformatted_zs = {}
     for det_name, det in detection_group.iteritems():
-        cur_z = np.array([det[0] - meas_noise_mean[det_name][0], 
-                          det[1] - meas_noise_mean[det_name][1],
-                          det[2] - meas_noise_mean[det_name][2],
-                          det[3] - meas_noise_mean[det_name][3]])
+        if det_groups_as_detObjs:
+            cur_z = np.array([det.x - meas_noise_mean[det_name][0], 
+                              det.y - meas_noise_mean[det_name][1],
+                              det.width - meas_noise_mean[det_name][2],
+                              det.height - meas_noise_mean[det_name][3]])
+
+        else:
+            cur_z = np.array([det[0] - meas_noise_mean[det_name][0], 
+                              det[1] - meas_noise_mean[det_name][1],
+                              det[2] - meas_noise_mean[det_name][2],
+                              det[3] - meas_noise_mean[det_name][3]])
         reformatted_zs[det_name] = cur_z
     A = 0
     b = 0

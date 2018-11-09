@@ -80,7 +80,7 @@ from fireworks import Firework, Workflow, FWorker, LaunchPad
 from fireworks.utilities.fw_utilities import explicit_serialize
 from fireworks.core.firework import FWAction, FireTaskBase
 
-LOCAL_TESTING = False
+LOCAL_TESTING = True
 if LOCAL_TESTING:
     from fireworks.core.rocket_launcher import rapidfire
 else:
@@ -108,8 +108,11 @@ from generate_data import GenData
 #from intermediate import RunRBPF
 ###################################### Experiment Parameters ######################################
 NUM_RUNS=1
-SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
-# SEQUENCES_TO_PROCESS = [0]
+# SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
+# SEQUENCES_TO_PROCESS = [2]
+# SEQUENCES_TO_PROCESS = [2]
+# SEQUENCES_TO_PROCESS = [0, 32, 35, 49, 47, 40, 51, 24, 23, 18, 41, 46, 34, 48, 33, 19, 17, 22, 50, 14, 13, 26, 21, 53, 28, 54, 39, 45, 42, 30, 37, 5, 29, 52, 20, 27, 12, 36, 43, 44]
+SEQUENCES_TO_PROCESS = [0]
 #SEQUENCES_TO_PROCESS = [4]
 # SEQUENCES_TO_PROCESS = [0,1,2,3,4,5,6]
 # SEQUENCES_TO_PROCESS = range(56)
@@ -122,27 +125,32 @@ SEQUENCES_TO_PROCESS = [i for i in reversed([i for i in range(21)])]
 #NUM_PARTICLES_TO_TEST = [5, 10, 20, 50, 100]
 #NUM_PARTICLES_TO_TEST = [1]
 # NUM_PARTICLES_TO_TEST = [10]#, 20, 50, 100]
-NUM_PARTICLES_TO_TEST = [10, 100]
+NUM_PARTICLES_TO_TEST = [10]
 # NUM_PARTICLES_TO_TEST = [10]
 #NUM_PARTICLES_TO_TEST = [5, 20, 50, 100]
 
 
 ###################################### Experiment Organization ######################################
 # DATA_SET_NAME = 'MOT17'
-DATA_SET_NAME = 'KITTI_split'
-# DATA_SET_NAME = 'MOT17_split'
 # DATA_SET_NAME = 'KITTI'
+# DATA_SET_NAME = 'MOT17_split'
+DATA_SET_NAME = 'KITTI_split'
 #DIRECTORY_OF_ALL_RESULTS = '%sSUMMER_2018/reproduce3_%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
 # DIRECTORY_OF_ALL_RESULTS = '%sSUMMER_2018/save_MAP_particle_weights%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
-
+ 
 # DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/get_prob_matrix%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
 # DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/exact_sampling114%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
-DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/exact_sampling_compareSUBCNN%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
+# DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/exact_sampling_compareSUBCNN%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
+# DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/compare_smoothing_assoc_probs2%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
+DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
 # DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/try_current_again_resampleRatio4%s' % (RBPF_HOME_DIRECTORY, DATA_SET_NAME)
 #CUR_EXPERIMENT_BATCH_NAME = 'full_support_proposal/'
 #CUR_EXPERIMENT_BATCH_NAME = 'imgFeat_killAllUnassoc/'
 #CUR_EXPERIMENT_BATCH_NAME = 'gt_assoc_sourcesToGT_beforeGrping/'
-CUR_EXPERIMENT_BATCH_NAME = 'no_img_features/'
+# CUR_EXPERIMENT_BATCH_NAME = 'kill_targets_immediately_always_birth/'
+# CUR_EXPERIMENT_BATCH_NAME = 'sample_death_and_birth_write_results_immediately/'
+CUR_EXPERIMENT_BATCH_NAME = 'debug_get_params1/'
+
 ###################################### RBPF Parameters ######################################
 #Specify how the proposal distribution should be pruned
 #CHECK_K_NEAREST_TARGETS = True
@@ -313,9 +321,9 @@ if __name__ == "__main__":
 #        det_sets_to_run = [['DPM', 'FRCNN', 'SDP']]
         # det_sets_to_run = [['DPM'], ['DPM', 'FRCNN', 'SDP'], ['FRCNN', 'SDP'], ['DPM', 'SDP'], ['DPM', 'FRCNN'], ['FRCNN'], ['SDP']]
         # det_sets_to_run = [['DPM']]
-        # det_sets_to_run = [['DPM', 'FRCNN', 'SDP']]
+        det_sets_to_run = [['DPM'], ['FRCNN'], ['SDP']]
 
-        det_sets_to_run = [['SDP']]
+        # det_sets_to_run = [['SDP'], ['FRCNN'], ['DPM', 'FRCNN', 'SDP']]
 
     if DATA_SET_NAME == 'MOT17_split':
         obj_class = 'pedestrian'
@@ -329,11 +337,13 @@ if __name__ == "__main__":
         training_image_heights = [1080 for i in range(17)] + [480 for i in range(9)] + [1080 for i in range(30)] 
         testing_image_heights = [1080 for i in range(20)] + [480 for i in range(12)] + [1080 for i in range(29)] 
 
-        det_sets_to_run = [['DPM', 'FRCNN', 'SDP']]
+        # det_sets_to_run = [['SDP'], ['FRCNN'], ['DPM', 'FRCNN', 'SDP']]
+        # det_sets_to_run = [['DPM'], ['FRCNN'], ['SDP']]
+        # det_sets_to_run = [['SDP']]
         # det_sets_to_run = [['DPM'], ['DPM', 'FRCNN', 'SDP'], ['FRCNN', 'SDP'], ['DPM', 'SDP'], ['DPM', 'FRCNN'], ['FRCNN'], ['SDP']]
         # det_sets_to_run = [['DPM', 'FRCNN', 'SDP']]
         # det_sets_to_run = [['DPM'], ['DPM', 'FRCNN', 'SDP'], ['FRCNN'], ['SDP']]
-        # det_sets_to_run = [['DPM']]
+        det_sets_to_run = [['DPM']]
 
        # det_sets_to_run = [['SDP']]
 
@@ -358,10 +368,18 @@ if __name__ == "__main__":
         data_path = "%sKITTI_helpers/data_split" % RBPF_HOME_DIRECTORY
         # det_sets_to_run = [['mscnn', 'mv3d'],\
         #                     ['mv3d'], ['mscnn']]
-        # det_sets_to_run = [['mscnn']]
-        # det_sets_to_run = [['mscnn'], ['subcnn', 'mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
+        # det_sets_to_run = [['rrc']]
+        # det_sets_to_run = [['rrc'], ['mscnn'], ['rrc',  'mscnn', 'subcnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['rrc', 'mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'],\
+        #                     ['mscnn', 'subcnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
+        # det_sets_to_run = [['rrc', 'mscnn', 'subcnn']]
+        # det_sets_to_run = [['rrc',  'mscnn', 'subcnn', '3dop']]
+        det_sets_to_run = [['rrc',  'mscnn', 'subcnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
+        # det_sets_to_run = [['rrc',  'mscnn', 'subcnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
+        # det_sets_to_run = [['mscnn', 'subcnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
+        # det_sets_to_run = [['subcnn'], ['subcnn', 'mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
         # det_sets_to_run = [['mscnn'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
-        det_sets_to_run = [['subcnn', 'mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
+        # det_sets_to_run = [['subcnn', 'mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
+        # det_sets_to_run = [['mscnn']]        
         # det_sets_to_run = [['subcnn', 'mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'],\
         #                     ['subcnn'], ['mscnn']]
 
@@ -389,7 +407,6 @@ if __name__ == "__main__":
     firework_dependencies = {}
 
     #targ_meas_assoc_metric = 'distance'
-    online_delay = 0
     birth_clutter_likelihood = 'aprox1'
     birth_clutter_model = 'poisson'# 'poisson' or 'training_counts'
     use_general_num_dets = True
@@ -408,7 +425,12 @@ if __name__ == "__main__":
         for online_delay in [0]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'box_overlap')]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'distance'), ('min_cost_corrected', 'distance')]:
-            for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'distance')]:
+            for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'distance'), ('modified_SIS_gumbel', 'distance'), ('min_cost_corrected', 'distance')]:
+            # for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'distance'), ('modified_SIS_gumbel', 'distance')]:
+            # for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'distance'), ('min_cost_corrected', 'distance')]:
+            # for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'distance')]:
+            # for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'distance')]:
+            # for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'distance')]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('min_cost_corrected', 'box_overlap'), ('min_cost_corrected', 'distance')]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('min_cost_corrected', 'box_overlap'), ('exact_sampling', 'box_overlap')]:
             #for (proposal_distr, targ_meas_assoc_metric) in [('ground_truth_assoc', 'box_overlap')]:
@@ -461,189 +483,198 @@ if __name__ == "__main__":
 #                for det_names in [['regionlets']]:
 #                        for det_names in [['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d'], \
                     for num_particles in NUM_PARTICLES_TO_TEST:
-                        if proposal_distr == 'ground_truth_assoc':
-                            num_particles = 1
+                        # for smoothing_factor in [2,200,2000,20000, 200000, 2000000, 20000000]:
+                        # for smoothing_factor in [2,1000, 20000, 200000]:
+                        for smoothing_factor in [-999999]:
+                            if proposal_distr == 'ground_truth_assoc':
+                                num_particles = 1
 
-                        if proposal_distr == 'exact_sampling':
-                            normalize_log_importance_weights = False
-                        else:
-                            normalize_log_importance_weights = True
+                            if proposal_distr == 'exact_sampling':
+                                normalize_log_importance_weights = False
+                            else:
+                                normalize_log_importance_weights = True
 
-                        description_of_run = get_description_of_run_gen_detections(include_ignored_gt, include_dontcare_in_gt,
-                                        sort_dets_on_intervals, det_names, train_test=train_test)
-                        results_folder_name = '%s/%d_particles' % (description_of_run, num_particles)
-                        results_folder = '%s/%s/%s_online_delay=%d,proposal_distr=%s,targ_meas_assoc_metric=%s,check_k_nearest=%s,gumbel_scale=%f' % \
-                            (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, results_folder_name, online_delay,
-                            proposal_distr,targ_meas_assoc_metric,check_k_nearest, gumbel_scale)
-                                                                        
-                        setup_results_folder(results_folder)
-                        run_rbpf_fireworks = []
-                        if DATA_SET_NAME == 'KITTI_split' and train_test == 'train':
-                            SEQUENCES_TO_PROCESS = range(training_seq_count['KITTI_split'])
-                            #SEQUENCES_TO_PROCESS = range(56)
-                        elif DATA_SET_NAME == 'KITTI_split' and train_test == 'test':
-                            SEQUENCES_TO_PROCESS = range(61)
+                            description_of_run = get_description_of_run_gen_detections(include_ignored_gt, include_dontcare_in_gt,
+                                            sort_dets_on_intervals, det_names, train_test=train_test)
+                            results_folder_name = '%s/%d_particles' % (description_of_run, num_particles)
+                            results_folder = '%s/%s/smoothing_factor=%d/%s_online_delay=%d,proposal_distr=%s,targ_meas_assoc_metric=%s,check_k_nearest=%s,gumbel_scale=%f' % \
+                                (DIRECTORY_OF_ALL_RESULTS, CUR_EXPERIMENT_BATCH_NAME, smoothing_factor, results_folder_name, online_delay,
+                                proposal_distr,targ_meas_assoc_metric,check_k_nearest, gumbel_scale)
+                                                                            
+                            setup_results_folder(results_folder)
+                            run_rbpf_fireworks = []
+                            # if DATA_SET_NAME == 'KITTI_split' and train_test == 'train':
+                            #     SEQUENCES_TO_PROCESS = range(training_seq_count['KITTI_split'])
+                            #     #SEQUENCES_TO_PROCESS = range(56)
+                            # elif DATA_SET_NAME == 'KITTI_split' and train_test == 'test':
+                            #     SEQUENCES_TO_PROCESS = range(61)
 
-                        print 'NUM_RUNS =', NUM_RUNS
-                        print 'SEQUENCES_TO_PROCESS:', SEQUENCES_TO_PROCESS            
-                        for run_idx in range(1, NUM_RUNS+1):
-                            for seq_idx in SEQUENCES_TO_PROCESS:
-                                if DATA_SET_NAME == 'KITTI' and train_test == 'train':
-                                    image_widths = [1242 for i in range(training_seq_count['KITTI'])]
-                                    image_heights = [375 for i in range(training_seq_count['KITTI'])]
-                                elif DATA_SET_NAME == 'KITTI' and train_test == 'test':
-                                    image_widths = [1242 for i in range(test_seq_count['KITTI'])]
-                                    image_heights = [375 for i in range(test_seq_count['KITTI'])]
-                                elif DATA_SET_NAME == 'KITTI_split' and train_test == 'train':
-                                    image_widths = [1242 for i in range(training_seq_count['KITTI_split'])]
-                                    image_heights = [375 for i in range(training_seq_count['KITTI_split'])]
-                                elif DATA_SET_NAME == 'KITTI_split' and train_test == 'test':
-                                    image_widths = [1242 for i in range(test_seq_count['KITTI_split'])]
-                                    image_heights = [375 for i in range(test_seq_count['KITTI_split'])]
+                            print 'NUM_RUNS =', NUM_RUNS
+                            print 'SEQUENCES_TO_PROCESS:', SEQUENCES_TO_PROCESS            
+                            for run_idx in range(1, NUM_RUNS+1):
+                                for seq_idx in SEQUENCES_TO_PROCESS:
+                                    if DATA_SET_NAME == 'KITTI' and train_test == 'train':
+                                        image_widths = [1242 for i in range(training_seq_count['KITTI'])]
+                                        image_heights = [375 for i in range(training_seq_count['KITTI'])]
+                                    elif DATA_SET_NAME == 'KITTI' and train_test == 'test':
+                                        image_widths = [1242 for i in range(test_seq_count['KITTI'])]
+                                        image_heights = [375 for i in range(test_seq_count['KITTI'])]
+                                    elif DATA_SET_NAME == 'KITTI_split' and train_test == 'train':
+                                        image_widths = [1242 for i in range(training_seq_count['KITTI_split'])]
+                                        image_heights = [375 for i in range(training_seq_count['KITTI_split'])]
+                                    elif DATA_SET_NAME == 'KITTI_split' and train_test == 'test':
+                                        image_widths = [1242 for i in range(test_seq_count['KITTI_split'])]
+                                        image_heights = [375 for i in range(test_seq_count['KITTI_split'])]
 
-                                elif DATA_SET_NAME == 'MOT17_split' and train_test == 'train':
-                                    image_widths = training_image_widths
-                                    image_heights = training_image_heights
-                                elif DATA_SET_NAME == 'MOT17_split' and train_test == 'test':
-                                    image_widths = testing_image_widths
-                                    image_heights = testing_image_heights
-                                cur_spec = \
-                                {'_dupefinder': {'_fw_name': 'DupeFinderExact'}, #enable duplicate cheking
-                                'obj_class': obj_class,
-                                'data_path': data_path,
-                                'pickled_data_dir': pickled_data_dir,
-                                'DATA_SET_NAME': DATA_SET_NAME,
-                                'image_widths': image_widths,
-                                'image_heights': image_heights,
-                                'training_seq_count': training_seq_count[DATA_SET_NAME],
-                                'num_particles': num_particles,
-                                'include_ignored_gt': False,
-                                'include_dontcare_in_gt': False,
-                                'sort_dets_on_intervals': True,
-                                'det_names': det_names,
-                                'run_idx': run_idx,
-                                'seq_idx': seq_idx,
-                                'results_folder': results_folder,
-                                'CHECK_K_NEAREST_TARGETS': check_k_nearest,                        
-                                'K_NEAREST_TARGETS': 1,                        
-                                'RUN_ONLINE': RUN_ONLINE,
-                                'ONLINE_DELAY': online_delay,
-                                'USE_CONSTANT_R': USE_CONSTANT_R,
-                                'P': P_default.tolist(),
-                                'R': R_DEFAULT.tolist(),
-                                'Q': Q_DEFAULT.tolist(),
-                                'scale_prior_by_meas_orderings': scale_prior_by_meas_orderings,
-                                'derandomize_with_seed': False,
-                                'use_general_num_dets': use_general_num_dets,
-                                #if true, set the prior probability of birth and clutter equal in
-                                #the proposal distribution, using the clutter prior for both
-                                'set_birth_clutter_prop_equal': False,
-                                'birth_clutter_likelihood': birth_clutter_likelihood,
-                                'proposal_distr': proposal_distr,
-                                #for 'min_cost' proposal distribution, sample measurement associations
-                                #uniformly at random with probability 'prob_sample_assoc_uniform' so 
-                                #that proposal distribution has full support
-                                'prob_sample_assoc_uniform': .05,
-                                'use_log_probs': 'True',
-                                'normalize_log_importance_weights': normalize_log_importance_weights,                                    
-                                #the minimum allowed box overlap for each detection source when associating
-                                #detections into groups
-                                'det_grouping_min_overlap': {'mscnn':.5, 
-                                                             '3dop':.5,
-                                                             'mono3d':.5,
-                                                             'mv3d':.5,
-                                                             'regionlets':.5,
-                                                             'DPM':.5, 
-                                                             'FRCNN':.5, 
-                                                             'SDP':.5},
-                                #'distance' or 'box_overlap', metric used when computing min cost measurment
-                                #target association assignment                             
-                                'targ_meas_assoc_metric': targ_meas_assoc_metric,
-                                #propose target measurement association with these distances as the 
-                                #maximum allowed distance when finding minimum cost assignment  
-                                #and 'targ_meas_assoc_metric' = 'distance'                                 
-                                'target_detection_max_dists': [15, 50, 150],
-                                #propose target measurement association with these box overlaps as the 
-                                #maximum allowed box overlap when finding minimum cost assignment  
-                                #and 'targ_meas_assoc_metric' = 'box_overlap'                                 
-                                'target_detection_max_overlaps': [.25, .5, .75],
-                                'coord_ascent_params':{ #first entry in each list is the parameter value, second is the parameter's alpha value
-                                    'birth_proposal_prior_const': [1.0, 2.0],
-                                    'clutter_proposal_prior_const': [1.0, 2.0],
-                                    'birth_model_prior_const': [1.0, 2.0],
-                                    'clutter_model_prior_const': [1.0, 2.0],
-                                    'det_grouping_min_overlap_mscnn': [.5, 0, 1],
-                                    'det_grouping_min_overlap_3dop': [.5, 0, 1],
-                                    'det_grouping_min_overlap_mono3d': [.5, 0, 1],
-                                    'det_grouping_min_overlap_mv3d': [.5, 0, 1],
-                                    'det_grouping_min_overlap_DPM':[.5, 0, 1],
-                                    'det_grouping_min_overlap_FRCNN':[.5, 0, 1],
-                                    'det_grouping_min_overlap_SDP':[.5, 0, 1],                                    
-                                    'det_grouping_min_overlap_regionlets': [.5, 0, 1],
-                                    'target_detection_max_dists_0': [15, 1.4],
-                                    'target_detection_max_dists_1': [50, 1.4],
-                                    'target_detection_max_dists_2': [150, 1.4]
-                                    },
-                                'train_test': train_test,  #should be 'train', 'test', or 'generated_data'                                                                        
-        #                        'gt_path': None #None for KITTI data, file path (string) for synthetic data
-                                'gt_path': None, #None for KITTI data, file path (string) for synthetic data
-                                'data_generation_spec': None,
-                                'birth_clutter_model':birth_clutter_model,
-                                #the number of samples we will use to compute the expected value of the partition function 
-                                #using an approximation to the Gumbel max trick
-                                'num_gumbel_partition_samples': 20,
-                                'gumbel_scale': gumbel_scale,
-                                #compute death probabilities for targets that have been unassociated
-                                #for up to death_prob_markov_order time instances, we will assume death probability is unchanged after
-                                #this number of time instances in our model                                
-                                #'death_prob_markov_order':2,
-                                'death_prob_markov_order':3,
-                                #if params.SPEC['proposal_distr'] == 'modified_SIS_exact'
-                                #we sample from this many of the most likely hypotheses
-                                #this number should be large enough that we never draw a sample
-                                #from outside these choices, check whether this is the case or increase
-                                #dynamically if we sample from outside these choices
-                                'num_top_hypotheses_to_sample_from': 200,
-                                #compute target emission priors conditioned on target image features
-                                #and image features of the target's nearest neighbor detections
-                                'condition_emission_prior_img_feat': False,
-                                #number of target's nearest neighbor detections to consider
-                                'emission_prior_k_NN': 5,
-                                #either 'euclidean' or 'bb_overlap', used to find nearest neighbors
-                                'emission_prior_distance_metric': 'bb_overlap'}
+                                    elif DATA_SET_NAME == 'MOT17_split' and train_test == 'train':
+                                        image_widths = training_image_widths
+                                        image_heights = training_image_heights
+                                    elif DATA_SET_NAME == 'MOT17_split' and train_test == 'test':
+                                        image_widths = testing_image_widths
+                                        image_heights = testing_image_heights
+                                    cur_spec = \
+                                    {'_dupefinder': {'_fw_name': 'DupeFinderExact'}, #enable duplicate cheking
+                                    'obj_class': obj_class,
+                                    'data_path': data_path,
+                                    'pickled_data_dir': pickled_data_dir,
+                                    'DATA_SET_NAME': DATA_SET_NAME,
+                                    'image_widths': image_widths,
+                                    'image_heights': image_heights,
+                                    'training_seq_count': training_seq_count[DATA_SET_NAME],
+                                    'num_particles': num_particles,
+                                    'include_ignored_gt': False,
+                                    'include_dontcare_in_gt': False,
+                                    'sort_dets_on_intervals': True,
+                                    'det_names': det_names,
+                                    'run_idx': run_idx,
+                                    'seq_idx': seq_idx,
+                                    'results_folder': results_folder,
+                                    'CHECK_K_NEAREST_TARGETS': check_k_nearest,                        
+                                    'K_NEAREST_TARGETS': 1,                        
+                                    'RUN_ONLINE': RUN_ONLINE,
+                                    'ONLINE_DELAY': online_delay,
+                                    'USE_CONSTANT_R': USE_CONSTANT_R,
+                                    'P': P_default.tolist(),
+                                    'R': R_DEFAULT.tolist(),
+                                    'Q': Q_DEFAULT.tolist(),
+                                    'scale_prior_by_meas_orderings': scale_prior_by_meas_orderings,
+                                    'derandomize_with_seed': False,
+                                    'use_general_num_dets': use_general_num_dets,
+                                    #if true, set the prior probability of birth and clutter equal in
+                                    #the proposal distribution, using the clutter prior for both
+                                    'set_birth_clutter_prop_equal': False,
+                                    'birth_clutter_likelihood': birth_clutter_likelihood,
+                                    'proposal_distr': proposal_distr,
+                                    #for 'min_cost' proposal distribution, sample measurement associations
+                                    #uniformly at random with probability 'prob_sample_assoc_uniform' so 
+                                    #that proposal distribution has full support
+                                    'prob_sample_assoc_uniform': .05,
+                                    'use_log_probs': 'True',
+                                    'normalize_log_importance_weights': normalize_log_importance_weights,                                    
+                                    #the minimum allowed box overlap for each detection source when associating
+                                    #detections into groups
+                                    'det_grouping_min_overlap': {'rrc':.5, 
+                                                                 'mscnn':.5, 
+                                                                 '3dop':.5,
+                                                                 'mono3d':.5,
+                                                                 'mv3d':.5,
+                                                                 'regionlets':.5,
+                                                                 'DPM':.5, 
+                                                                 'FRCNN':.5, 
+                                                                 'SDP':.5},
+                                    #'distance' or 'box_overlap', metric used when computing min cost measurment
+                                    #target association assignment                             
+                                    'targ_meas_assoc_metric': targ_meas_assoc_metric,
+                                    #propose target measurement association with these distances as the 
+                                    #maximum allowed distance when finding minimum cost assignment  
+                                    #and 'targ_meas_assoc_metric' = 'distance'                                 
+                                    'target_detection_max_dists': [15, 50, 150],
+                                    #propose target measurement association with these box overlaps as the 
+                                    #maximum allowed box overlap when finding minimum cost assignment  
+                                    #and 'targ_meas_assoc_metric' = 'box_overlap'                                 
+                                    'target_detection_max_overlaps': [.25, .5, .75],
+                                    'coord_ascent_params':{ #first entry in each list is the parameter value, second is the parameter's alpha value
+                                        'birth_proposal_prior_const': [1.0, 2.0],
+                                        'clutter_proposal_prior_const': [1.0, 2.0],
+                                        'birth_model_prior_const': [1.0, 2.0],
+                                        'clutter_model_prior_const': [1.0, 2.0],
+                                        'det_grouping_min_overlap_mscnn': [.5, 0, 1],
+                                        'det_grouping_min_overlap_3dop': [.5, 0, 1],
+                                        'det_grouping_min_overlap_mono3d': [.5, 0, 1],
+                                        'det_grouping_min_overlap_mv3d': [.5, 0, 1],
+                                        'det_grouping_min_overlap_DPM':[.5, 0, 1],
+                                        'det_grouping_min_overlap_FRCNN':[.5, 0, 1],
+                                        'det_grouping_min_overlap_SDP':[.5, 0, 1],                                    
+                                        'det_grouping_min_overlap_regionlets': [.5, 0, 1],
+                                        'det_grouping_min_overlap_subcnn': [.5, 0, 1],
+                                        'det_grouping_min_overlap_rrc': [.5, 0, 1],
+                                        'target_detection_max_dists_0': [15, 1.4],
+                                        'target_detection_max_dists_1': [50, 1.4],
+                                        'target_detection_max_dists_2': [150, 1.4]
+                                        },
+                                    'train_test': train_test,  #should be 'train', 'test', or 'generated_data'                                                                        
+            #                        'gt_path': None #None for KITTI data, file path (string) for synthetic data
+                                    'gt_path': None, #None for KITTI data, file path (string) for synthetic data
+                                    'data_generation_spec': None,
+                                    'birth_clutter_model':birth_clutter_model,
+                                    #the number of samples we will use to compute the expected value of the partition function 
+                                    #using an approximation to the Gumbel max trick
+                                    'num_gumbel_partition_samples': 20,
+                                    'gumbel_scale': gumbel_scale,
+                                    #compute death probabilities for targets that have been unassociated
+                                    #for up to death_prob_markov_order time instances, we will assume death probability is unchanged after
+                                    #this number of time instances in our model                                
+                                    #'death_prob_markov_order':2,
+                                    'death_prob_markov_order':3,
+                                    #if params.SPEC['proposal_distr'] == 'modified_SIS_exact'
+                                    #we sample from this many of the most likely hypotheses
+                                    #this number should be large enough that we never draw a sample
+                                    #from outside these choices, check whether this is the case or increase
+                                    #dynamically if we sample from outside these choices
+                                    'num_top_hypotheses_to_sample_from': 200,
+                                    #compute target emission priors conditioned on target image features
+                                    #and image features of the target's nearest neighbor detections
+                                    'condition_emission_prior_img_feat': False,
+                                    #number of target's nearest neighbor detections to consider
+                                    'emission_prior_k_NN': 5,
+                                    #either 'euclidean' or 'bb_overlap', used to find nearest neighbors
+                                    'emission_prior_distance_metric': 'bb_overlap',
+                                    #if true, smooth association probabilities to test performance deterioration with smoothing
+                                    'smooth_assoc_probs':False,
+                                    'smoothing_factor':smoothing_factor,}
 
-                                cur_firework = Firework(RunRBPF(), spec=cur_spec)
-        #                       cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
+                                    cur_firework = Firework(RunRBPF(), spec=cur_spec)
+            #                       cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
 
-                                run_rbpf_fireworks.append(cur_firework)
+                                    run_rbpf_fireworks.append(cur_firework)
 
 
-    #                   seq_idx_to_eval = [i for i in range(21)]
-                        seq_idx_to_eval = SEQUENCES_TO_PROCESS
-                        eval_old_spec = copy.deepcopy(cur_spec)
-                        eval_old_spec['seq_idx_to_eval'] = seq_idx_to_eval 
-                        eval_old_spec['use_corrected_eval'] = False
-                        eval_old_firework = Firework(RunEval(), spec=eval_old_spec)
+        #                   seq_idx_to_eval = [i for i in range(21)]
+                            seq_idx_to_eval = SEQUENCES_TO_PROCESS
+                            eval_old_spec = copy.deepcopy(cur_spec)
+                            eval_old_spec['seq_idx_to_eval'] = seq_idx_to_eval 
+                            eval_old_spec['use_corrected_eval'] = False
+                            eval_old_firework = Firework(RunEval(), spec=eval_old_spec)
 
-                        eval_new_spec = copy.deepcopy(cur_spec)
-                        eval_new_spec['seq_idx_to_eval'] = seq_idx_to_eval 
-                        eval_new_spec['use_corrected_eval'] = True
-                        eval_new_firework = Firework(RunEval(), spec=eval_new_spec)
+                            eval_new_spec = copy.deepcopy(cur_spec)
+                            eval_new_spec['seq_idx_to_eval'] = seq_idx_to_eval 
+                            eval_new_spec['use_corrected_eval'] = True
+                            eval_new_firework = Firework(RunEval(), spec=eval_new_spec)
 
-                        eval_fireworks = [eval_old_firework, eval_new_firework]
-                        all_fireworks.extend(run_rbpf_fireworks)
+                            eval_fireworks = [eval_old_firework, eval_new_firework]
+                            all_fireworks.extend(run_rbpf_fireworks)
 
-                        print "howdy!", debug_counter, 'len(all_fireworks) =', len(all_fireworks), 'len(run_rbpf_fireworks) =', len(run_rbpf_fireworks)
-                        debug_counter += 1                       
-                         
-                        all_fireworks.extend(eval_fireworks)
-                        for fw in run_rbpf_fireworks:
-                            firework_dependencies[fw] = eval_fireworks
+                            print "howdy!", debug_counter, 'len(all_fireworks) =', len(all_fireworks), 'len(run_rbpf_fireworks) =', len(run_rbpf_fireworks)
+                            debug_counter += 1                       
+                             
+                            all_fireworks.extend(eval_fireworks)
+                            for fw in run_rbpf_fireworks:
+                                firework_dependencies[fw] = eval_fireworks
 
-                        storeResultsFW = Firework(StoreResultsInDatabase(), spec=eval_new_spec)
-                        all_fireworks.append(storeResultsFW)
-                        firework_dependencies[eval_old_firework] = storeResultsFW
-                        firework_dependencies[eval_new_firework] = storeResultsFW
+                            storeResultsFW = Firework(StoreResultsInDatabase(), spec=eval_new_spec)
+                            all_fireworks.append(storeResultsFW)
+                            firework_dependencies[eval_old_firework] = storeResultsFW
+                            firework_dependencies[eval_new_firework] = storeResultsFW
 
 
 ###    NUM_PARTICLES_TO_TEST = [20, 50, 80]#[5, 20, 80, 240, 960]

@@ -34,6 +34,7 @@ from munkres import Munkres
 from collections import deque
 from collections import defaultdict
 from sets import ImmutableSet
+import traceback
 
 sys.path.insert(0, '/atlas/u/jkuck/gumbel_sample_permanent')
 from tracking_specific_nestingUB_gumbel_sample_permanent import associationMatrix, multi_matrix_sample_associations_without_replacement
@@ -128,6 +129,7 @@ if LSTM_MOTION:
 
 
 PROFILE = False
+TRACE_PRINTS = False #useful for getting rid of unwanted print statements
 USE_GENERATED_DATA = False
 
 PLOT_TARGET_LOCATIONS = False
@@ -183,7 +185,15 @@ max_vel = 1.0
 #to be associated with each other when calculating MOTA and MOTP
 MAX_ASSOCIATION_DIST = 1
 
+class TracePrints(object):
+  def __init__(self):    
+    self.stdout = sys.stdout
+  def write(self, s):
+    self.stdout.write("Writing %r\n" % s)
+    traceback.print_stack(file=self.stdout)
 
+if TRACE_PRINTS:
+    sys.stdout = TracePrints()
 
 def get_score_index(score_intervals, score):
     """
@@ -825,13 +835,16 @@ class TargetSet:
         #every target in any of this TargetSet's ancestors' all_targets lists that does not
         #appear in the all_targets list of a descendant
         """
+        "collect_ancestral_targets called!"
         every_target = []
         found_target_ids = descendant_target_ids
         for target in self.all_targets:
             if(not target.id_ in found_target_ids):
                 every_target.append(target)
                 found_target_ids.append(target.id_)
+            print "len(every_target)", len(every_target)
         if self.parent_target_set == None:
+            "self.parent_target_set == None !"
             return every_target
         else:
             ancestral_targets = self.parent_target_set.collect_ancestral_targets(found_target_ids)
@@ -840,12 +853,14 @@ class TargetSet:
         return every_target
 
 
-    def write_online_results(self, online_results_filename, frame_idx, total_frame_count, extra_info, fw_spec):
+    def write_online_results(self, online_results_filename, frame_idx, total_frame_count, extra_info, fw_spec,\
+        min_target_life=0):
         """
         Inputs:
         - extra_info: dictionary containing the particle's importance weight (key 'importance_weight') 
             and boolean whether this is the first time the particle is the max importance weight 
             particle (key 'first_time_as_max_imprt_part')
+        - min_target_life: (int) only write targets that have been alive for at least a total of this many time steps
 
         """
         if frame_idx == SPEC['ONLINE_DELAY']:
@@ -858,6 +873,8 @@ class TargetSet:
 
             for target in self.living_targets:
                 assert(target.all_time_stamps[-1] == round(frame_idx*DEFAULT_TIME_STEP, 2)), (target.all_time_stamps[-1], round(frame_idx*DEFAULT_TIME_STEP, 2))
+                if len(target.all_time_stamps) < min_target_life: #target is not old enough
+                    continue
                 x_pos = target.all_states[-1][0][0][0]
                 y_pos = target.all_states[-1][0][2][0]
                 width = target.all_states[-1][1]
@@ -960,11 +977,13 @@ class TargetSet:
 
 
     def write_targets_to_KITTI_format(self, num_frames, results_filename, plot_filename, fw_spec):
+        print "write_targets_to_KITTI_format called!"
         x_locations_all_targets = defaultdict(list)
         y_locations_all_targets = defaultdict(list)
         if USE_GENERATED_DATA:
             num_frames = NUM_GEN_FRAMES
         if USE_CREATE_CHILD:
+            print "about to call self.collect_ancestral_targets()"
             every_target = self.collect_ancestral_targets()
             f = open(results_filename, "w")
             for frame_idx in range(num_frames):
@@ -990,6 +1009,8 @@ class TargetSet:
             f.close()
 
         else:
+            print "did not call self.collect_ancestral_targets()"
+            print "USE_CREATE_CHILD =", USE_CREATE_CHILD
             f = open(results_filename, "w")
             for frame_idx in range(num_frames):
                 timestamp = round(frame_idx*DEFAULT_TIME_STEP, 2)
@@ -1508,8 +1529,9 @@ def group_particles(particle_set, min_delay, max_delay):
     - particle_groups: a dictionary with the same keys as particle_group_probs.  Values are one of the
         actual particles belonging to the group (all have the same CURRENT state, so it doesn't matter which one)
     '''
-    assert(SPEC['RUN_ONLINE'])
-    assert(min_delay <= SPEC['ONLINE_DELAY'] and max_delay <= SPEC['ONLINE_DELAY'] and min_delay<=max_delay)
+    # assert(SPEC['RUN_ONLINE'])
+    if SPEC['RUN_ONLINE']:
+        assert(min_delay <= SPEC['ONLINE_DELAY'] and max_delay <= SPEC['ONLINE_DELAY'] and min_delay<=max_delay)
     num_time_steps = len(particle_set[0].all_measurement_associations)
     particle_group_probs = {}
     #particle_groups is a dictionary with the same keys as particle_group_probs.  Values are one of the
@@ -1688,7 +1710,18 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         that is, keep sampling until we have 'num_particles' different hypotheses
 
     '''
-    (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'])
+    if SPEC['RUN_ONLINE'] == True:
+        (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'])
+    else: #make two dictionaries of all particles, to match output of group_particles without performing any grouping
+        # (particle_group_probs, particle_groups) = group_particles(particle_set, 0, int(cur_time*10)) 
+        particle_group_probs = {}
+        particle_groups = {}
+        for idx, particle in enumerate(particle_set):
+            particle_group_probs[idx] = particle.importance_weight
+            particle_groups[idx] = particle
+            if cur_time == 0: #only one particle group on first time instance
+                break
+
     #housekeeping, should make this nicer somehow
     meas_groups = []
     for det_idx, det_name in enumerate(SPEC['det_names']):
@@ -1984,13 +2017,15 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
     #housekeeping, should make this nicer somehow
     print '-'*80
     print 'beginning exact_sampling_step for cur_time =', cur_time
-    print 
     
     meas_groups = []
     for det_idx, det_name in enumerate(SPEC['det_names']):
         group_detections(meas_groups, det_name, measurement_lists[det_idx], widths[det_idx], heights[det_idx], params)
 
     M = len(meas_groups) #number of measurement groups
+    print 'M =', M    
+    print 
+    
     #now that we have estimates of p(x_1:k-1|y_1:k-1), perform modified SIS step
     particle_group_log_probs = {}
 #    for idx in range(N_PARTICLES): 
@@ -2543,6 +2578,10 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec,
             for particle in particle_set:
                 particle.targets.living_targets_q.append((time_instance_index, copy.deepcopy(particle.targets.living_targets)))
         
+        else: #we're running in offline mode
+            for particle in particle_set:
+                particle.targets.living_targets_q.append((time_instance_index, copy.deepcopy(particle.targets.living_targets)))
+
         #Using modified_SIS_MHT_gumbel, sampling with replacement, importance weights may vary but DON'T resample because sampling
         #was done without replacement
         if (not params.SPEC['proposal_distr'] in ['exact_sampling', 'modified_SIS_gumbel', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique'] \
@@ -2581,6 +2620,7 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec,
     for particle in particle_set:
         if(particle.importance_weight == max_imprt_weight):
             max_weight_target_set = particle.targets
+            cur_max_weight_particle = particle
 
     run_info = [number_resamplings]
 
@@ -3020,6 +3060,7 @@ class RunRBPF(FireTaskBase):
 
             if sort_dets_on_intervals:
                 score_interval_dict_all_det = {\
+                    'rrc' : [float(i)*.1 for i in range(10)],              
                     'mscnn' : [float(i)*.1 for i in range(3,10)],              
                     'subcnn' : [float(i)*.1 for i in range(3,10)],              
                     'regionlets' : [i for i in range(2, 20)],
@@ -3034,6 +3075,7 @@ class RunRBPF(FireTaskBase):
             else:
                 score_interval_dict_all_det = {\
     #            'mscnn' = [.5],                                
+                'rrc' : [0],
                 'mscnn' : [.3],
                 'subcnn' : [.3],
                 'regionlets' : [2],

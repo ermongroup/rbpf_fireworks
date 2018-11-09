@@ -26,13 +26,16 @@ import pickle
 sys.path.insert(0, "../")
 from cluster_config import RBPF_HOME_DIRECTORY
 
+from rbpf_sampling_manyMeasSrcs import combine_arbitrary_number_measurements_4d as combine_4d_detections
+
+
 LEARN_Q_FROM_ALL_GT = False
 SKIP_LEARNING_Q = True
 
 #load ground truth data and detection data, when available, from saved pickle file
 #to cut down on load time
 #Be careful!! If changing data representation, e.g. class gtObject, need to delete pickled data!!
-USE_PICKLED_DATA = True
+USE_PICKLED_DATA = False
 
 #be careful with this!!!! check which parameters change the returned values
 USE_PICKLED_DATA_MEAS_TARGET_DANGER = False
@@ -1067,7 +1070,7 @@ class trackingEvaluation(object):
         self.printSep()
         dump.close()
 
-def evaluate(fw_spec, data_path, pickled_data_dir, min_score, det_method,mail,obj_class = "car", include_ignored_gt = False, include_dontcare_in_gt = False, include_ignored_detections = True):
+def evaluate(fw_spec, data_path, pickled_data_dir, min_score, det_method,mail,obj_class = "car", include_ignored_gt = False, include_dontcare_in_gt = False, include_ignored_detections = True, return_tracking_evaluation=False):
     """
     Output:
     - gt_objects: gt_objects[i][j] is a list of all ground truth objects in the jth frame of the ith video sequence
@@ -1152,7 +1155,10 @@ def evaluate(fw_spec, data_path, pickled_data_dir, min_score, det_method,mail,ob
         mail.msg("The uploaded results could not be evaluated. Check for format errors.")
         return False
     mail.msg("Thank you for participating in our benchmark!")
-    return (gt_objects, det_objects)
+    if return_tracking_evaluation:
+        return (gt_objects, det_objects, e)
+    else:
+        return (gt_objects, det_objects)
 
 
 
@@ -2768,15 +2774,21 @@ class MultiDetections_many:
         for cur_detection in detections:
             cost_row = []
             for cur_detection_group in frame_detection_groups:
-                min_cost = max_cost
+                min_group_cost = max_cost
+                max_group_cost = 0
                 for grpd_det_name, grouped_detection in cur_detection_group.iteritems():
                     # overlap == 1 is cost ==0
                     c = 1-boxoverlap(cur_detection, grouped_detection)
-                    if c < min_cost:
-                        min_cost = c
+                    if c < min_group_cost:
+                        min_group_cost = c
+                    if c > max_group_cost:
+                        max_group_cost = c
+
                 # gating for boxoverlap
-                if min_cost<=.5:
-                    cost_row.append(min_cost)
+                # if min_group_cost<=.5:
+                #     cost_row.append(min_group_cost)
+                if max_group_cost<=.5:
+                    cost_row.append(min_group_cost)
                 else:
                     cost_row.append(max_cost)
             cost_matrix.append(cost_row)
@@ -2799,7 +2811,7 @@ class MultiDetections_many:
         for row,col in association_matrix:
             # apply gating on boxoverlap
             c = cost_matrix[row][col]
-            print (row, col, c)
+            # print (row, col, c)
 
             if c < max_cost:
                 associated_detection = detections[row]
@@ -2809,17 +2821,17 @@ class MultiDetections_many:
                 #double check
                 check_det_count += 1
                 min_cost = max_cost
-                for grpd_det_name, grouped_detection in associated_detection_group.iteritems():
-                    # overlap == 1 is cost ==0
-                    check_c = 1-boxoverlap(associated_detection, grouped_detection)
-                    if check_c < min_cost:
-                        min_cost = check_c
-                assert(min_cost == c), (min_cost, c)
+                # for grpd_det_name, grouped_detection in associated_detection_group.iteritems():
+                #     # overlap == 1 is cost ==0
+                #     check_c = 1-boxoverlap(associated_detection, grouped_detection)
+                #     if check_c < min_cost:
+                #         min_cost = check_c
+                # assert(min_cost == c), (min_cost, c)
                 #done double check                
 
-                print "associated_detection_group before adding:", associated_detection_group
+                # print "associated_detection_group before adding:", associated_detection_group
                 associated_detection_group[det_name] = associated_detection                
-                print "associated_detection_group after adding:", associated_detection_group
+                # print "associated_detection_group after adding:", associated_detection_group
 
 
         for det_idx in range(len(detections)):
@@ -2862,8 +2874,8 @@ class MultiDetections_many:
 
         for seq_idx in range(len(self.detection_groups)):
             for frame_idx in range(len(self.detection_groups[seq_idx])):
+                this_frame_assoc_gt_ids = []                
                 for detection_group in self.detection_groups[seq_idx][frame_idx]:
-                    this_frame_assoc_gt_ids = []
                     det_group_size_counts[len(detection_group)] += 1
                     detection_group_count +=1
                     det_grp_assoc = detection_group[detection_group.keys()[0]].assoc
@@ -2898,6 +2910,161 @@ class MultiDetections_many:
         #detection_groups, list where each element is a detection_group
         #detection_group, dictionary of detections in the group, key='det_name', value=detObject
 
+    def compute_clutter_based_on_detection_groups_jointly(self, loaded_tracking_eval, posAndSize_inv_covariance_blocks, meas_noise_mean):
+        group_counts = defaultdict(int)
+        valid_group_counts = defaultdict(int)
+        clutter_group_counts = defaultdict(int)
+        dont_care_group_counts = defaultdict(int)
+        ignored_group_counts = defaultdict(int)
+        tp_group_overlaps = defaultdict(list) #list of bounding box ovelaps of true positives for each detection group
+
+        ground_truth_count = 0
+        for seq_idx in range(len(self.detection_groups)):
+            for frame_idx in range(len(self.detection_groups[seq_idx])):
+
+                ############ MESSY ############
+                #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+                #of the position of meas_groups[i]
+                meas_grp_covs = []   
+                meas_grp_means2D = []
+                meas_grp_means = []
+
+                det_group_names = []
+                det_groups = []
+                for detection_group in self.detection_groups[seq_idx][frame_idx]:
+                    (combined_meas_mean, combined_covariance) = combine_4d_detections(posAndSize_inv_covariance_blocks, 
+                                        meas_noise_mean, detection_group, det_groups_as_detObjs=True)
+                    combined_meas_pos = combined_meas_mean[0:2]
+                    meas_grp_means2D.append(combined_meas_pos)
+                    meas_grp_means.append(combined_meas_mean)
+                    meas_grp_covs.append(combined_covariance)
+
+                    #get the name of this detection group
+                    group_det_names = []
+                    for det_name, det in detection_group.iteritems():
+                        group_det_names.append(det_name)
+                    det_names_set = ImmutableSet(group_det_names)   
+
+                    combined_detection_group_x = combined_meas_mean[0]
+                    combined_detection_group_y = combined_meas_mean[1]
+                    combined_detection_group_width = combined_meas_mean[2]
+                    combined_detection_group_height = combined_meas_mean[3]
+                    x1 = combined_detection_group_x - combined_detection_group_width/2.0
+                    x2 = combined_detection_group_x + combined_detection_group_width/2.0
+                    y1 = combined_detection_group_y - combined_detection_group_height/2.0
+                    y2 = combined_detection_group_y + combined_detection_group_height/2.0
+                    combined_det_object = detObject(x1, x2, y1, y2, assoc=-1, score=-1)
+                    det_groups.append(combined_det_object)
+                    det_group_names.append(det_names_set)
+                ############ END MESSY ############            
+
+                hm = Munkres()
+
+                max_cost = 1e9
+
+
+                cur_frame_ground_truth = loaded_tracking_eval.groundtruth[seq_idx][frame_idx]
+                cur_frame_dont_care = loaded_tracking_eval.dcareas[seq_idx][frame_idx]
+                cost_matrix = []
+                ground_truth_count += len(cur_frame_ground_truth)
+                for gg in cur_frame_ground_truth:
+                    if gg.truncation>loaded_tracking_eval.max_truncation or gg.obj_type=="van":
+                        ground_truth_count -= 1 #this is an 'ignored' ground truth
+                    cost_row         = []
+                    for tt in det_groups:
+                        # overlap == 1 is cost ==0
+                        c = 1-boxoverlap(gg,tt)
+                        # gating for boxoverlap
+                        if c<=.5:
+                            cost_row.append(c)
+                        else:
+                            cost_row.append(max_cost)
+                    cost_matrix.append(cost_row)
+
+
+                if len(cur_frame_ground_truth) is 0:
+                    cost_matrix=[[]]
+                # associate
+                association_matrix = hm.compute(cost_matrix)
+
+
+                for row,col in association_matrix:
+                    # apply gating on boxoverlap
+                    c = cost_matrix[row][col]
+                    if c < max_cost:
+                        if cur_frame_ground_truth[row].truncation>loaded_tracking_eval.max_truncation or cur_frame_ground_truth[row].obj_type=="van": 
+                            det_groups[col].assoc = 2 #associated with an 'ignored' ground truth object
+
+                        else:                        
+                            det_groups[col].assoc = 1 #associated with a valid ground truth object
+                            tp_group_overlaps[det_group_names[col]].append(1-c)
+
+                for tt in det_groups:
+                    for d in cur_frame_dont_care:
+                        overlap = boxoverlap(tt,d,"a")
+                        if overlap>0.5 and tt.assoc == -1:
+                            tt.assoc = 0 #detection group is in a "don't care" area
+
+                for idx, det_group in enumerate(det_groups):
+                    det_group_name = det_group_names[idx]
+                    group_counts[det_group_name] += 1
+                    if det_group.assoc == 1:
+                        valid_group_counts[det_group_name] += 1
+                    elif det_group.assoc == -1:
+                        clutter_group_counts[det_group_name] += 1
+                    elif det_group.assoc == 2:
+                        ignored_group_counts[det_group_name] += 1
+                    else:
+                        assert(det_group.assoc == 0)
+                        dont_care_group_counts[det_group_name] += 1
+
+        print "ground_truth_count:", ground_truth_count
+
+        total_group_count = 0
+        for det_group_names, count in group_counts.iteritems():
+            total_group_count += count
+        print "total_group_count:", total_group_count
+
+        total_clutter_count = 0
+        fraction_of_group_that_is_clutter = defaultdict(int)
+        # for det_group_names, clutter_count in clutter_group_counts.iteritems():
+        for det_group_names, count in group_counts.iteritems(): #iterate over all det_group_names in case some group has 0 clutter, so we get fraction 1
+            clutter_count = clutter_group_counts[det_group_names]
+            total_clutter_count += clutter_count
+            # fraction_of_group_that_is_clutter[det_group_names] = clutter_count/group_counts[det_group_names]
+            fraction_of_group_that_is_clutter[det_group_names] = clutter_count/(valid_group_counts[det_group_names] + clutter_count)
+        print "total_clutter_count:", total_clutter_count
+
+        total_dont_care_count = 0
+        for det_group_names, dont_care_count in dont_care_group_counts.iteritems():
+            total_dont_care_count += dont_care_count
+        print "total_dont_care_count:", total_dont_care_count
+
+        total_valid_count = 0
+        for det_group_names, valid_count in valid_group_counts.iteritems():
+            total_valid_count += valid_count
+        print "total_valid_count:", total_valid_count        
+
+
+        total_ignored_count = 0
+        for det_group_names, ignored_count in ignored_group_counts.iteritems():
+            total_ignored_count += ignored_count
+        print "total_ignored_count:", total_ignored_count
+
+        list_fraction_clutter = []
+        for det_group_names, fraction_clutter in fraction_of_group_that_is_clutter.iteritems():
+            list_fraction_clutter.append((fraction_clutter, clutter_group_counts[det_group_names], dont_care_group_counts[det_group_names], valid_group_counts[det_group_names], group_counts[det_group_names], ignored_group_counts[det_group_names], det_group_names))
+        sorted_list_fraction_clutter = sorted(list_fraction_clutter)
+
+        cumulative_valid_count = 0
+        cumulative_clutter_count = 0
+        print "the fraction of each type of detection group that is clutter (printed as fraction clutter, clutter count, don't care count, valid count, total group count, ignored_group_counts, detections in group, cumulative_clutter_count, cumulative_valid_count, MOTP for detection group"
+        for v in sorted_list_fraction_clutter:
+            cumulative_clutter_count += v[1]
+            cumulative_valid_count += v[3]
+            print v, cumulative_clutter_count, cumulative_valid_count, np.mean(tp_group_overlaps[v[-1]])
+
+        sleep(3)
 
     def store_associations_in_gt(self):
         """
@@ -3077,6 +3244,53 @@ class MultiDetections_many:
             total_prob += prob
         assert(abs(1.0-total_prob) < .0000001), total_prob
 
+##################################################################################
+        print "clutter_grpCountByFrame_priors:", clutter_grpCountByFrame_priors
+        print "clutter_group_priors:", clutter_group_priors
+        print "clutter_lambdas_by_group:", clutter_lambdas_by_group
+
+
+        detection_group_counts = defaultdict(int)
+
+        for seq_idx in range(len(self.detection_groups)):
+            for frame_idx in range(len(self.detection_groups[seq_idx])):
+                this_frame_assoc_gt_ids = []                
+                for detection_group in self.detection_groups[seq_idx][frame_idx]:
+                    group_meas_names = []
+                    for meas_name, meas in detection_group.iteritems():
+                        group_meas_names.append(meas_name)
+                    meas_names_set = ImmutableSet(group_meas_names)        
+                    detection_group_counts[meas_names_set] += 1
+
+        total_group_count = 0
+        for det_group_names, count in detection_group_counts.iteritems():
+            total_group_count += count
+        print "total_group_count:", total_group_count
+        print "total_clutter_group_count:", total_clutter_group_count
+
+        double_check_total_clutter_group_count = 0
+        fraction_of_group_that_is_clutter = defaultdict(int)
+        for det_group_names, clutter_count in clutter_by_group_count.iteritems():
+            double_check_total_clutter_group_count += clutter_count
+            fraction_of_group_that_is_clutter[det_group_names] = clutter_count/detection_group_counts[det_group_names]
+
+        print "double_check_total_clutter_group_count:", double_check_total_clutter_group_count
+
+        list_fraction_clutter = []
+        for det_group_names, fraction_clutter in fraction_of_group_that_is_clutter.iteritems():
+            list_fraction_clutter.append((fraction_clutter, clutter_by_group_count[det_group_names], detection_group_counts[det_group_names], det_group_names))
+        sorted_list_fraction_clutter = sorted(list_fraction_clutter)
+
+        cumulative_valid_count = 0
+        cumulative_clutter_count = 0
+        print "the fraction of each type of detection group that is clutter (printed as fraction clutter, clutter count, total group count, detections in group, cumulative_clutter_count, cumulative_valid_count"
+        for v in sorted_list_fraction_clutter:
+            cumulative_clutter_count += v[1]
+            cumulative_valid_count += v[2] - v[1]
+            print v, cumulative_clutter_count, cumulative_valid_count
+
+        # sleep(3)
+##################################################################################
         return (clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group)
 
 
@@ -3536,9 +3750,9 @@ def get_meas_target_sets_general(fw_spec, obj_class, data_path, pickled_data_dir
     #dictionary where all_det_objects['det_name'] contains the detected objects of type 'det_name'
     all_det_objects = {}
     for det_name in detection_names:
-        (gt_objects, cur_det_objects) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=score_intervals[det_name][0], \
+        (gt_objects, cur_det_objects, loaded_tracking_eval) = evaluate(fw_spec, data_path, pickled_data_dir, min_score=score_intervals[det_name][0], \
             det_method=det_name, mail=mail, obj_class=obj_class, include_ignored_gt=include_ignored_gt,\
-            include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections)        
+            include_dontcare_in_gt=include_dontcare_in_gt, include_ignored_detections=include_ignored_detections, return_tracking_evaluation=True)        
         all_det_objects[det_name] = cur_det_objects
 
     print "Constructed all_det_objects"
@@ -3567,6 +3781,8 @@ def get_meas_target_sets_general(fw_spec, obj_class, data_path, pickled_data_dir
     (posAndSize_inv_covariance_blocks, posOnly_covariance_blocks, meas_noise_mean_posAndSize, gt_bounding_box_mean_size,
         gt_bb_size_var)\
         = calc_gaussian_paramaters(fw_spec, 'ground_truth', all_detections.gt_objects, detection_names)
+    
+    all_detections.compute_clutter_based_on_detection_groups_jointly(loaded_tracking_eval, posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize)
 
     (clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize, clutter_bounding_box_mean_size,
         clutter_bb_size_var)\

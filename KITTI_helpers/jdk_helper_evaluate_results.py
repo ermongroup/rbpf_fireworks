@@ -1103,7 +1103,7 @@ def print_multi_run_metrics(packed_metrics, number_of_runs):
      
         print "="*80
 
-def eval_results(data_path, all_run_results, seq_idx_to_eval, SPEC=None, gt_path=None, use_corrected_eval=True, info_by_run=None):
+def eval_results(data_path, all_run_results, seq_idx_to_eval, SPEC=None, gt_path=None, use_corrected_eval=True, info_by_run=None, obj_class='car'):
     """
     Inputs:
     - seq_idx_to_eval: a list of sequence indices to evaluate
@@ -1122,7 +1122,7 @@ def eval_results(data_path, all_run_results, seq_idx_to_eval, SPEC=None, gt_path
     """
     if SPEC is None:
         SPEC = {'train_test': 'train',
-                'obj_class': 'car'}
+                'obj_class': obj_class}
     print "debugging jdk_helpers_evaluate_results.py eval_results:"
     print "all_run_results:"
     print all_run_results
@@ -1138,10 +1138,10 @@ def eval_results(data_path, all_run_results, seq_idx_to_eval, SPEC=None, gt_path
     for cur_run_results in glob.iglob(all_run_results + "/*"): # + operator used for string concatenation!
         if os.path.isdir(cur_run_results):
             all_sequences_completed = True
-            for cur_seq_idx in seq_idx_to_eval:
-                cur_run_complete_filename = '%s/seq_%d_done.txt' % (cur_run_results, cur_seq_idx)
-                if (not os.path.isfile(cur_run_complete_filename)):
-                    all_sequences_completed = False
+            # for cur_seq_idx in seq_idx_to_eval:
+            #     cur_run_complete_filename = '%s/seq_%d_done.txt' % (cur_run_results, cur_seq_idx)
+            #     if (not os.path.isfile(cur_run_complete_filename)):
+            #         all_sequences_completed = False
             if all_sequences_completed:
                 if SPEC['train_test'] == 'generated_data':
                     cur_run_metrics = evaluate(data_path, cur_run_results + "/", seq_idx_to_eval, gt_path=gt_path, corrected_version=use_corrected_eval, class_to_eval=SPEC['obj_class']) # + operator used for string concatenation!
@@ -1199,7 +1199,7 @@ def eval_results(data_path, all_run_results, seq_idx_to_eval, SPEC=None, gt_path
         print "done evaluating results!"
     return (number_of_runs, metric_medians)
 
-def find_and_eval_results(data_path, directory_to_search, seq_idx_to_eval=[i for i in range(21)], info_by_run=None):
+def find_and_eval_results(data_path, directory_to_search, seq_idx_to_eval=[i for i in range(21)], info_by_run=None, obj_class='car'):
     """
     Inputs:
     - seq_idx_to_eval: a list of sequence indices to evaluate
@@ -1210,22 +1210,22 @@ def find_and_eval_results(data_path, directory_to_search, seq_idx_to_eval=[i for
         if filename == 'results_by_run':
             print "about to eval: ", directory_to_search
 
-            if (not os.path.isfile(directory_to_search + '/OLD_evaluation_metrics.txt')):
+            if (not os.path.isfile(directory_to_search + '/OLD_evaluation_metrics_fewer_sequences.txt')):
             # if True:
                 stdout = sys.stdout
-                sys.stdout = open(directory_to_search + '/OLD_evaluation_metrics.txt', 'w')
+                sys.stdout = open(directory_to_search + '/OLD_evaluation_metrics_fewer_sequences.txt', 'w')
 
-                eval_results(data_path, directory_to_search + "/results_by_run", seq_idx_to_eval, use_corrected_eval=False) # + operateor used for string concatenation!
+                eval_results(data_path, directory_to_search + "/results_by_run", seq_idx_to_eval, use_corrected_eval=False, obj_class=obj_class) # + operateor used for string concatenation!
 
                 sys.stdout.close()
                 sys.stdout = stdout
 
-            if (not os.path.isfile(directory_to_search + '/NEW_evaluation_metrics.txt')):
+            if (not os.path.isfile(directory_to_search + '/NEW_evaluation_metrics_fewer_sequences.txt')):
             # if True:
                 stdout = sys.stdout
-                sys.stdout = open(directory_to_search + '/NEW_evaluation_metrics.txt', 'w')
+                sys.stdout = open(directory_to_search + '/NEW_evaluation_metrics_fewer_sequences.txt', 'w')
 
-                eval_results(data_path, directory_to_search + "/results_by_run", seq_idx_to_eval, use_corrected_eval=True) # + operateor used for string concatenation!
+                eval_results(data_path, directory_to_search + "/results_by_run", seq_idx_to_eval, use_corrected_eval=True, obj_class=obj_class) # + operateor used for string concatenation!
 
                 sys.stdout.close()
                 sys.stdout = stdout
@@ -1344,8 +1344,38 @@ if __name__ == "__main__":
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling113KITTI_split/no_img_features/mscnn_with_score_intervals_train/100_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduce_ICML/CHECK_1_NEAREST_TARGETS/Rto0_4xQ_max1MeasUpdate_online3frameDelay/mscnn3dopmono3dmv3dregionlets_with_score_intervals/',
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling_compareSUBCNNKITTI_split/', 
-                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling_compareSUBCNNKITTI_split/no_img_features/',   
-                          seq_idx_to_eval=range(90))
+                          # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling_compareSUBCNNKITTI_split/no_img_features/',   
+                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/KITTI_split/kill_targets_immediately_always_birth/smoothing_factor=-999999/rrcmscnn3dopmono3dmv3dregionlets_with_score_intervals_train/',   
+                          seq_idx_to_eval=range(90), obj_class='car')    
+
+
+    # find_and_eval_results(data_path='/atlas/u/jkuck/MOT17_split/kitti_format', \
+    #                       # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018//exact_sampling110MOT17_split/no_img_features/DPMFRCNNSDP_with_score_intervals_train/10_particles_online_delay=0,proposal_distr=exact_sampling,targ_meas_assoc_metric=box_overlap,check_k_nearest=False,gumbel_scale=0.000000/',   
+    #                       # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018//exact_sampling110MOT17_split/no_img_features/DPMFRCNNSDP_with_score_intervals_train/10_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=box_overlap,check_k_nearest=False,gumbel_scale=0.000000/',   
+    #                       directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling_debugMOT17_split/no_img_features/FRCNN_with_score_intervals_train/',   
+    #                       seq_idx_to_eval=range(56), obj_class='pedestrian')
+
+    # find_and_eval_results(data_path='/atlas/u/jkuck/MOT17_split/kitti_format', \
+    #                       # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018//exact_sampling110MOT17_split/no_img_features/DPMFRCNNSDP_with_score_intervals_train/10_particles_online_delay=0,proposal_distr=exact_sampling,targ_meas_assoc_metric=box_overlap,check_k_nearest=False,gumbel_scale=0.000000/',   
+    #                       # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018//exact_sampling110MOT17_split/no_img_features/DPMFRCNNSDP_with_score_intervals_train/10_particles_online_delay=0,proposal_distr=min_cost_corrected,targ_meas_assoc_metric=box_overlap,check_k_nearest=False,gumbel_scale=0.000000/',   
+    #                       directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling_debugMOT17_split/no_img_features/SDP_with_score_intervals_train/',   
+    #                       seq_idx_to_eval=[0, 32, 35, 49, 47, 40, 51, 24, 23, 18, 41, 46, 34, 48, 33, 19, 17, 22, 50, 14, 13, 26, 21, 53, 28, 54, 39, 45, 42, 30, 37, 5, 29, 52, 20, 27, 12, 36, 43, 44]    )
+
+
+    # find_and_eval_results(data_path='/atlas/u/jkuck/rbpf_fireworks/KITTI_helpers/data_split', \
+    #                       directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/compare_smoothing_assoc_probs2KITTI_split/large_smoothing_full_sequence/',   
+    #                       # seq_idx_to_eval=[17, 37, 13, 8, 61, 75, 44, 58, 71, 55, 25, 67, 57, 74, 31, 7, 20, 12, 0, 73, 72, 59, 62, 41, 22, 43, 2, 79, 14, 10, 46, 47, 26, 3, 40, 19, 84, 24, 51, 29, 4, 88, 77, 23, 35, 32, 68, 87, 76, 83, 30, 85, 66, 16])
+    #                       seq_idx_to_eval=[0, 32, 35, 49, 47, 40, 51, 24, 23, 18, 41, 46, 34, 48, 33, 19, 17, 22, 50, 14, 13, 26, 21, 53, 28, 54, 39, 45, 42, 30, 37, 5, 29, 52, 20, 27, 12, 36, 43, 44])
+
+    # find_and_eval_results(data_path='/atlas/u/jkuck/MOT17_split/kitti_format', \
+    #                       # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/quick_checkMOT17_split/offline_compare5/smoothing_factor=-999999/DPM_with_score_intervals_train/',
+    #                       directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/quick_checkMOT17_split/offline_compare12',
+    #                       # seq_idx_to_eval=[17, 37, 13, 8, 61, 75, 44, 58, 71, 55, 25, 67, 57, 74, 31, 7, 20, 12, 0, 73, 72, 59, 62, 41, 22, 43, 2, 79, 14, 10, 46, 47, 26, 3, 40, 19, 84, 24, 51, 29, 4, 88, 77, 23, 35, 32, 68, 87, 76, 83, 30, 85, 66, 16])
+    #                       # seq_idx_to_eval=[18, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30, 40, 41, 42, 43, 44, 45, 46, 51, 52, 53, 54])
+    #                       seq_idx_to_eval=range(56))
+    #                       # seq_idx_to_eval=[0], obj_class='pedestrian')
+
+
 
     exit(0)
 
