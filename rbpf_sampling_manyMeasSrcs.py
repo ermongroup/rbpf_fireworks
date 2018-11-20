@@ -13,7 +13,7 @@ from itertools import permutations
 from operator import itemgetter
 from pymatgen.optimization import linear_assignment
 from munkres import Munkres
-import cvxpy as cvx
+# import cvxpy as cvx
 import sys
 import math
 from cluster_config import RBPF_HOME_DIRECTORY
@@ -24,6 +24,10 @@ from global_params import DEFAULT_TIME_STEP
 
 #if we have prior of 0, return PRIOR_EPSILON
 PRIOR_EPSILON = .000000001
+
+class cvx:
+    def __init__(self, x):
+        self.x = x
 
 class Parameters:
     def __init__(self, det_names, target_groupEmission_priors, clutter_grpCountByFrame_priors,\
@@ -1276,9 +1280,12 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
     - log_probs: numpy matrix with dimensions (2*M+2*T)x(2*M+2*T) of log probabilities.
         np.trace(np.dot(log_probs,A.T) will be the log probability of an assignment A, given our
         Inputs.  (Where an assignment defines measurement associations to targets, and is marginalized
+
+    - clutter_probs_conditioned_unassoc: (list of floats) length M, the probability that each measurement
+        is clutter conditioned on it being unassociated with any target
     '''
 
-    log_probs4, conditional_birth_probs4, conditional_death_probs4 = construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_target_deaths, params)
+    log_probs4, conditional_birth_probs4, conditional_death_probs4, clutter_probs_conditioned_unassoc = construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_target_deaths, params)
     
     #construct a (2*M+2*T)x(2*M+2*T) matrix of log probabilities
     M = len(meas_groups)
@@ -1293,7 +1300,19 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
 
     #calculate log probs for target association entries in the log-prob matrix
 
+
+
+
     for t_idx in range(T):
+        #always birth measurements and propogate clutter/birth probabilities
+        if params.SPEC['optimistically_birth_targets']:# and particle.targets.living_targets[t_idx].fully_living == False:
+            target_is_clutter_prob = particle.targets.living_targets[t_idx].clutter_prob_for_optimistic_birth
+            fully_living_prob = 1 - target_is_clutter_prob
+        else:
+            target_is_clutter_prob = 0.0
+            fully_living_prob = 1.0
+
+
         for m_idx in range(M):
         #calculate log probs for measurement-target association entries in the log-prob matrix
             likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
@@ -1303,7 +1322,7 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
             else:
                 cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
             cur_prob += ln_zero_approx(params.target_groupEmission_priors[get_immutable_set_meas_names(meas_groups[m_idx])]) 
-            log_probs[m_idx][t_idx] = cur_prob
+            log_probs[m_idx][t_idx] = cur_prob + ln_zero_approx(fully_living_prob)
             assert(not math.isnan(log_probs[m_idx][t_idx]))
         #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
         lives_row_idx = M + 2*t_idx
@@ -1323,13 +1342,16 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
                 cur_death_prob = 10**-100
 
         assert(p_target_does_not_emit > 0 and cur_death_prob > 0 and cur_death_prob < 1.0), (p_target_does_not_emit, cur_death_prob)
-        log_probs[lives_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(1.0 - cur_death_prob)
-        log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(cur_death_prob)
+        log_probs[lives_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(1.0 - cur_death_prob) + ln_zero_approx(fully_living_prob)
+        # log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(cur_death_prob)
+        log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit*cur_death_prob*fully_living_prob + target_is_clutter_prob)
         assert(not math.isnan(log_probs[lives_row_idx][t_idx]))
         assert(not math.isnan(log_probs[dies_row_idx][t_idx]))
 
 #    print 'log_probs2:'
 #    print log_probs
+
+    clutter_probs_conditioned_unassoc = []
 
     #add birth/clutter measurement association entries to the log-prob matrix
     for m_idx in range(M):
@@ -1358,6 +1380,9 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
                 ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
         assert(not math.isnan(log_probs[m_idx][clutter_col]))    
 
+        clutter_probs_conditioned_unassoc.append(clutter_lambda*birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood/ \
+            (clutter_lambda * birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood + \
+            birth_lambda * birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood))
 
         log_probs[m_idx][birth_col] = ln_zero_approx(birth_lambda) + \
             ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
@@ -1368,6 +1393,7 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
 #    print 'log_probs4:'
 #    print log_probs
 
+    assert(len(clutter_probs_conditioned_unassoc) == M)
     #set bottom right quadrant to 0's
     for row_idx in range(M, 2*M+2*T):
         for col_idx in range(T, 2*T+2*M):
@@ -1392,7 +1418,7 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
     # print "conditional_birth_probs4:", conditional_birth_probs4
     # print "conditional_death_probs4:", conditional_death_probs4
 
-    return log_probs
+    return log_probs, clutter_probs_conditioned_unassoc
 
 
 
@@ -1453,12 +1479,20 @@ def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_tar
     
     conditional_birth_probs = np.ones(M)
     conditional_death_probs = np.ones(T)
+    clutter_probs_conditioned_unassoc = []
 #    print 'log_probs1:'
 #    print log_probs
 
     #calculate log probs for target association entries in the log-prob matrix
 
     for t_idx in range(T):
+        if params.SPEC['optimistically_birth_targets']:# and particle.targets.living_targets[t_idx].fully_living == False:
+            target_is_clutter_prob = particle.targets.living_targets[t_idx].clutter_prob_for_optimistic_birth
+            fully_living_prob = 1 - target_is_clutter_prob
+        else:
+            target_is_clutter_prob = 0.0
+            fully_living_prob = 1.0
+
         for m_idx in range(M):
         #calculate log probs for measurement-target association entries in the log-prob matrix
             likelihood = memoized_assoc_likelihood(particle, meas_groups[m_idx], t_idx, params)
@@ -1468,7 +1502,7 @@ def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_tar
             else:
                 cur_prob = -999 #(np.exp(-999) == 0) evaluates to True
             cur_prob += ln_zero_approx(params.target_groupEmission_priors[get_immutable_set_meas_names(meas_groups[m_idx])]) 
-            log_probs[m_idx][t_idx] = cur_prob
+            log_probs[m_idx][t_idx] = cur_prob * fully_living_prob
             assert(not math.isnan(log_probs[m_idx][t_idx]))
         #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
         if kill_all_unassociated_targets:
@@ -1485,10 +1519,14 @@ def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_tar
                 cur_death_prob = 10**-100
 
         assert(p_target_does_not_emit > 0 and cur_death_prob > 0 and cur_death_prob < 1.0), (p_target_does_not_emit, cur_death_prob)
-        log_probs[M:,t_idx] = ln_zero_approx(p_target_does_not_emit)
+        log_probs[M:,t_idx] = ln_zero_approx(p_target_does_not_emit*fully_living_prob + target_is_clutter_prob)
         # log_probs[lives_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(1.0 - cur_death_prob)
         # log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(cur_death_prob)
-        conditional_death_probs[t_idx] = cur_death_prob
+        conditional_death_probs[t_idx] = (fully_living_prob*p_target_does_not_emit*cur_death_prob + target_is_clutter_prob)/\
+                                        (fully_living_prob*p_target_does_not_emit + target_is_clutter_prob)
+
+        print "conditional_death_probs[t_idx]:", conditional_death_probs[t_idx]
+
 
     if params.SPEC['smooth_assoc_probs'] == True:
         smoothed_assoc_probs = np.exp(log_probs[:M, :T])
@@ -1523,6 +1561,9 @@ def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_tar
             log_clutter_prob = ln_zero_approx(clutter_lambda) + \
                 ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
 
+        orig_log_clutter_prob = ln_zero_approx(clutter_lambda) + \
+            ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
+
 
         log_birth_prob = ln_zero_approx(birth_lambda) + \
             ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'birth')*params.p_birth_likelihood)
@@ -1531,7 +1572,7 @@ def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_tar
         log_probs[m_idx][T +  m_idx] = log_birth_or_clutter_prob
         assert(not math.isnan(log_probs[m_idx][T +  m_idx]))
         conditional_birth_probs[m_idx] = np.exp(log_birth_prob)/(np.exp(log_birth_prob) + np.exp(log_clutter_prob))
-
+        clutter_probs_conditioned_unassoc.append(np.exp(orig_log_clutter_prob)/(np.exp(log_birth_prob) + np.exp(orig_log_clutter_prob)))
     #set bottom right quadrant to 0's
     for row_idx in range(M, M+T):
         for col_idx in range(T, T+M):
@@ -1547,7 +1588,7 @@ def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_tar
     #     print 
     # print
 
-    return log_probs, conditional_birth_probs, conditional_death_probs
+    return log_probs, conditional_birth_probs, conditional_death_probs, clutter_probs_conditioned_unassoc
 
 def ln_zero_approx(x):
     #return a small number instead of -infinity for ln(0)

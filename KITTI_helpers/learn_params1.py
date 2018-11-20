@@ -11,6 +11,7 @@ from munkres import Munkres
 from collections import defaultdict
 from sets import ImmutableSet
 from numpy.linalg import inv
+from itertools import combinations
 
 #try:
 #    from ordereddict import OrderedDict # can be installed using pip
@@ -124,6 +125,7 @@ class gtObject:
         #if this gtObject is associated with any detection
         self.associated_detection = None
 
+        self.det_group_assoc_names = ImmutableSet([])
 
         image_width = fw_spec['image_widths'][fw_spec['seq_idx']]
         image_height = fw_spec['image_heights'][fw_spec['seq_idx']]
@@ -2910,6 +2912,101 @@ class MultiDetections_many:
         #detection_groups, list where each element is a detection_group
         #detection_group, dictionary of detections in the group, key='det_name', value=detObject
 
+    def reassociate_gt_with_detection_groups(self, loaded_tracking_eval, posAndSize_inv_covariance_blocks, meas_noise_mean):
+        '''
+
+        Outputs:
+
+        '''
+
+        for seq_idx in range(len(self.detection_groups)):
+            for frame_idx in range(len(self.detection_groups[seq_idx])):
+
+                ############ MESSY ############
+                #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+                #of the position of meas_groups[i]
+                meas_grp_covs = []   
+                meas_grp_means2D = []
+                meas_grp_means = []
+
+                det_group_names = []
+                det_groups = []
+                for detection_group in self.detection_groups[seq_idx][frame_idx]:
+                    (combined_meas_mean, combined_covariance) = combine_4d_detections(posAndSize_inv_covariance_blocks, 
+                                        meas_noise_mean, detection_group, det_groups_as_detObjs=True)
+                    combined_meas_pos = combined_meas_mean[0:2]
+                    meas_grp_means2D.append(combined_meas_pos)
+                    meas_grp_means.append(combined_meas_mean)
+                    meas_grp_covs.append(combined_covariance)
+
+                    #get the name of this detection group
+                    group_det_names = []
+                    for det_name, det in detection_group.iteritems():
+                        group_det_names.append(det_name)
+                    det_names_set = ImmutableSet(group_det_names)   
+
+                    combined_detection_group_x = combined_meas_mean[0]
+                    combined_detection_group_y = combined_meas_mean[1]
+                    combined_detection_group_width = combined_meas_mean[2]
+                    combined_detection_group_height = combined_meas_mean[3]
+                    x1 = combined_detection_group_x - combined_detection_group_width/2.0
+                    x2 = combined_detection_group_x + combined_detection_group_width/2.0
+                    y1 = combined_detection_group_y - combined_detection_group_height/2.0
+                    y2 = combined_detection_group_y + combined_detection_group_height/2.0
+                    combined_det_object = detObject(x1, x2, y1, y2, assoc=-1, score=-1)
+                    det_groups.append(combined_det_object)
+                    det_group_names.append(det_names_set)
+                ############ END MESSY ############            
+
+                hm = Munkres()
+
+                max_cost = 1e9
+
+
+                cur_frame_ground_truth = loaded_tracking_eval.groundtruth[seq_idx][frame_idx]
+                cost_matrix = []
+                for gg in cur_frame_ground_truth:
+                    cost_row         = []
+                    for tt in det_groups:
+                        # overlap == 1 is cost ==0
+                        c = 1-boxoverlap(gg,tt)
+                        # gating for boxoverlap
+                        if c<=.5:
+                            cost_row.append(c)
+                        else:
+                            cost_row.append(max_cost)
+                    cost_matrix.append(cost_row)
+
+
+                if len(cur_frame_ground_truth) is 0:
+                    cost_matrix=[[]]
+                # associate
+                association_matrix = hm.compute(cost_matrix)
+
+
+                for row,col in association_matrix:
+                    # apply gating on boxoverlap
+                    c = cost_matrix[row][col]
+                    if c < max_cost:
+                        if cur_frame_ground_truth[row].truncation>loaded_tracking_eval.max_truncation or cur_frame_ground_truth[row].obj_type=="van": 
+                            pass
+                        else:                        
+                            #a valid ground truth object
+                            # print "len(cur_frame_ground_truth):", len(cur_frame_ground_truth)
+                            # print "len(self.gt_objects[seq_idx][frame_idx])", len(self.gt_objects[seq_idx][frame_idx])
+                            gt_obj_found = False
+                            for gt_obj in self.gt_objects[seq_idx][frame_idx]:
+                                if gt_obj.x1 == cur_frame_ground_truth[row].x1 and\
+                                   gt_obj.x2 == cur_frame_ground_truth[row].x2 and\
+                                   gt_obj.y1 == cur_frame_ground_truth[row].y1 and\
+                                   gt_obj.y2 == cur_frame_ground_truth[row].y2:
+                                    gt_obj.det_group_assoc_names = det_group_names[col]
+                            # assert(cur_frame_ground_truth[row].x1 == self.gt_objects[seq_idx][frame_idx][row].x1)
+                            # self.gt_objects[seq_idx][frame_idx][row].det_group_assoc_names = det_group_names[col]
+                                    # print "setting det_group_assoc_names!!!!"
+                                    gt_obj_found = True
+                            assert(gt_obj_found == True)
+
     def compute_clutter_based_on_detection_groups_jointly(self, loaded_tracking_eval, posAndSize_inv_covariance_blocks, meas_noise_mean):
         '''
 
@@ -3039,7 +3136,11 @@ class MultiDetections_many:
             clutter_count = clutter_group_counts[det_group_names]
             total_clutter_count += clutter_count
             # fraction_of_group_type_that_is_clutter[det_group_names] = clutter_count/group_counts[det_group_names]
-            fraction_of_group_type_that_is_clutter[det_group_names] = clutter_count/(valid_group_counts[det_group_names] + clutter_count)
+            if (valid_group_counts[det_group_names] + clutter_count) > 0:
+                fraction_of_group_type_that_is_clutter[det_group_names] = clutter_count/(valid_group_counts[det_group_names] + clutter_count)
+            else:
+                fraction_of_group_type_that_is_clutter[det_group_names] = 0.0
+
         print "total_clutter_count:", total_clutter_count
 
         total_dont_care_count = 0
@@ -3301,7 +3402,7 @@ class MultiDetections_many:
         return (clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group)
 
 
-    def get_target_groupEmission_priors(self):
+    def get_target_groupEmission_priors(self, detection_names):
         """
         Outputs:
         - target_groupEmission_priors: dictionary where target_groupEmission_priors[det_set] is the prior probability
@@ -3316,11 +3417,15 @@ class MultiDetections_many:
         for seq_idx in range(len(self.gt_objects)):
             for frame_idx in range(len(self.gt_objects[seq_idx])):
                 for gt_object in self.gt_objects[seq_idx][frame_idx]:
+                    USE_JOINT_GROUP_ASSOCIATION = True
                     total_gt_object_count += 1
-                    detection_sources_emitted = []
-                    for det_name, det in gt_object.assoc_dets.iteritems():
-                        detection_sources_emitted.append(det_name)
-                    det_srcs_set = ImmutableSet(detection_sources_emitted)
+                    if USE_JOINT_GROUP_ASSOCIATION:
+                        det_srcs_set = gt_object.det_group_assoc_names
+                    else:
+                        detection_sources_emitted = []
+                        for det_name, det in gt_object.assoc_dets.iteritems():
+                            detection_sources_emitted.append(det_name)
+                        det_srcs_set = ImmutableSet(detection_sources_emitted)
                     target_groupEmission_count[det_srcs_set] += 1
 
 
@@ -3332,6 +3437,26 @@ class MultiDetections_many:
         for det_set, prob in target_groupEmission_priors.iteritems():
             total_prob += prob
         assert(abs(1.0-total_prob) < .0000001)
+
+
+        def get_all_possible_measurement_groups(det_names):
+            '''
+            Outputs: 
+            - all_measurement_groups: list of ImmutableSet objects with length ((2^#measurement sources)-1).  All possible groups
+                of measurements are enumerated in the list.
+            '''
+            all_measurement_groups = []
+            for group_size in range(1, len(det_names) + 1):
+                cur_det_combos = combinations(det_names, group_size)
+                for det_combo in cur_det_combos:
+                    all_measurement_groups.append(ImmutableSet(det_combo))
+            assert(len(all_measurement_groups) == 2**len(det_names) - 1)
+            return all_measurement_groups
+
+        all_detection_name_combos = get_all_possible_measurement_groups(detection_names)
+        for cur_det_names in all_detection_name_combos:
+            if cur_det_names not in target_groupEmission_priors:
+                target_groupEmission_priors[cur_det_names] = .00000000001
 
         return target_groupEmission_priors
 
@@ -3773,21 +3898,27 @@ def get_meas_target_sets_general(fw_spec, obj_class, data_path, pickled_data_dir
 
     all_detections = MultiDetections_many(gt_objects, all_det_objects, training_sequences)
 
-    all_detections.check_detection_groups()
+    all_detections.check_detection_groups() #detections are grouped here
+    (posAndSize_inv_covariance_blocks, posOnly_covariance_blocks, meas_noise_mean_posAndSize, gt_bounding_box_mean_size,
+        gt_bb_size_var)\
+        = calc_gaussian_paramaters(fw_spec, 'ground_truth', all_detections.gt_objects, detection_names)
+
+    #this is for get_target_groupEmission_priors
+    all_detections.reassociate_gt_with_detection_groups(loaded_tracking_eval, posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize)        
 #    sleep(2)
 
     (clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group) = all_detections.get_clutter_priors()
-    target_groupEmission_priors = all_detections.get_target_groupEmission_priors()
+    target_groupEmission_priors = all_detections.get_target_groupEmission_priors(detection_names)
+    print '@'*1000
+    print "target_groupEmission_priors:"
+    print target_groupEmission_priors
+    # sleep(3)
     (birth_count_priors, birth_lambdas_by_group) = all_detections.get_birth_priors()
 
     (death_probs_near_border, death_counts_near_border, living_counts_near_border) = all_detections.get_death_probs(near_border = True, death_prob_markov_order=death_prob_markov_order)
     (death_probs_not_near_border, death_counts_not_near_border, living_counts_not_near_border) = all_detections.get_death_probs(near_border = False, death_prob_markov_order=death_prob_markov_order)
 
 ##############################################################################
-
-    (posAndSize_inv_covariance_blocks, posOnly_covariance_blocks, meas_noise_mean_posAndSize, gt_bounding_box_mean_size,
-        gt_bb_size_var)\
-        = calc_gaussian_paramaters(fw_spec, 'ground_truth', all_detections.gt_objects, detection_names)
     
     fraction_of_group_type_that_is_clutter = all_detections.compute_clutter_based_on_detection_groups_jointly(loaded_tracking_eval, posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize)
 
@@ -3833,13 +3964,15 @@ def get_meas_target_sets_general(fw_spec, obj_class, data_path, pickled_data_dir
             birth_count_priors, birth_lambdas_by_group, death_probs_near_border, death_probs_not_near_border, 
             posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks,
             clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize, 
-            gt_bounding_box_mean_size, clutter_bounding_box_mean_size, gt_bb_size_var, clutter_bb_size_var, fraction_of_group_type_that_is_clutter)
+            gt_bounding_box_mean_size, clutter_bounding_box_mean_size, gt_bb_size_var, clutter_bb_size_var, fraction_of_group_type_that_is_clutter,\
+            loaded_tracking_eval)
 
     else:
         return (returnTargSets, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group,
             birth_count_priors, birth_lambdas_by_group, death_probs_near_border, death_probs_not_near_border, 
             posAndSize_inv_covariance_blocks, meas_noise_mean_posAndSize, posOnly_covariance_blocks,
-            clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize, fraction_of_group_type_that_is_clutter)
+            clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize,\
+            fraction_of_group_type_that_is_clutter, loaded_tracking_eval)
 
 
 def calc_gaussian_paramaters(fw_spec, group_type, gt_objects, detection_names, blocked_cov_inv=None, meas_noise_mean=None, clutter_detections=None):

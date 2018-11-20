@@ -11,10 +11,12 @@ from filterpy.monte_carlo import stratified_resample
 import filterpy
 from pymatgen.optimization import linear_assignment
 
-#import matplotlib
-#matplotlib.use('Agg')
+from scipy import stats
+
+import matplotlib
+matplotlib.use('Agg')
 #uncomment for plotting
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 
 #import matplotlib.cm as cmx
@@ -50,6 +52,7 @@ from learn_params1 import get_meas_target_sets_mscnn_and_regionlets
 from learn_params1 import get_meas_target_sets_2sources_general
 from learn_params1 import get_meas_target_sets_1sources_general
 from learn_params1 import get_meas_target_sets_general
+from learn_params1 import detObject
 #from learn_params1_local import get_meas_target_sets_general
 from learn_params1 import evaluate
 
@@ -230,7 +233,8 @@ def get_cmap(N):
 
 
 class Target:
-    def __init__(self, fw_spec, cur_time, id_, measurement = None, width=-1, height=-1, img_features=None, clutter_prob=None):
+    def __init__(self, fw_spec, cur_time, id_, measurement = None, width=-1, height=-1, img_features=None, clutter_prob=None,\
+        clutter_prob_conditioned_unassoc=None, meas_grp_idx=None):
 #       if measurement is None: #for data generation
 #           position = np.random.uniform(min_pos,max_pos)
 #           velocity = np.random.uniform(min_vel,max_vel)
@@ -276,7 +280,23 @@ class Target:
         self.last_gt_assoc = None
 
         #the probability that the last associated measurement was clutter, used to decide whether to write target to results online
-        self.clutter_prob=clutter_prob
+        #calculated as (# of this type of measurement group that is clutter)/(# of this type of measurement group that is clutter +
+        # of this type of measurement group that is valid)
+        self.clutter_prob = clutter_prob
+        self.all_clutter_probs = [clutter_prob]
+
+        #calculated as (clutter prob conditioned on unassoc)/(clutter prob conditioned on unassoc + birth prob conditioned on unassoc)
+        self.clutter_prob_conditioned_unassoc = clutter_prob_conditioned_unassoc
+        if cur_time == 0: #birth prob not representative for first time step
+            self.clutter_prob_conditioned_unassoc = self.clutter_prob
+
+        #for the first association this is clutter/(clutter + birth)
+        #if the target is still associated, it will be self.cluter_prob above 
+        self.clutter_prob_for_optimistic_birth = self.clutter_prob_conditioned_unassoc
+
+        #list of the indices of measurement groups that this target has been associated with from first assocation to most recent
+        self.all_meas_group_indices = [meas_grp_idx]
+
     def near_border(self):
         near_border = False
         x1 = self.x[0][0] - self.width/2.0
@@ -286,6 +306,27 @@ class Target:
         if(x1 < 10 or x2 > (self.image_width - 15) or y1 < 10 or y2 > (self.image_height - 15)):
             near_border = True
         return near_border
+
+    def write_online(self):
+        '''
+        - min_target_life: (int) NOT USED CURRENTLY only write targets that have been alive for at least a total of this many time steps
+        or whose clutter_prob is sufficiently small
+
+        Outputs:
+        - write_target_online: (bool) whether this target should be written online (used with optimistically_birth_targets)
+
+        '''
+        return True
+        write_target_online = False
+
+        for r_idx in range(min(len(self.all_clutter_probs), SPEC['markov_order'])):
+            if self.all_clutter_probs[-1-r_idx] < .5:
+                write_target_online = True
+        return write_target_online
+        #don't write target if is too young and has a large clutter_prob
+        # if len(self.all_time_stamps) < min_target_life and self.clutter_prob > .5: 
+        # if self.clutter_prob > .5: 
+        # if SPEC['optimistically_birth_targets'] and not self.fully_living: 
 
 
     def kf_update(self, measurement, meas_noise_cov):
@@ -380,7 +421,8 @@ class Target:
 
 
     def update(self, measurement, width, height, cur_time, meas_noise_cov, img_features=None,\
-        meas_assoc_gt_obj_id=None, clutter_prob=None):
+        meas_assoc_gt_obj_id=None, clutter_prob=None, clutter_prob_conditioned_unassoc=None,\
+        meas_grp_idx=None):
         """ Perform update step and replace predicted position for the current time step
         with the updated position in self.all_states
         Input:
@@ -396,6 +438,11 @@ class Target:
         """        
         assert(clutter_prob is not None), "clutter_prob shouldn't be None!!"
         self.clutter_prob = clutter_prob
+        self.all_clutter_probs.append(clutter_prob)
+        #no longer meaningful because this is not the first association
+        self.clutter_prob_conditioned_unassoc = None
+
+        self.clutter_prob_for_optimistic_birth = self.clutter_prob
 
         self.img_features = img_features
         self.last_gt_assoc = meas_assoc_gt_obj_id
@@ -442,7 +489,7 @@ class Target:
         self.all_states[-1] = (self.x, self.width, self.height)
         self.updated_this_time_instance = True
         self.last_measurement_association = cur_time        
-
+        self.all_meas_group_indices.append(meas_grp_idx)
 
 
     def kf_predict(self, dt):
@@ -754,7 +801,8 @@ class TargetSet:
         child_target_set.living_targets_q = copy.deepcopy(self.living_targets_q)
         return child_target_set
 
-    def create_new_target(self, measurement, width, height, cur_time, img_features, meas_assoc_gt_obj_id, clutter_prob):
+    def create_new_target(self, measurement, width, height, cur_time, img_features, meas_assoc_gt_obj_id, \
+        clutter_prob, clutter_prob_conditioned_unassoc, meas_grp_idx):
         '''
 
         Inputs:
@@ -767,11 +815,13 @@ class TargetSet:
         if SPEC['RUN_ONLINE']:
             global NEXT_TARGET_ID
             new_target = Target(self.fw_spec, cur_time, NEXT_TARGET_ID, np.squeeze(measurement), width, height,\
-                                img_features=img_features, clutter_prob=clutter_prob)
+                                img_features=img_features, clutter_prob=clutter_prob, clutter_prob_conditioned_unassoc=clutter_prob_conditioned_unassoc,\
+                                meas_grp_idx=meas_grp_idx)
             NEXT_TARGET_ID += 1
         else:
             new_target = Target(self.fw_spec, cur_time, self.total_count, np.squeeze(measurement), width, height, 
-                                img_features=img_features, clutter_prob=clutter_prob)
+                                img_features=img_features, clutter_prob=clutter_prob, clutter_prob_conditioned_unassoc=clutter_prob_conditioned_unassoc,\
+                                meas_grp_idx=meas_grp_idx)
         new_target.last_gt_assoc = meas_assoc_gt_obj_id
         self.living_targets.append(new_target)
         self.all_targets.append(new_target)
@@ -859,16 +909,13 @@ class TargetSet:
         every_target = every_target + ancestral_targets # + operator used to concatenate lists!
         return every_target
 
-
     def write_online_results(self, online_results_filename, frame_idx, total_frame_count, extra_info, fw_spec,\
-        min_target_life=1):
+        min_target_life=2):
         """
         Inputs:
         - extra_info: dictionary containing the particle's importance weight (key 'importance_weight') 
             and boolean whether this is the first time the particle is the max importance weight 
             particle (key 'first_time_as_max_imprt_part')
-        - min_target_life: (int) only write targets that have been alive for at least a total of this many time steps
-            or whose clutter_prob is sufficiently small
 
         """
         if frame_idx == SPEC['ONLINE_DELAY']:
@@ -877,14 +924,17 @@ class TargetSet:
             f = open(online_results_filename, "a") #write at end of file
 
         if SPEC['ONLINE_DELAY'] == 0:
-            print "fw_spec['obj_class']:", fw_spec['obj_class']
-
+            print '%'*80            
+            print "write_online_results called, fw_spec['obj_class']:", fw_spec['obj_class'], "living target count =", len(self.living_targets), 'frame_idx=', frame_idx
             for target in self.living_targets:
                 assert(target.all_time_stamps[-1] == round(frame_idx*DEFAULT_TIME_STEP, 2)), (target.all_time_stamps[-1], round(frame_idx*DEFAULT_TIME_STEP, 2))
-                #don't write target if is too young and has a large clutter_prob
-                if len(target.all_time_stamps) < min_target_life and target.clutter_prob > .5: 
+                if not target.write_online():
+                    print "not writing target with clutter_prob =", target.clutter_prob, "target.all_clutter_probs:", target.all_clutter_probs
                     continue
-                    
+
+                print "writing target with clutter_prob =", target.clutter_prob, "target.all_clutter_probs:", target.all_clutter_probs
+
+
                 x_pos = target.all_states[-1][0][0][0]
                 y_pos = target.all_states[-1][0][2][0]
                 width = target.all_states[-1][1]
@@ -1118,9 +1168,10 @@ class Particle:
         child_particle.all_dead_targets = copy.deepcopy(self.all_dead_targets)
         return child_particle
 
-    def create_new_target(self, measurement, width, height, cur_time, img_features, meas_assoc_gt_obj_id, clutter_prob):
+    def create_new_target(self, measurement, width, height, cur_time, img_features, meas_assoc_gt_obj_id, clutter_prob, clutter_prob_conditioned_unassoc, meas_grp_idx):
         self.targets.create_new_target(measurement, width, height, cur_time,img_features=img_features,\
-            meas_assoc_gt_obj_id=meas_assoc_gt_obj_id, clutter_prob=clutter_prob)
+            meas_assoc_gt_obj_id=meas_assoc_gt_obj_id, clutter_prob=clutter_prob, clutter_prob_conditioned_unassoc=clutter_prob_conditioned_unassoc, \
+            meas_grp_idx=meas_grp_idx)
 
     def update_target_death_probabilities(self, cur_time, prev_time):
         for target in self.targets.living_targets:
@@ -1135,7 +1186,8 @@ class Particle:
         self.plot_all_target_locations()
      
     def process_meas_grp_assoc(self, birth_value, measurement_association, meas_grp_mean, meas_grp_cov, cur_time, \
-                               img_features=None, meas_assoc_gt_obj_id=None, clutter_prob=None):
+                               img_features=None, meas_assoc_gt_obj_id=None, clutter_prob=None, clutter_prob_conditioned_unassoc=None, \
+                               meas_grp_idx=None):
         """
         - meas_source_index: the index of the measurement source being processed (i.e. in SCORE_INTERVALS)
         - meas_assoc_gt_obj_id: 
@@ -1143,23 +1195,35 @@ class Particle:
                 the track_id of the ground truth object this measurement is 
                 associated with, or -1 if the measurement is clutter
             - when SPEC['proposal_distr'] != 'ground_truth_assoc': None
+        - meas_grp_idx: the index of the measurement group that is being processed (associated to a target)
 
+        Outputs:
+        - write_measurement: (bool) whether this measurement is associated with a target that will be written online this time step
         """
         if clutter_prob == None:
             assert(False), "clutter_prob shouldn't be None, implement, or don't write targets only when clutter prob is below threshold"
         #create new target
         if(measurement_association == birth_value):
             self.create_new_target(meas_grp_mean[0:2], meas_grp_mean[2], meas_grp_mean[3], cur_time, \
-                img_features=img_features, meas_assoc_gt_obj_id=meas_assoc_gt_obj_id, clutter_prob=clutter_prob)
+                img_features=img_features, meas_assoc_gt_obj_id=meas_assoc_gt_obj_id, clutter_prob=clutter_prob, \
+                clutter_prob_conditioned_unassoc=clutter_prob_conditioned_unassoc, meas_grp_idx=meas_grp_idx)
             new_target = True 
+            write_measurement = self.targets.living_targets[-1].write_online()
+
         #update the target corresponding to the association we have sampled
         elif((measurement_association >= 0) and (measurement_association < birth_value)):
             self.targets.living_targets[measurement_association].update(meas_grp_mean[0:2], meas_grp_mean[2], \
                             meas_grp_mean[3], cur_time, meas_grp_cov[0:2, 0:2], img_features=img_features,\
-                            meas_assoc_gt_obj_id=meas_assoc_gt_obj_id, clutter_prob=clutter_prob)
+                            meas_assoc_gt_obj_id=meas_assoc_gt_obj_id, clutter_prob=clutter_prob, \
+                            clutter_prob_conditioned_unassoc=clutter_prob_conditioned_unassoc, meas_grp_idx=meas_grp_idx)
+            write_measurement = self.targets.living_targets[measurement_association].write_online()
+
         else:
             #otherwise the measurement was associated with clutter
-            assert(measurement_association == -1), ("measurement_association = ", measurement_association)
+            assert(measurement_association == -1), ("measurement_association = ", measurement_association, birth_value)
+            write_measurement = False
+
+        return write_measurement
 
 
     def process_meas_assoc(self, birth_value, meas_source_index, measurement_associations, measurements, \
@@ -1521,7 +1585,7 @@ def cur_particle_states_match(particleA, particleB, min_delay, max_delay):
 
     return (match, 'match!')
 
-def group_particles(particle_set, min_delay, max_delay): 
+def group_particles(particle_set, min_delay, max_delay, SPEC, group_by='meas_grp_indices'): 
     '''
     ###CONSIDER ROUNDING PARTICLE POSITIONS TO SOME DEGREE, I don't THINK not rounding causes a bug###
     ###We assume the same targets are always in the same list position, I THINK this is ok###
@@ -1534,6 +1598,11 @@ def group_particles(particle_set, min_delay, max_delay):
         i.e. if min_delay=0 and max_delay=2 we require that the state match on this time instance, the previous time
         instance, and two time instances in the past
     - max_delay: positive integer
+    - group_by: (string)
+        'target_states': use target position, velocity, size, covariance to group particles
+        'meas_grp_indices': use the indices of the last SPEC['markov_order'] measurement groups this target has
+                            been associated with to group particles
+
     Outputs:
     - particle_group_probs: a dictionary where each entry represents a particle group.  Keys represent
         the state of all particles in the group and values the sum of importance weights of particles 
@@ -1553,9 +1622,16 @@ def group_particles(particle_set, min_delay, max_delay):
         #check for funny business
         assert(len(particle.all_measurement_associations) == num_time_steps), (particle.all_measurement_associations, len(particle.all_measurement_associations))
         if min_delay == 0:
-            particle_state_key = \
-                tuple([tuple([tuple(target.x.flatten()),tuple(target.P.flatten()),target.width,target.height]) \
-                       for target in particle.targets.living_targets])
+            if group_by == 'target_states':
+                particle_state_key = \
+                    tuple([tuple([tuple(target.x.flatten()),tuple(target.P.flatten()),target.width,target.height]) \
+                           for target in particle.targets.living_targets])
+            else:
+                assert(group_by == 'meas_grp_indices')
+                particle_state_key = \
+                    tuple(ImmutableSet([tuple(target.all_meas_group_indices[-SPEC['markov_order']:]) for target in particle.targets.living_targets]))
+
+
         else:
             particle_state_key = ()
 
@@ -1567,25 +1643,27 @@ def group_particles(particle_set, min_delay, max_delay):
 
         if particle_state_key in particle_group_probs:
             particle_group_probs[particle_state_key] += particle.importance_weight
-            (match_bool, match_str) = cur_particle_states_match(particle_groups[particle_state_key], particle, min_delay, max_delay)
-            assert(match_bool), (match_str, particle_state_key, time_instance_index, len(particle.all_measurement_associations), 
-                particle.importance_weight, particle_groups[particle_state_key].importance_weight, 
-                particle.all_measurement_associations, particle_groups[particle_state_key].all_measurement_associations,
-                particle.all_dead_targets, particle_groups[particle_state_key].all_dead_targets,
-                measurement_lists)
+            if group_by == 'target_states':
+                (match_bool, match_str) = cur_particle_states_match(particle_groups[particle_state_key], particle, min_delay, max_delay)
+                assert(match_bool), (match_str, particle_state_key, time_instance_index, len(particle.all_measurement_associations), 
+                    particle.importance_weight, particle_groups[particle_state_key].importance_weight, 
+                    particle.all_measurement_associations, particle_groups[particle_state_key].all_measurement_associations,
+                    particle.all_dead_targets, particle_groups[particle_state_key].all_dead_targets,
+                    measurement_lists)
         else:
             particle_group_probs[particle_state_key] = particle.importance_weight
             particle_groups[particle_state_key] = particle
 
         ############testing############
-        for cur_key, cur_particle in particle_groups.iteritems():
-            if(cur_key != particle_state_key):
-                (match_bool, match_str) = cur_particle_states_match(cur_particle, particle, min_delay, max_delay)
-                assert(not match_bool), (match_str, particle_state_key, cur_key, len(particle.all_measurement_associations), 
-                    particle.importance_weight, particle_groups[particle_state_key].importance_weight, 
-                    particle.all_measurement_associations, particle_groups[particle_state_key].all_measurement_associations,
-                    cur_particle.all_measurement_associations,
-                    particle.all_dead_targets, particle_groups[particle_state_key].all_dead_targets)
+        if group_by == 'target_states':
+            for cur_key, cur_particle in particle_groups.iteritems():
+                if(cur_key != particle_state_key):
+                    (match_bool, match_str) = cur_particle_states_match(cur_particle, particle, min_delay, max_delay)
+                    assert(not match_bool), (match_str, particle_state_key, cur_key, len(particle.all_measurement_associations), 
+                        particle.importance_weight, particle_groups[particle_state_key].importance_weight, 
+                        particle.all_measurement_associations, particle_groups[particle_state_key].all_measurement_associations,
+                        cur_particle.all_measurement_associations,
+                        particle.all_dead_targets, particle_groups[particle_state_key].all_dead_targets)
         ############done testing############
 
     ############testing############
@@ -1597,7 +1675,7 @@ def group_particles(particle_set, min_delay, max_delay):
     return(particle_group_probs, particle_groups)
 
 def modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, cur_time, params):
-    (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'])
+    (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'], SPEC, group_by='meas_grp_indices')
     #housekeeping, should make this nicer somehow
     meas_groups = []
     for det_idx, det_name in enumerate(SPEC['det_names']):
@@ -1696,9 +1774,121 @@ def modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, c
     return new_particle_set
 
 
+def associate_measurement_groups_with_groundTruth(loaded_tracking_eval, seq_idx, frame_idx, det_groups, params):
+    '''
+    adapted from compute_clutter_based_on_detection_groups_jointly in learn_params1.  If cleaning up the code it would be better
+    to have 1 function that does this stuff in one place.
+
+    Inputs:
+    - det_groups: (assumed to be list of detObjects from learn_params1) containing x1, x2, y1, y2, assoc attributes
+
+    Outputs:
+    - det_group_associations: (list of ints of length len(det_groups)) det_group_associations[i] will be one of 
+        -3: detection group is in a "don't care" area
+        -2: associated with an 'ignored' ground truth object
+        -1: clutter
+        value >= 0: valid association with value specifying the track_id of the ground truth object this measurement group is associated with
+    '''
+    assert(type(det_groups) == type([1,2,3]))#make sure this is a list
+
+    group_counts = defaultdict(int)
+    valid_group_counts = defaultdict(int)
+    clutter_group_counts = defaultdict(int)
+    dont_care_group_counts = defaultdict(int)
+    ignored_group_counts = defaultdict(int)
+    tp_group_overlaps = defaultdict(list) #list of bounding box ovelaps of true positives for each detection group
+
+    ground_truth_count = 0
+
+    ############ MESSY ############
+    #list of detection group centers, meas_grp_means[i] is a 2-d numpy array
+    #of the position of meas_groups[i]
+    meas_grp_covs = []   
+    meas_grp_means2D = []
+    meas_grp_means = []
+
+    det_group_names = []
+    combined_det_groups = []
+    for detection_group in det_groups:
+        (combined_meas_mean, combined_covariance) = combine_4d_detections(params.posAndSize_inv_covariance_blocks, 
+                            params.meas_noise_mean, detection_group, det_groups_as_detObjs=False)
+        combined_meas_pos = combined_meas_mean[0:2]
+        meas_grp_means2D.append(combined_meas_pos)
+        meas_grp_means.append(combined_meas_mean)
+        meas_grp_covs.append(combined_covariance)
+
+        #get the name of this detection group
+        group_det_names = []
+        for det_name, det in detection_group.iteritems():
+            group_det_names.append(det_name)
+        det_names_set = ImmutableSet(group_det_names)   
+
+        combined_detection_group_x = combined_meas_mean[0]
+        combined_detection_group_y = combined_meas_mean[1]
+        combined_detection_group_width = combined_meas_mean[2]
+        combined_detection_group_height = combined_meas_mean[3]
+        x1 = combined_detection_group_x - combined_detection_group_width/2.0
+        x2 = combined_detection_group_x + combined_detection_group_width/2.0
+        y1 = combined_detection_group_y - combined_detection_group_height/2.0
+        y2 = combined_detection_group_y + combined_detection_group_height/2.0
+        combined_det_object = detObject(x1, x2, y1, y2, assoc=-1, score=-1)
+        combined_det_groups.append(combined_det_object)
+        det_group_names.append(det_names_set)
+    # ############ END MESSY ############            
+
+    det_group_associations = [-1 for i in range(len(det_groups))]
+
+    hm = Munkres()
+
+    max_cost = 1e9
 
 
-def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, heights, cur_time, params):
+    cur_frame_ground_truth = loaded_tracking_eval.groundtruth[seq_idx][frame_idx]
+    cur_frame_dont_care = loaded_tracking_eval.dcareas[seq_idx][frame_idx]
+    cost_matrix = []
+    ground_truth_count += len(cur_frame_ground_truth)
+    for gg in cur_frame_ground_truth:
+        if gg.truncation>loaded_tracking_eval.max_truncation or gg.obj_type=="van":
+            ground_truth_count -= 1 #this is an 'ignored' ground truth
+        cost_row         = []
+        for tt in combined_det_groups:
+            # overlap == 1 is cost ==0
+            c = 1-boxoverlap(gg,tt)
+            # gating for boxoverlap
+            if c<=.5:
+                cost_row.append(c)
+            else:
+                cost_row.append(max_cost)
+        cost_matrix.append(cost_row)
+
+
+    if len(cur_frame_ground_truth) is 0:
+        cost_matrix=[[]]
+    # associate
+    association_matrix = hm.compute(cost_matrix)
+
+
+    for row,col in association_matrix:
+        # apply gating on boxoverlap
+        c = cost_matrix[row][col]
+        if c < max_cost:
+            if cur_frame_ground_truth[row].truncation>loaded_tracking_eval.max_truncation or cur_frame_ground_truth[row].obj_type=="van": 
+                det_group_associations[col] = -2 #associated with an 'ignored' ground truth object
+
+            else:                        
+                det_group_associations[col] = cur_frame_ground_truth[row].track_id #associated with a valid ground truth object
+                assert(det_group_associations[col] >= 0)
+                tp_group_overlaps[det_group_names[col]].append(1-c)
+
+    for t_idx, tt in enumerate(combined_det_groups):
+        for d in cur_frame_dont_care:
+            overlap = boxoverlap(tt,d,"a")
+            if overlap>0.5 and det_group_associations[t_idx] == -1:
+                det_group_associations[t_idx] = -3 #detection group is in a "don't care" area
+
+    return det_group_associations
+
+def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, heights, cur_time, params, loaded_tracking_eval):
     '''
     Very similar to modified_SIS_gumbel_step, but we sample new particles w/o replacement.  Also
     params.SPEC['gumbel_scale'] should exist.  When params.SPEC['gumbel_scale'] = 0, we get MHT back.
@@ -1723,7 +1913,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
 
     '''
     if SPEC['RUN_ONLINE'] == True:
-        (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'])
+        (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'], SPEC, group_by='meas_grp_indices')
     else: #make two dictionaries of all particles, to match output of group_particles without performing any grouping
         # (particle_group_probs, particle_groups) = group_particles(particle_set, 0, int(cur_time*10)) 
         particle_group_probs = {}
@@ -1739,6 +1929,10 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     for det_idx, det_name in enumerate(SPEC['det_names']):
         group_detections(meas_groups, det_name, measurement_lists[det_idx], widths[det_idx], heights[det_idx], params)
 
+    if loaded_tracking_eval is not None:
+        gt_meas_group_associations = associate_measurement_groups_with_groundTruth(loaded_tracking_eval, seq_idx=params.SPEC['seq_idx'],\
+                                                                  frame_idx=int(cur_time*10), det_groups=meas_groups, params=params)
+    assert(len(gt_meas_group_associations) == len(meas_groups))
     M = len(meas_groups) #number of measurement groups
     #now that we have estimates of p(x_1:k-1|y_1:k-1), perform modified SIS step
     new_particle_set = []
@@ -1756,6 +1950,17 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     invalid_low_prob_sample_count = 0 
 
     zero_assignments = [] #particle group(s) exist with zero targets and we have zero measurements
+    clutter_probs_conditioned_unassoc_for_each_particle = []
+
+    # print "particle_groups:"
+    # print particle_groups
+    print "particle_group_probs:"
+    print particle_group_probs
+    print 'len(particle_groups) =', len(particle_groups)
+    print "particle_group_probs= ", 
+    for key, prob in particle_group_probs.iteritems():
+        print prob,
+    print
     for p_key, particle in particle_groups.iteritems():
         T = len(particle.targets.living_targets)
         print "T =", T
@@ -1767,8 +1972,9 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
             assert(p_target_deaths[len(p_target_deaths) - 1] >= 0 and p_target_deaths[len(p_target_deaths) - 1] <= 1)
 
 
-        #1. construct log probs matrix for  particle GROUP
-        cur_log_probs = construct_log_probs_matrix3(particle, meas_groups, T, p_target_deaths, params)
+        #1. construct log probs matrix for particle GROUP
+        cur_log_probs, clutter_probs_conditioned_unassoc = construct_log_probs_matrix3(particle, meas_groups, T, p_target_deaths, params)
+        clutter_probs_conditioned_unassoc_for_each_particle.append(clutter_probs_conditioned_unassoc)
         log_prob_matrices.append(cur_log_probs) #store to calculate probabilities later
         assert((cur_log_probs <= .000001).all()), (cur_log_probs)
 
@@ -1908,6 +2114,10 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     #5. For each of the most likely assignments, create a new particle that is a copy of its particle GROUP, 
     # and associate measurements / kill targets according to assignment.
 
+
+    probabilities_of_writing_each_measurement = [0 for i in range(len(meas_groups))]
+    sum_of_importance_weights = 0.0 #normalization constant
+
     for (idx, (cur_cost, cur_assignment, cur_particle_idx)) in enumerate(best_assignments):
 #        if cur_cost > 1000000000:
 #            break #invalid assignment, we've exhausted all valid assignments
@@ -1930,7 +2140,13 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
             if math.isnan(new_particle.importance_weight):
                 print np.isnan(log_prob_matrices[cur_particle_idx]).any()
                 random_number = np.random.random()
-                matrix_file_name = './inspect_matrices%f' % random_number
+                matrix_file_name = './matrices_for_debugging/inspect_matrices%f' % random_number
+                if not os.path.exists(os.path.dirname(matrix_file_name)):
+                    try:
+                        os.makedirs(os.path.dirname(matrix_file_name))
+                    except OSError as exc: # Guard against race condition
+                        if exc.errno != errno.EEXIST:
+                            raise
                 print "saving matrices in %s" % matrix_file_name
                 f = open(matrix_file_name, 'w')
                 pickle.dump((log_prob_matrices[cur_particle_idx], cur_assignment_matrix.T), f)
@@ -1959,6 +2175,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
             assert(params.SPEC['proposal_distr'] == 'modified_SIS_w_replacement_unique')
             new_particle.importance_weight = assignment_importance_weights[idx]
 
+        sum_of_importance_weights += new_particle.importance_weight
 
 
 ############        else: #params.SPEC['proposal_distr'] == 'modified_SIS_exact'
@@ -1996,17 +2213,25 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     ############ END MESSY ############
 
 
+
         new_particle.all_measurement_associations.append(meas_grp_associations)
         new_particle.all_dead_targets.append(dead_target_indices)  
         assert(len(meas_grp_associations) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
         for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
+            assert(meas_grp_idx in range(M))
             #get the name of this detection group
             group_det_names = []
-            for det_name, det in detection_group.iteritems():
+            for det_name, det in meas_groups[meas_grp_idx].iteritems():
                 group_det_names.append(det_name)
-            det_names_set = ImmutableSet(group_det_names)             
-            new_particle.process_meas_grp_assoc(birth_value, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx],\
-                                                cur_time, clutter_prob=params.fraction_of_group_type_that_is_clutter[det_names_set])
+            det_names_set = ImmutableSet(group_det_names)   
+            print "clutter_prob = ", params.fraction_of_group_type_that_is_clutter[det_names_set], "for det_names_set =", det_names_set
+            write_measurement = new_particle.process_meas_grp_assoc(birth_value, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx],\
+                                                cur_time, clutter_prob=params.fraction_of_group_type_that_is_clutter[det_names_set],
+                                                clutter_prob_conditioned_unassoc=clutter_probs_conditioned_unassoc_for_each_particle[cur_particle_idx][meas_grp_idx],\
+                                                meas_grp_idx=meas_grp_idx)
+
+            if write_measurement:
+                probabilities_of_writing_each_measurement[meas_grp_idx] += new_particle.importance_weight
 
         #process target deaths
         #double check dead_target_indices is sorted
@@ -2026,9 +2251,28 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
         new_particle_set.append(new_particle)
         assert(new_particle.parent_particle != None)
 
-    return (new_particle_set, invalid_low_prob_sample_count)
+    #normalize
+    normalized_probabilities_of_writing_each_measurement = [prob/sum_of_importance_weights for prob in probabilities_of_writing_each_measurement]
+    probabilities_of_writing_each_measurement = normalized_probabilities_of_writing_each_measurement
 
-def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_time, params):
+    #find ground truth values for whether each measurement that isn't a don't care or ignored should be written (0=don't write, 1=write)
+    #also find our marginalized probability of writing each measurement
+    gt_write_considered_measurements = []
+    probs_write_considered_measurements = []
+    for meas_idx, gt_meas_assoc in enumerate(gt_meas_group_associations):
+        if gt_meas_assoc == -1:
+            gt_write_considered_measurements.append(0)
+            probs_write_considered_measurements.append(probabilities_of_writing_each_measurement[meas_idx])
+        elif gt_meas_assoc >= 0:
+            gt_write_considered_measurements.append(1)
+            probs_write_considered_measurements.append(probabilities_of_writing_each_measurement[meas_idx])
+        else:
+            assert(gt_meas_assoc == -2 or gt_meas_assoc == -3) # "don't care" or "ignored" measurement
+
+    
+    return (new_particle_set, invalid_low_prob_sample_count, gt_write_considered_measurements, probs_write_considered_measurements)
+
+def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_time, params, group_particles_before_sampling=True):
     '''
     perform exact sampling without replacement using upper bounds on the permanent
     '''
@@ -2036,6 +2280,19 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
     print '-'*80
     print 'beginning exact_sampling_step for cur_time =', cur_time
     
+
+    if group_particles_before_sampling:
+        (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'], SPEC, group_by='meas_grp_indices')
+    else: #make two dictionaries of all particles, to match output of group_particles without performing any grouping
+        # (particle_group_probs, particle_groups) = group_particle, SPEC, group_by='meas_grp_indices's(particle_set, 0, int(cur_time*10)) 
+        particle_group_probs = {}
+        particle_groups = {}
+        for idx, particle in enumerate(particle_set):
+            particle_group_probs[idx] = particle.importance_weight
+            particle_groups[idx] = particle
+            if cur_time == 0: #only one particle group on first time instance
+                break        
+
     meas_groups = []
     for det_idx, det_name in enumerate(SPEC['det_names']):
         group_detections(meas_groups, det_name, measurement_lists[det_idx], widths[det_idx], heights[det_idx], params)
@@ -2044,16 +2301,23 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
     print 'M =', M    
     print 
     
-    #now that we have estimates of p(x_1:k-1|y_1:k-1), perform modified SIS step
-    particle_group_log_probs = {}
-#    for idx in range(N_PARTICLES): 
-
     invalid_low_prob_sample_count = 0 
 
     zero_assignments = [] #particle group(s) exist with zero targets and we have zero measurements
 
     all_association_matrices = []
-    for particle in particle_set:
+    clutter_probs_conditioned_unassoc_for_each_particle = []
+    # print "particle_groups:"
+    # print particle_groups
+    print "particle_group_probs:"
+    print particle_group_probs    
+    print 'len(particle_groups) =', len(particle_groups)
+    print 'probs for each particle:'
+    # for particle in particle_set:
+
+    ordered_particle_groups = []
+    for p_key, particle in particle_groups.iteritems():
+        ordered_particle_groups.append(particle)
         T = len(particle.targets.living_targets)
         print "T =", T
         assert(T == particle.targets.living_count)
@@ -2064,15 +2328,24 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
             assert(p_target_deaths[len(p_target_deaths) - 1] >= 0 and p_target_deaths[len(p_target_deaths) - 1] <= 1)
 
 
-        (cur_log_probs, conditional_birth_probs, conditional_death_probs) = construct_log_probs_matrix4(particle, meas_groups, T, p_target_deaths, params)
+        (cur_log_probs, conditional_birth_probs, conditional_death_probs, clutter_probs_conditioned_unassoc) = construct_log_probs_matrix4(particle, meas_groups, T, p_target_deaths, params)
+        # print np.exp(cur_log_probs)
+        clutter_probs_conditioned_unassoc_for_each_particle.append(clutter_probs_conditioned_unassoc)
         assert((cur_log_probs <= .000001).all()), (cur_log_probs)
 
+
+        if group_particles_before_sampling:
+            particle_prior_prob = particle_group_probs[p_key]
+        else:
+            particle_prior_prob = particle.importance_weight
+
+        print "particle_prior_prob =", particle_prior_prob
         cur_a_matrix = associationMatrix(matrix=np.exp(cur_log_probs), M=M, T=T,\
             conditional_birth_probs=conditional_birth_probs, conditional_death_probs=conditional_death_probs,\
-            prior_prob=particle.importance_weight)
+            prior_prob=particle_prior_prob)
         all_association_matrices.append(cur_a_matrix)
 
-    sampled_associations = multi_matrix_sample_associations_without_replacement(num_samples=len(particle_set), all_association_matrices=all_association_matrices)
+    sampled_associations = multi_matrix_sample_associations_without_replacement(num_samples=N_PARTICLES, all_association_matrices=all_association_matrices)
 
 
     new_particle_set = []
@@ -2097,7 +2370,9 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
             meas_grp_covs.append(combined_covariance)
     ############ END MESSY ############
 
-        new_particle = particle_set[sampled_association.matrix_index].create_child()
+        # new_particle = particle_set[sampled_association.matrix_index].create_child()
+        new_particle = ordered_particle_groups[sampled_association.matrix_index].create_child()
+
         T = len(new_particle.targets.living_targets)
 
         new_particle.importance_weight = sampled_association.complete_assoc_probability
@@ -2107,12 +2382,14 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
         for meas_grp_idx, meas_grp_assoc in enumerate(meas_grp_associations):
             #get the name of this detection group
             group_det_names = []
-            for det_name, det in detection_group.iteritems():
+            for det_name, det in meas_groups[meas_grp_idx].iteritems():
                 group_det_names.append(det_name)
             det_names_set = ImmutableSet(group_det_names)             
 
             new_particle.process_meas_grp_assoc(T, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx],\
-                                                cur_time, clutter_prob=params.fraction_of_group_type_that_is_clutter[det_names_set])
+                                                cur_time, clutter_prob=params.fraction_of_group_type_that_is_clutter[det_names_set],\
+                                                clutter_prob_conditioned_unassoc=clutter_probs_conditioned_unassoc_for_each_particle[sampled_association.matrix_index][meas_grp_idx],\
+                                                meas_grp_idx=meas_grp_idx)
 
         #process target deaths
         #double check dead_target_indices is sorted
@@ -2136,7 +2413,7 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
 
 
 def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths, heights, cur_time, params):
-    (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'])
+    (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'], SPEC, group_by='meas_grp_indices')
     #housekeeping, should make this nicer somehow
     meas_groups = []
     for det_idx, det_name in enumerate(SPEC['det_names']):
@@ -2292,7 +2569,7 @@ def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths,
         for meas_grp_idx, meas_grp_assoc in enumerate(sampled_assoc):
             #get the name of this detection group
             group_det_names = []
-            for det_name, det in detection_group.iteritems():
+            for det_name, det in meas_groups[meas_grp_idx].iteritems():
                 group_det_names.append(det_name)
             det_names_set = ImmutableSet(group_det_names)             
            
@@ -2322,7 +2599,7 @@ def modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths,
 
 
 
-def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec, filename=None):
+def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec, filename=None, loaded_tracking_eval=None):
     """
     Measurement class designed to only have 1 measurement/time instance
     Input:
@@ -2368,6 +2645,12 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec,
     invalid_low_prob_sample_count = 0
 
     min_meas_idx = 0
+
+    # ground truth values for whether each measurement that isn't a don't care or ignored should be written (0=don't write, 1=write)
+    #also our marginalized probability of writing each measurement
+    all_gt_write_considered_measurements = [] 
+    all_probs_write_considered_measurements = []
+
     for time_instance_index in range(number_time_instances):
         measurement_lists = []
         widths = []
@@ -2437,8 +2720,11 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec,
         if params.SPEC['proposal_distr'] in ['exact_sampling']:
             (particle_set, cur_invalid_low_prob_sample_count) = exact_sampling_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
         elif params.SPEC['proposal_distr'] in ['modified_SIS_gumbel', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
-            (particle_set, cur_invalid_low_prob_sample_count) = modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
+            (particle_set, cur_invalid_low_prob_sample_count, gt_write_considered_measurements, probs_write_considered_measurements) = modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, \
+                widths, heights, time_stamp, params, loaded_tracking_eval)
             invalid_low_prob_sample_count += cur_invalid_low_prob_sample_count
+            all_gt_write_considered_measurements.extend(gt_write_considered_measurements)
+            all_probs_write_considered_measurements.extend(probs_write_considered_measurements)
 #            particle_set = modified_SIS_gumbel_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
         elif params.SPEC['proposal_distr'] == 'modified_SIS_min_cost':
             particle_set = modified_SIS_min_cost_proposal_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
@@ -2502,12 +2788,14 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec,
                     print "max weight particle id = ", cur_max_weight_particle.id_
 
 
-                (particle_group_probs, particle_groups) = group_particles(particle_set, SPEC['ONLINE_DELAY'], SPEC['ONLINE_DELAY'])
+                (particle_group_probs, particle_groups) = group_particles(particle_set, SPEC['ONLINE_DELAY'], SPEC['ONLINE_DELAY'], SPEC, group_by='meas_grp_indices')
                 print '#'*80
                 print len(particle_groups), 'particle_groups'
 
                 MAP_particle_key = None
                 MAP_particle_prob = -1
+                print "particle_group_probs:"
+                print particle_group_probs
                 for key, prob in particle_group_probs.iteritems():
                     print len(particle_groups[key].targets.living_targets), 'living targets in particle with probability', prob
                     if prob > MAP_particle_prob:
@@ -2666,7 +2954,8 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec,
     sys.stdout = stdout
 
 
-    return (max_weight_target_set, run_info, number_resamplings, incorrect_max_weight_particle_count, number_time_instances, invalid_low_prob_sample_count)
+    return (max_weight_target_set, run_info, number_resamplings, incorrect_max_weight_particle_count, number_time_instances,\
+            invalid_low_prob_sample_count, all_gt_write_considered_measurements, all_probs_write_considered_measurements)
 
 
 
@@ -2747,7 +3036,7 @@ class KittiTarget:
         self.y1 = y1
         self.y2 = y2
 
-def boxoverlap(a,b):
+def boxoverlap(a,b,criterion="union"):
     """
         Copied from  KITTI devkit_tracking/python/evaluate_tracking.py
 
@@ -2769,7 +3058,12 @@ def boxoverlap(a,b):
     aarea = (a.x2-a.x1) * (a.y2-a.y1)
     barea = (b.x2-b.x1) * (b.y2-b.y1)
     # intersection over union overlap
-    o = inter / float(aarea+barea-inter)
+    if criterion.lower()=="union":
+        o = inter / float(aarea+barea-inter)
+    elif criterion.lower()=="a":
+        o = float(inter) / float(aarea)
+    else:
+        raise TypeError("Unkown type for criterion")
     return o
 
 def convert_targets(input_targets):
@@ -2923,6 +3217,24 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, g
     combined_covariance = inv(A)
     assert(combined_meas_mean.shape == (4,)), (meas_count, gt_obj.assoc_dets)
     return (combined_meas_mean.flatten(), combined_covariance)
+
+def create_binary_decision_histograms(all_gt_write_considered_measurements, all_probs_write_considered_measurements, results_folder):
+    f = open(results_folder+'binary_decision_data.pickle', 'w')
+    pickle.dump((all_gt_write_considered_measurements, all_probs_write_considered_measurements), f)
+    f.close()     
+
+    bin_means, bin_edges, binnumber = stats.binned_statistic(all_probs_write_considered_measurements, all_gt_write_considered_measurements, 'mean', bins=10)
+
+    fig = plt.figure()
+    plt.figure()
+    plt.hlines(bin_means, bin_edges[:-1], bin_edges[1:], colors='g', lw=2)
+    # plt.legend(fontsize=10)
+    plt.ylabel('fraction of valid measurements')
+    plt.xlabel('computed probability of the measurement being valid')
+    plt.title('Valid Measurement Binary Decision Histogram')
+    plt.show()
+    plt.savefig(results_folder + 'binary_decision_histogram.pdf')
+
 
 
 
@@ -3160,7 +3472,8 @@ class RunRBPF(FireTaskBase):
                 (measurementTargetSetsBySequence, target_groupEmission_priors, clutter_grpCountByFrame_priors, clutter_group_priors, clutter_lambdas_by_group,
                 birth_count_priors, birth_lambdas_by_group, BORDER_DEATH_PROBABILITIES, NOT_BORDER_DEATH_PROBABILITIES, 
                 posAndSize_inv_covariance_blocks, meas_noise_mean, posOnly_covariance_blocks,
-                clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize, fraction_of_group_type_that_is_clutter) =\
+                clutter_posAndSize_inv_covariance_blocks, clutter_posOnly_covariance_blocks, clutter_meas_noise_mean_posAndSize, \
+                fraction_of_group_type_that_is_clutter, loaded_tracking_eval) =\
                             get_meas_target_sets_general(fw_spec, fw_spec['obj_class'], fw_spec['data_path'], fw_spec['pickled_data_dir'], training_sequences, SCORE_INTERVALS_DET_USED, det_names, \
                             doctor_clutter_probs = True, doctor_birth_probs = True,\
                             include_ignored_gt = include_ignored_gt, include_dontcare_in_gt = include_dontcare_in_gt, \
@@ -3168,7 +3481,7 @@ class RunRBPF(FireTaskBase):
 
                 print "BORDER_DEATH_PROBABILITIES: ", BORDER_DEATH_PROBABILITIES
                 print "NOT_BORDER_DEATH_PROBABILITIES: ", NOT_BORDER_DEATH_PROBABILITIES
-
+                print "fraction_of_group_type_that_is_clutter:", fraction_of_group_type_that_is_clutter
                 params = Parameters(det_names, target_groupEmission_priors, clutter_grpCountByFrame_priors,\
                          clutter_group_priors, clutter_lambdas_by_group, birth_count_priors, birth_lambdas_by_group, posOnly_covariance_blocks, \
                          meas_noise_mean, posAndSize_inv_covariance_blocks, SPEC['R'], H,\
@@ -3286,20 +3599,23 @@ class RunRBPF(FireTaskBase):
                                 'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset, 'fw_spec':fw_spec}, {})
                         else:
                             (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes, invalid_low_prob_sample_count) = \
-                                    run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec, filename=indicate_run_complete_filename)
+                                    run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec, filename=indicate_run_complete_filename, loaded_tracking_eval=loaded_tracking_eval)
                 else:
                     if PROFILE:
                         cProfile.runctx('run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec)',
                             {'sequenceMeasurementTargetSet': sequenceMeasurementTargetSet,
                             'results_filename':results_filename, 'params':params, 'run_rbpf_on_targetset':run_rbpf_on_targetset, 'fw_spec':fw_spec}, {})
                     else:
-                        (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes, invalid_low_prob_sample_count) = \
-                                run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec, filename=indicate_run_complete_filename)
+                        (estimated_ts, cur_seq_info, number_resamplings, max_weight_mistakes, max_possible_mistakes, invalid_low_prob_sample_count, \
+                         all_gt_write_considered_measurements, all_probs_write_considered_measurements) = \
+                                run_rbpf_on_targetset(sequenceMeasurementTargetSet, results_filename, params, fw_spec, filename=indicate_run_complete_filename, loaded_tracking_eval=loaded_tracking_eval)
                     print 'hi there'
                     print 'invalid_low_prob_sample_count =', invalid_low_prob_sample_count
 
             print "done processing sequence: ", seq_idx
             
+            create_binary_decision_histograms(all_gt_write_considered_measurements, all_probs_write_considered_measurements, results_folder)
+
             tB = time.time()
             this_seq_run_time = tB - tA
             cur_seq_info.append(this_seq_run_time)

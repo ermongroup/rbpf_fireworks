@@ -1345,7 +1345,7 @@ if __name__ == "__main__":
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/reproduce_ICML/CHECK_1_NEAREST_TARGETS/Rto0_4xQ_max1MeasUpdate_online3frameDelay/mscnn3dopmono3dmv3dregionlets_with_score_intervals/',
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling_compareSUBCNNKITTI_split/', 
                           # directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/exact_sampling_compareSUBCNNKITTI_split/no_img_features/',   
-                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/KITTI_split/kill_targets_immediately_always_birth/smoothing_factor=-999999/rrcmscnn3dopmono3dmv3dregionlets_with_score_intervals_train/',   
+                          directory_to_search='/atlas/u/jkuck/rbpf_fireworks/FALL_2018/KITTI_split/use_clutter_prob/smoothing_factor=-999999/rrc_with_score_intervals_train/10_particles_online_delay=0,proposal_distr=exact_sampling,targ_meas_assoc_metric=distance,check_k_nearest=False,gumbel_scale=0.000000',   
                           seq_idx_to_eval=range(90), obj_class='car')    
 
 

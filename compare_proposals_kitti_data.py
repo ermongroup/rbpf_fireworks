@@ -112,7 +112,8 @@ NUM_RUNS=1
 # SEQUENCES_TO_PROCESS = [2]
 # SEQUENCES_TO_PROCESS = [2]
 # SEQUENCES_TO_PROCESS = [0, 32, 35, 49, 47, 40, 51, 24, 23, 18, 41, 46, 34, 48, 33, 19, 17, 22, 50, 14, 13, 26, 21, 53, 28, 54, 39, 45, 42, 30, 37, 5, 29, 52, 20, 27, 12, 36, 43, 44]
-SEQUENCES_TO_PROCESS = [0]
+# SEQUENCES_TO_PROCESS = [12]
+SEQUENCES_TO_PROCESS = [2]
 #SEQUENCES_TO_PROCESS = [4]
 # SEQUENCES_TO_PROCESS = [0,1,2,3,4,5,6]
 # SEQUENCES_TO_PROCESS = range(56)
@@ -149,7 +150,9 @@ DIRECTORY_OF_ALL_RESULTS = '%sFALL_2018/%s/' % (RBPF_HOME_DIRECTORY, DATA_SET_NA
 #CUR_EXPERIMENT_BATCH_NAME = 'gt_assoc_sourcesToGT_beforeGrping/'
 # CUR_EXPERIMENT_BATCH_NAME = 'kill_targets_immediately_always_birth/'
 # CUR_EXPERIMENT_BATCH_NAME = 'sample_death_and_birth_write_results_immediately/'
-CUR_EXPERIMENT_BATCH_NAME = 'debug_get_params1/'
+# CUR_EXPERIMENT_BATCH_NAME = 'use_clutter_prob_onlyWriteLowClutterProb9/'
+# CUR_EXPERIMENT_BATCH_NAME = 'use_clutter_prob_debug_speed_groupByMeasGrpIndices2TimeStepsDebug_grpParticlesOffline/'
+CUR_EXPERIMENT_BATCH_NAME = 'binary_decision_histogram1/'
 
 ###################################### RBPF Parameters ######################################
 #Specify how the proposal distribution should be pruned
@@ -368,18 +371,19 @@ if __name__ == "__main__":
         data_path = "%sKITTI_helpers/data_split" % RBPF_HOME_DIRECTORY
         # det_sets_to_run = [['mscnn', 'mv3d'],\
         #                     ['mv3d'], ['mscnn']]
-        # det_sets_to_run = [['rrc']]
-        # det_sets_to_run = [['rrc'], ['mscnn'], ['rrc',  'mscnn', 'subcnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['rrc', 'mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'],\
-        #                     ['mscnn', 'subcnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
+        det_sets_to_run = [['rrc']]
+        # det_sets_to_run = [['rrc',  'mscnn', 'subcnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
+        # det_sets_to_run = [['rrc',  'mscnn', 'subcnn']]
+
         # det_sets_to_run = [['rrc', 'mscnn', 'subcnn']]
         # det_sets_to_run = [['rrc',  'mscnn', 'subcnn', '3dop']]
-        det_sets_to_run = [['rrc',  'mscnn', 'subcnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
+        # det_sets_to_run = [['rrc',  'mscnn', 'subcnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
         # det_sets_to_run = [['rrc',  'mscnn', 'subcnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
         # det_sets_to_run = [['mscnn', 'subcnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
         # det_sets_to_run = [['subcnn'], ['subcnn', 'mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
         # det_sets_to_run = [['mscnn'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
         # det_sets_to_run = [['subcnn', 'mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'], ['mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets']]
-        # det_sets_to_run = [['mscnn']]        
+        # det_sets_to_run = [['mscnn', 'subcnn']]        
         # det_sets_to_run = [['subcnn', 'mscnn', '3dop', 'mono3d', 'mv3d', 'regionlets'],\
         #                     ['subcnn'], ['mscnn']]
 
@@ -425,12 +429,12 @@ if __name__ == "__main__":
         for online_delay in [0]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'box_overlap')]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'distance'), ('min_cost_corrected', 'distance')]:
-            for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'distance'), ('modified_SIS_gumbel', 'distance'), ('min_cost_corrected', 'distance')]:
+            # for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'distance'), ('modified_SIS_gumbel', 'distance'), ('min_cost_corrected', 'distance')]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'distance'), ('modified_SIS_gumbel', 'distance')]:
+            # for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'distance'), ('exact_sampling', 'distance')]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'distance'), ('min_cost_corrected', 'distance')]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('exact_sampling', 'distance')]:
-            # for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'distance')]:
-            # for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'distance')]:
+            for (proposal_distr, targ_meas_assoc_metric) in [('modified_SIS_gumbel', 'distance')]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('min_cost_corrected', 'box_overlap'), ('min_cost_corrected', 'distance')]:
             # for (proposal_distr, targ_meas_assoc_metric) in [('min_cost_corrected', 'box_overlap'), ('exact_sampling', 'box_overlap')]:
             #for (proposal_distr, targ_meas_assoc_metric) in [('ground_truth_assoc', 'box_overlap')]:
@@ -641,7 +645,20 @@ if __name__ == "__main__":
                                     'emission_prior_distance_metric': 'bb_overlap',
                                     #if true, smooth association probabilities to test performance deterioration with smoothing
                                     'smooth_assoc_probs':False,
-                                    'smoothing_factor':smoothing_factor,}
+                                    'smoothing_factor':smoothing_factor,
+                                    #if True, always create new targets and never associate measurements with clutter
+                                    #However targets will first have fully_living = False.  While in this state
+                                    #they will not be written to reusults and will be associated with future measurements with
+                                    # probability = association probability * 1 - previous measurement clutter probability
+                                    # and killed with probability = death probability + previous measurement clutter probability
+                                    'optimistically_birth_targets': False,
+                                    #use the indices of the markov_order measurement groups each target has
+                                    #been associated with to group particles
+                                    #write_online_results checks whether any of the last markov_order measurements associated
+                                    #with the target had a clutter probability less than .5 when deciding to write the target
+                                    'markov_order': 2, 
+                                                        
+                                    }
 
                                     cur_firework = Firework(RunRBPF(), spec=cur_spec)
             #                       cur_firework = Firework(PyTask(func='rbpf.run_rbpf', auto_kwargs=False, kwargs=cur_spec))
