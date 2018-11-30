@@ -1260,8 +1260,8 @@ def solve_gumbel_perturbed_assignment2(log_probs, M, T):
 
 
 
-def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_target_deaths, params, kill_all_unassociated_targets=False,\
-    always_create_target=False):
+def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_target_deaths, params, kill_all_unassociated_targets=True,\
+    always_create_target=True):
     '''
     M = #measurements
     T = #targets
@@ -1330,6 +1330,7 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
         #would probably be better to kill offscreen targets before association
         if kill_all_unassociated_targets:
             cur_death_prob = .99999999999999
+            # cur_death_prob = 1.0
         else:
             if(particle.targets.living_targets[t_idx].offscreen == True):
                 cur_death_prob = .999999999999 #sloppy should define an epsilon or something
@@ -1341,7 +1342,7 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
             if(cur_death_prob == 0):
                 cur_death_prob = 10**-100
 
-        assert(p_target_does_not_emit > 0 and cur_death_prob > 0 and cur_death_prob < 1.0), (p_target_does_not_emit, cur_death_prob)
+        assert(p_target_does_not_emit > 0 and cur_death_prob > 0 and cur_death_prob <= 1.0), (p_target_does_not_emit, cur_death_prob)
         log_probs[lives_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(1.0 - cur_death_prob) + ln_zero_approx(fully_living_prob)
         # log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(cur_death_prob)
         log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit*cur_death_prob*fully_living_prob + target_is_clutter_prob)
@@ -1374,7 +1375,9 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
             clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100
 
         if always_create_target:
-            log_probs[m_idx][clutter_col] = -1 * INFEASIBLE_COST
+            # log_probs[m_idx][clutter_col] = -1 * INFEASIBLE_COST
+            log_probs[m_idx][clutter_col] = -np.inf
+
         else:
             log_probs[m_idx][clutter_col] = ln_zero_approx(clutter_lambda) + \
                 ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)
@@ -1422,8 +1425,8 @@ def construct_log_probs_matrix3(particle, meas_groups, total_target_count, p_tar
 
 
 
-def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_target_deaths, params, kill_all_unassociated_targets=False,\
-    always_create_target=False):
+def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_target_deaths, params, kill_all_unassociated_targets=True,\
+    always_create_target=True):
     '''
     M = #measurements
     T = #targets
@@ -1506,7 +1509,8 @@ def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_tar
             assert(not math.isnan(log_probs[m_idx][t_idx]))
         #calculate log probs for target doesn't emit and lives/dies entries in the log-prob matrix
         if kill_all_unassociated_targets:
-            cur_death_prob = .99999999999999
+            # cur_death_prob = .99999999999999
+            cur_death_prob = 1.0
         else:
             if(particle.targets.living_targets[t_idx].offscreen == True):
                 cur_death_prob = .999999999999 #sloppy should define an epsilon or something
@@ -1518,7 +1522,7 @@ def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_tar
             if(cur_death_prob == 0):
                 cur_death_prob = 10**-100
 
-        assert(p_target_does_not_emit > 0 and cur_death_prob > 0 and cur_death_prob < 1.0), (p_target_does_not_emit, cur_death_prob)
+        assert(p_target_does_not_emit > 0 and cur_death_prob > 0 and cur_death_prob <= 1.0), (p_target_does_not_emit, cur_death_prob)
         log_probs[M:,t_idx] = ln_zero_approx(p_target_does_not_emit*fully_living_prob + target_is_clutter_prob)
         # log_probs[lives_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(1.0 - cur_death_prob)
         # log_probs[dies_row_idx][t_idx] = ln_zero_approx(p_target_does_not_emit) + ln_zero_approx(cur_death_prob)
@@ -1556,7 +1560,8 @@ def construct_log_probs_matrix4(particle, meas_groups, total_target_count, p_tar
             clutter_lambda = min(params.clutter_lambdas_by_group.itervalues())/100
 
         if always_create_target:
-            log_clutter_prob = -1 * INFEASIBLE_COST
+            # log_clutter_prob = -1 * INFEASIBLE_COST
+            log_clutter_prob = -np.inf
         else:
             log_clutter_prob = ln_zero_approx(clutter_lambda) + \
                 ln_zero_approx(birth_clutter_likelihood(meas_groups[m_idx], params, 'clutter')*params.p_clutter_likelihood)

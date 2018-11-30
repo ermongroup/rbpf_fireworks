@@ -316,7 +316,6 @@ class Target:
         - write_target_online: (bool) whether this target should be written online (used with optimistically_birth_targets)
 
         '''
-        return True
         write_target_online = False
 
         for r_idx in range(min(len(self.all_clutter_probs), SPEC['markov_order'])):
@@ -1914,6 +1913,10 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     '''
     if SPEC['RUN_ONLINE'] == True:
         (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'], SPEC, group_by='meas_grp_indices')
+        sum_of_particle_group_probs = 0
+        for key, prob in particle_group_probs.iteritems():
+            sum_of_particle_group_probs += prob
+        assert(np.isclose(sum_of_particle_group_probs, 1.0))
     else: #make two dictionaries of all particles, to match output of group_particles without performing any grouping
         # (particle_group_probs, particle_groups) = group_particles(particle_set, 0, int(cur_time*10)) 
         particle_group_probs = {}
@@ -2175,7 +2178,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
             assert(params.SPEC['proposal_distr'] == 'modified_SIS_w_replacement_unique')
             new_particle.importance_weight = assignment_importance_weights[idx]
 
-        sum_of_importance_weights += new_particle.importance_weight
+        sum_of_importance_weights += np.exp(new_particle.importance_weight)
 
 
 ############        else: #params.SPEC['proposal_distr'] == 'modified_SIS_exact'
@@ -2231,7 +2234,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
                                                 meas_grp_idx=meas_grp_idx)
 
             if write_measurement:
-                probabilities_of_writing_each_measurement[meas_grp_idx] += new_particle.importance_weight
+                probabilities_of_writing_each_measurement[meas_grp_idx] += np.exp(new_particle.importance_weight)
 
         #process target deaths
         #double check dead_target_indices is sorted
@@ -2272,7 +2275,7 @@ def modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, widths, height
     
     return (new_particle_set, invalid_low_prob_sample_count, gt_write_considered_measurements, probs_write_considered_measurements)
 
-def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_time, params, group_particles_before_sampling=True):
+def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_time, params, group_particles_before_sampling=True, loaded_tracking_eval=None):
     '''
     perform exact sampling without replacement using upper bounds on the permanent
     '''
@@ -2281,8 +2284,16 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
     print 'beginning exact_sampling_step for cur_time =', cur_time
     
 
+
+
+
     if group_particles_before_sampling:
         (particle_group_probs, particle_groups) = group_particles(particle_set, 0, SPEC['ONLINE_DELAY'], SPEC, group_by='meas_grp_indices')
+        sum_of_particle_group_probs = 0.0
+        for key, prob in particle_group_probs.iteritems():
+            sum_of_particle_group_probs += prob
+        assert(np.isclose(sum_of_particle_group_probs, 1.0))
+
     else: #make two dictionaries of all particles, to match output of group_particles without performing any grouping
         # (particle_group_probs, particle_groups) = group_particle, SPEC, group_by='meas_grp_indices's(particle_set, 0, int(cur_time*10)) 
         particle_group_probs = {}
@@ -2296,6 +2307,12 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
     meas_groups = []
     for det_idx, det_name in enumerate(SPEC['det_names']):
         group_detections(meas_groups, det_name, measurement_lists[det_idx], widths[det_idx], heights[det_idx], params)
+
+    if loaded_tracking_eval is not None:
+        gt_meas_group_associations = associate_measurement_groups_with_groundTruth(loaded_tracking_eval, seq_idx=params.SPEC['seq_idx'],\
+                                                                  frame_idx=int(cur_time*10), det_groups=meas_groups, params=params)
+    assert(loaded_tracking_eval is not None)
+    assert(len(gt_meas_group_associations) == len(meas_groups))
 
     M = len(meas_groups) #number of measurement groups
     print 'M =', M    
@@ -2348,7 +2365,11 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
     sampled_associations = multi_matrix_sample_associations_without_replacement(num_samples=N_PARTICLES, all_association_matrices=all_association_matrices)
 
 
+    probabilities_of_writing_each_measurement = [0 for i in range(len(meas_groups))]
+    sum_of_importance_weights = 0.0 #normalization constant
+
     new_particle_set = []
+    assert(SPEC['normalize_log_importance_weights'] == False)
     for sampled_association in sampled_associations:
         meas_grp_associations = sampled_association.meas_grp_associations
         dead_target_indices = sampled_association.dead_target_indices
@@ -2376,6 +2397,7 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
         T = len(new_particle.targets.living_targets)
 
         new_particle.importance_weight = sampled_association.complete_assoc_probability
+        sum_of_importance_weights += new_particle.importance_weight
         new_particle.all_measurement_associations.append(meas_grp_associations)
         new_particle.all_dead_targets.append(dead_target_indices)  
         assert(len(meas_grp_associations) == len(meas_grp_means) and len(meas_grp_means) == len(meas_grp_covs))
@@ -2386,10 +2408,16 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
                 group_det_names.append(det_name)
             det_names_set = ImmutableSet(group_det_names)             
 
-            new_particle.process_meas_grp_assoc(T, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx],\
+            write_measurement = new_particle.process_meas_grp_assoc(T, meas_grp_assoc, meas_grp_means[meas_grp_idx], meas_grp_covs[meas_grp_idx],\
                                                 cur_time, clutter_prob=params.fraction_of_group_type_that_is_clutter[det_names_set],\
                                                 clutter_prob_conditioned_unassoc=clutter_probs_conditioned_unassoc_for_each_particle[sampled_association.matrix_index][meas_grp_idx],\
                                                 meas_grp_idx=meas_grp_idx)
+
+
+
+            if write_measurement:
+                probabilities_of_writing_each_measurement[meas_grp_idx] += new_particle.importance_weight
+
 
         #process target deaths
         #double check dead_target_indices is sorted
@@ -2408,7 +2436,28 @@ def exact_sampling_step(particle_set, measurement_lists, widths, heights, cur_ti
 
         new_particle_set.append(new_particle)
 
-    return (new_particle_set, invalid_low_prob_sample_count)
+
+
+    #normalize
+    normalized_probabilities_of_writing_each_measurement = [prob/sum_of_importance_weights for prob in probabilities_of_writing_each_measurement]
+    probabilities_of_writing_each_measurement = normalized_probabilities_of_writing_each_measurement
+
+    #find ground truth values for whether each measurement that isn't a don't care or ignored should be written (0=don't write, 1=write)
+    #also find our marginalized probability of writing each measurement
+    gt_write_considered_measurements = []
+    probs_write_considered_measurements = []
+    for meas_idx, gt_meas_assoc in enumerate(gt_meas_group_associations):
+        if gt_meas_assoc == -1:
+            gt_write_considered_measurements.append(0)
+            probs_write_considered_measurements.append(probabilities_of_writing_each_measurement[meas_idx])
+        elif gt_meas_assoc >= 0:
+            gt_write_considered_measurements.append(1)
+            probs_write_considered_measurements.append(probabilities_of_writing_each_measurement[meas_idx])
+        else:
+            assert(gt_meas_assoc == -2 or gt_meas_assoc == -3) # "don't care" or "ignored" measurement
+
+
+    return (new_particle_set, invalid_low_prob_sample_count, gt_write_considered_measurements, probs_write_considered_measurements)
 
 
 
@@ -2718,7 +2767,10 @@ def run_rbpf_on_targetset(target_sets, online_results_filename, params, fw_spec,
         pIdxDebugInfo = 0
 
         if params.SPEC['proposal_distr'] in ['exact_sampling']:
-            (particle_set, cur_invalid_low_prob_sample_count) = exact_sampling_step(particle_set, measurement_lists, widths, heights, time_stamp, params)
+            (particle_set, cur_invalid_low_prob_sample_count, gt_write_considered_measurements, probs_write_considered_measurements) = exact_sampling_step(particle_set, measurement_lists, widths, heights, time_stamp, params, loaded_tracking_eval=loaded_tracking_eval)
+            all_gt_write_considered_measurements.extend(gt_write_considered_measurements)
+            all_probs_write_considered_measurements.extend(probs_write_considered_measurements)
+       
         elif params.SPEC['proposal_distr'] in ['modified_SIS_gumbel', 'modified_SIS_wo_replacement_approx', 'modified_SIS_w_replacement', 'modified_SIS_w_replacement_unique']:
             (particle_set, cur_invalid_low_prob_sample_count, gt_write_considered_measurements, probs_write_considered_measurements) = modified_SIS_MHT_gumbel_step(particle_set, measurement_lists, \
                 widths, heights, time_stamp, params, loaded_tracking_eval)
@@ -3218,8 +3270,8 @@ def combine_arbitrary_number_measurements_4d(blocked_cov_inv, meas_noise_mean, g
     assert(combined_meas_mean.shape == (4,)), (meas_count, gt_obj.assoc_dets)
     return (combined_meas_mean.flatten(), combined_covariance)
 
-def create_binary_decision_histograms(all_gt_write_considered_measurements, all_probs_write_considered_measurements, results_folder):
-    f = open(results_folder+'binary_decision_data.pickle', 'w')
+def create_binary_decision_histograms(all_gt_write_considered_measurements, all_probs_write_considered_measurements, results_folder, seq_idx):
+    f = open(results_folder+'/seq_idx%dbinary_decision_data.pickle'%seq_idx, 'w')
     pickle.dump((all_gt_write_considered_measurements, all_probs_write_considered_measurements), f)
     f.close()     
 
@@ -3233,7 +3285,7 @@ def create_binary_decision_histograms(all_gt_write_considered_measurements, all_
     plt.xlabel('computed probability of the measurement being valid')
     plt.title('Valid Measurement Binary Decision Histogram')
     plt.show()
-    plt.savefig(results_folder + 'binary_decision_histogram.pdf')
+    plt.savefig(results_folder + '/seq_idx%dbinary_decision_histogram.pdf'%seq_idx)
 
 
 
@@ -3614,7 +3666,7 @@ class RunRBPF(FireTaskBase):
 
             print "done processing sequence: ", seq_idx
             
-            create_binary_decision_histograms(all_gt_write_considered_measurements, all_probs_write_considered_measurements, results_folder)
+            create_binary_decision_histograms(all_gt_write_considered_measurements, all_probs_write_considered_measurements, results_folder, seq_idx)
 
             tB = time.time()
             this_seq_run_time = tB - tA
